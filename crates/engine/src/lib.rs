@@ -26,6 +26,7 @@ mod finding_set;
 mod firmware_plugin;
 mod gerber_export;
 mod images;
+mod layer_shape;
 mod layout;
 mod legalize;
 pub mod library;
@@ -1612,7 +1613,15 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "board.resize",
-            "Set rectangular board dimensions, in millimetres",
+            "Replace the shape with a rectangle of this size. A template to start from, not the definition of the board.",
+            schema(
+                json!({"width":{"type":"number","exclusiveMinimum":0},"height":{"type":"number","exclusiveMinimum":0}}),
+                &["width", "height"],
+            ),
+        ),
+        (
+            "board.set_rectangle",
+            "Replace the shape with a rectangle of this size. A template to start from, not the definition of the board.",
             schema(
                 json!({"width":{"type":"number","exclusiveMinimum":0},"height":{"type":"number","exclusiveMinimum":0}}),
                 &["width", "height"],
@@ -3066,6 +3075,7 @@ pub fn commands() -> Vec<CommandSpec> {
         .chain(images::commands())
         .chain(packages::commands())
         .chain(outline::commands())
+        .chain(layer_shape::commands())
         .chain(bus_entry::commands())
         .chain(wire_reconnect::commands())
         .chain(power_port::commands())
@@ -10752,6 +10762,9 @@ fn run_command(
     if let Some(result) = outline::run(p, next, command, params) {
         return result;
     }
+    if let Some(result) = layer_shape::run(p, command, params) {
+        return result;
+    }
     if let Some(result) = bus_entry::run(p, next, command, params) {
         return result;
     }
@@ -11106,6 +11119,7 @@ fn run_command(
         | "compliance.report"
         | "board.sync"
         | "board.resize"
+        | "board.set_rectangle"
         | "board.clearance.set"
         | "board.rules.set"
         | "board.fab_limits.set"
@@ -19315,46 +19329,8 @@ fn run_command_part_15(
         }
         "board.set_outline" => {
             let a: OutlineParams = parse(params)?;
-            if a.points.len() < 3 || a.points.len() > 64 {
-                return Err(Error::Invalid(
-                    "The outline needs at least three points.".into(),
-                ));
-            }
-            let distinct: std::collections::BTreeSet<(u64, u64)> = a
-                .points
-                .iter()
-                .map(|p| (p.x.to_bits(), p.y.to_bits()))
-                .collect();
-            if distinct.len() != a.points.len() {
-                return Err(Error::Invalid("Outline vertices must be distinct.".into()));
-            }
-            if !a
-                .points
-                .iter()
-                .all(|p| p.valid() && p.x >= 0.0 && p.y >= 0.0)
-            {
-                return Err(Error::Invalid(
-                    "outline vertices must be in range and inside the first quadrant".into(),
-                ));
-            }
-            if pcbcraft_doc::outline_area(&a.points) < 0.01 {
-                return Err(Error::Invalid("the traced outline has no area".into()));
-            }
-            if !a.arcs.is_empty() && a.arcs.len() != a.points.len() {
-                return Err(Error::Invalid(
-                    "arcs needs one entry per segment, null for a straight one".into(),
-                ));
-            }
-            pcbcraft_doc::validate_outline_arcs(&a.points, &a.arcs).map_err(Error::Invalid)?;
-            // The arc check above looks at a ring only when there are arcs; a straight outline that
-            // crosses itself needs its own test here, so the command refuses it with the same words.
-            if a.arcs.is_empty() && !pcbcraft_geom::polygon_is_simple(&a.points) {
-                return Err(Error::Invalid("The outline crosses itself.".into()));
-            }
-            let (lo, hi) = pcbcraft_doc::outline_extent(&a.points, &a.arcs)
-                .ok_or_else(|| Error::Invalid("The outline needs at least three points.".into()))?;
+            let (lo, _) = layer_shape::checked_shape(&a.points, &a.arcs)?;
             let (min_x, min_y) = (lo.x, lo.y);
-            let (max_x, max_y) = (hi.x, hi.y);
             let shift = |q: &Point| Point::new(q.x - min_x, q.y - min_y);
             let shifted: Vec<Point> = a.points.iter().map(shift).collect();
             let arcs: Vec<Option<Point>> = a.arcs.iter().map(|m| m.as_ref().map(shift)).collect();
@@ -19367,8 +19343,7 @@ fn run_command_part_15(
             } else {
                 arcs
             };
-            p.board.width = max_x - min_x;
-            p.board.height = max_y - min_y;
+            p.board.refresh_extent();
             Ok(json!({
                 "vertices": vertices,
                 "width": p.board.width,
@@ -19382,10 +19357,16 @@ fn run_command_part_15(
                     "board.clear_outline takes an empty object".into(),
                 ));
             }
-            if p.board.outline.take().is_none() {
+            let (lo, hi) = p.board.extent();
+            let plain = pcbcraft_doc::rectangle_outline(hi.x - lo.x, hi.y - lo.y);
+            if p.board.outline.as_ref().is_none_or(|o| *o == plain)
+                && p.board.outline_arcs.is_empty()
+            {
                 return Err(missing());
             }
+            p.board.outline = Some(plain);
             p.board.outline_arcs.clear();
+            p.board.refresh_extent();
             Ok(json!({"width": p.board.width, "height": p.board.height}))
         }
         "board.materials" => {
@@ -21968,20 +21949,17 @@ fn run_command_part_20(
             }
             sync_board_from_schematic(p, next)
         }
-        "board.resize" => {
+        "board.resize" | "board.set_rectangle" => {
             let a: Resize = parse(params)?;
-            let old_w = p.board.width;
-            let old_h = p.board.height;
-            let leg = match p.board.outline.as_ref() {
-                Some(o) => pcbcraft_doc::chamfer_leg_of(o, old_w, old_h),
-                None => None,
-            };
-            p.board.width = a.width;
-            p.board.height = a.height;
-            if let Some(leg) = leg {
-                p.board.outline = Some(pcbcraft_doc::chamfered_outline(a.width, a.height, leg));
+            if !(a.width.is_finite() && a.height.is_finite() && a.width > 0.0 && a.height > 0.0) {
+                return Err(Error::Invalid(
+                    "A rectangle needs a width and a height above zero.".into(),
+                ));
             }
-            Ok(json!({"width":a.width,"height":a.height}))
+            p.board.outline = Some(pcbcraft_doc::rectangle_outline(a.width, a.height));
+            p.board.outline_arcs.clear();
+            p.board.refresh_extent();
+            Ok(json!({"width":p.board.width,"height":p.board.height}))
         }
         "board.clearance.set" => {
             let a: BoardClearanceParams = parse(params)?;
@@ -39309,45 +39287,37 @@ mod tests {
                 .is_err(),
             "a 12 mm notch cannot fit across a 10 mm board"
         );
-        assert!(small.project.board.outline.is_none());
+        assert_eq!(small.project.board.outline.as_ref().map(Vec::len), Some(4));
         Ok(())
     }
 
     #[test]
-    fn board_resize_keeps_a_chamfered_outline() -> Result<(), Error> {
+    fn board_resize_replaces_a_chamfered_outline_with_a_rectangle() -> Result<(), Error> {
         let mut s = Session::default();
-        let leg = 1.5;
-        let outline = pcbcraft_doc::chamfered_outline(60.0, 40.0, leg);
+        let outline = pcbcraft_doc::chamfered_outline(60.0, 40.0, 1.5);
         s.execute(
             "board.set_outline",
             json!({"points": outline.iter().map(|p| json!([p.x, p.y])).collect::<Vec<_>>()}),
             None,
         )?;
-        assert!(s.project.board.outline.is_some());
+        assert_eq!(s.project.board.outline.as_ref().map(Vec::len), Some(8));
         s.execute("board.resize", json!({"width": 80.0, "height": 50.0}), None)?;
         assert_eq!(s.project.board.width, 80.0);
         assert_eq!(s.project.board.height, 50.0);
-        let new_outline = s
-            .project
-            .board
-            .outline
-            .ok_or_else(|| Error::Invalid("outline disappeared".into()))?;
-        let expected = pcbcraft_doc::chamfered_outline(80.0, 50.0, leg);
-        assert_eq!(new_outline.len(), expected.len());
-        for (a, b) in new_outline.iter().zip(expected.iter()) {
-            assert!((a.x - b.x).abs() < 1e-6, "x mismatch: {} vs {}", a.x, b.x);
-            assert!((a.y - b.y).abs() < 1e-6, "y mismatch: {} vs {}", a.y, b.y);
-        }
+        assert_eq!(
+            s.project.board.outline,
+            Some(pcbcraft_doc::rectangle_outline(80.0, 50.0))
+        );
         Ok(())
     }
 
     #[test]
-    fn board_resize_preserves_none_outline() -> Result<(), Error> {
+    fn board_resize_builds_a_rectangle_outline() -> Result<(), Error> {
         let mut s = Session::default();
         s.execute("board.resize", json!({"width": 80.0, "height": 50.0}), None)?;
         assert_eq!(s.project.board.width, 80.0);
         assert_eq!(s.project.board.height, 50.0);
-        assert!(s.project.board.outline.is_none());
+        assert_eq!(s.project.board.outline.as_ref().map(Vec::len), Some(4));
         Ok(())
     }
 

@@ -1,6 +1,6 @@
 {
   "format": "pcbcraft",
-  "version": 1,
+  "version": 2,
   "layer_naming": "stackup",
   "name": "Dual amplifier · editable libraries",
   "unit": "mm",

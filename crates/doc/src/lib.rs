@@ -10,6 +10,7 @@ mod export_trade;
 mod fab;
 mod interface_profile;
 mod layer_names;
+mod layer_shape;
 mod machine_profile;
 mod material;
 mod net_members;
@@ -54,6 +55,7 @@ pub use export_trade::{ExportTradeSettings, MAX_HTS_PREFIX, MAX_TARIFF_ROWS, Tar
 pub use fab::{ClassPairRule, FAB_PRESET_NAMES, FabPreset, FabRules, fab_preset, fab_preset_list};
 pub use interface_profile::*;
 pub use layer_names::LayerNaming;
+pub use layer_shape::{LayerRef, LayerShape, rectangle_outline};
 pub use machine_profile::*;
 pub use material::{MATERIALS, Material, material};
 pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
@@ -1769,6 +1771,10 @@ pub fn footprint_assembly_side(f: &Footprint) -> &'static str {
 /// Index of a copper layer: 0 is top, the highest index is bottom.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Layer(u8);
+
+/// The design file format version this build writes. The migration chain in
+/// the io crate reads older ones up to this.
+pub const FORMAT_VERSION: u32 = 2;
 
 /// Maximum copper layers the document model supports.
 pub const MAX_COPPER_LAYERS: u8 = 32;
@@ -3687,6 +3693,7 @@ impl Default for Board {
             user_layers: vec![],
             outline: None,
             outline_arcs: vec![],
+            layer_shapes: BTreeMap::new(),
             footprints: vec![],
             tracks: vec![],
             vias: vec![],
@@ -3807,7 +3814,11 @@ impl BoardEnclosure {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Board {
+    /// Derived from the outline and layer shapes (the far corner of the extent);
+    /// never edit this. `Board::refresh_extent` is the only writer.
     pub width: f64,
+    /// Derived from the outline and layer shapes (the far corner of the extent);
+    /// never edit this. `Board::refresh_extent` is the only writer.
     pub height: f64,
     pub thickness: f64,
     pub clearance: f64,
@@ -3858,7 +3869,9 @@ pub struct Board {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rule_areas: Vec<RuleArea>,
     /// Free-form closed board outline in millimetres, ordered around the
-    /// perimeter and implicitly closed. Absent means the plain rectangle.
+    /// perimeter and implicitly closed. This is the shape of the board and the
+    /// default shape of every layer. Loading always fills it in (a rectangle for
+    /// an old file); only a bare in-memory default has none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outline: Option<Vec<Point>>,
     /// Arc midpoints for the outline, one entry per segment (vertex i to
@@ -3866,6 +3879,11 @@ pub struct Board {
     /// segment. Empty means the whole outline is straight.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub outline_arcs: Vec<Option<Point>>,
+    /// Own shapes of main (copper) layers, keyed by the position-based layer
+    /// key (`F.Cu`, `In1.Cu`, `B.Cu`). A layer with no entry follows the board
+    /// outline. Silkscreen, mask and paste follow their copper layer.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub layer_shapes: BTreeMap<String, LayerShape>,
     pub footprints: Vec<Footprint>,
     pub tracks: Vec<Track>,
     /// Plated through-hole vias joining front and back copper.
@@ -4728,7 +4746,7 @@ impl Default for Project {
             machine_profiles: Vec::new(),
             library: ProjectLibrary::default(),
             format: "pcbcraft".into(),
-            version: 1,
+            version: FORMAT_VERSION,
             layer_naming: LayerNaming,
             name: "Untitled circuit".into(),
             unit: "mm".into(),
@@ -5209,14 +5227,7 @@ impl Project {
     /// How many routable copper layers exist. With no copper rows recorded,
     /// a board is treated as two layers (top and bottom).
     pub fn copper_layer_count(&self) -> u8 {
-        let n = self.copper_layer_records().count();
-        if n == 0 {
-            2
-        } else if n > MAX_COPPER_LAYERS as usize {
-            MAX_COPPER_LAYERS
-        } else {
-            n as u8
-        }
+        self.board.copper_count()
     }
     /// The bottom copper layer of this board: the last stackup copper row, and
     /// index 1 on a two-layer board.
@@ -5443,51 +5454,11 @@ impl Project {
     /// # Do not
     /// - Put `json!(layer)` in a command when a project is at hand.
     pub fn layer_key(&self, layer: Layer) -> String {
-        let count = self.copper_layer_count();
-        let idx = layer.index();
-        if idx == 0 {
-            "F.Cu".into()
-        } else if idx + 1 >= count {
-            "B.Cu".into()
-        } else {
-            format!("In{idx}.Cu")
-        }
+        self.board.copper_key(layer.index())
     }
     /// Map a copper layer string from a command or file to a layer index.
     pub fn resolve_copper_layer(&self, s: &str) -> Result<Layer, String> {
-        let s = s.trim();
-        if s.is_empty() {
-            return Err("copper layer name is empty".into());
-        }
-        let count = self.copper_layer_count();
-        if s == "F.Cu" {
-            return Ok(Layer::Front);
-        }
-        if s == "B.Cu" {
-            if count <= 2 {
-                return Ok(Layer::Back);
-            }
-            return Layer::from_index(count - 1);
-        }
-        if let Some(rest) = s.strip_prefix('L')
-            && let Ok(n) = rest.parse::<u32>()
-            && n >= 1
-            && n <= count as u32
-        {
-            return Layer::from_index((n - 1) as u8);
-        }
-        if let Some(rest) = s.strip_prefix("In").and_then(|r| r.strip_suffix(".Cu"))
-            && let Ok(n) = rest.parse::<u8>()
-            && n < count
-        {
-            return Layer::from_index(n);
-        }
-        for (i, rec) in self.copper_layer_records().enumerate() {
-            if rec.name == s {
-                return Layer::from_index(i as u8);
-            }
-        }
-        Err(format!("unknown copper layer {s:?}"))
+        Layer::from_index(self.board.resolve_copper_index(s)?)
     }
     fn copper_layer_valid(&self, layer: Layer) -> bool {
         layer.index() < self.copper_layer_count()
@@ -6199,7 +6170,7 @@ impl Project {
                 return Err("library table nicknames must be unique".into());
             }
         }
-        if self.format != "pcbcraft" || self.version != 1 {
+        if self.format != "pcbcraft" || !(1..=FORMAT_VERSION).contains(&self.version) {
             return Err("unsupported project format/version".into());
         }
         if !Self::UNITS.contains(&self.unit.as_str()) {
@@ -7170,6 +7141,28 @@ impl Project {
             validate_outline_arcs(points, &b.outline_arcs)?;
         } else if !b.outline_arcs.is_empty() {
             return Err("outline arcs need an outline".into());
+        }
+        for (key, shape) in &b.layer_shapes {
+            let canonical = b
+                .resolve_copper_index(key)
+                .map(|i| b.copper_key(i))
+                .map_err(|_| format!("a layer shape names {key:?}, which is not a copper layer"))?;
+            let (lo, hi) = outline_extent(&shape.outline, &shape.arcs).unwrap_or_default();
+            if canonical != *key
+                || shape.outline.len() < 3
+                || shape.outline.len() > 64
+                || !shape.outline.iter().all(|p| p.valid())
+                || outline_area(&shape.outline) < 0.01
+                || lo.x < -1e-6
+                || lo.y < -1e-6
+                || hi.x > b.width + 1e-6
+                || hi.y > b.height + 1e-6
+            {
+                return Err(format!(
+                    "the shape of layer {key} needs 3 to 64 valid vertices inside the board extent"
+                ));
+            }
+            validate_outline_arcs(&shape.outline, &shape.arcs)?;
         }
         let mut placed = BTreeSet::new();
         for f in &b.footprints {
