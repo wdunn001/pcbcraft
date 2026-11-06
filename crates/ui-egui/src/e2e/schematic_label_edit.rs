@@ -6,6 +6,7 @@ use super::super::*;
 use super::modifiers::{click, drag, sample, screen_of};
 use super::support::*;
 use egui::Modifiers;
+use pcbcraft_doc::PinRef;
 
 /// Place a label with the engine on bare sheet, away from every pin, and wait
 /// for the sheet to show it. Placing is setup; the story starts at the press.
@@ -175,5 +176,122 @@ fn a_newcomer_changes_the_style_of_a_power_symbol_in_properties() -> Result<(), 
         .map(|l| l.style.clone())
         .ok_or("the symbol is gone")?;
     assert_eq!(back, "bar", "one Undo gives the old symbol back");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_reconnects_a_wire_end() -> Result<(), String> {
+    let (mut app, ctx) = sample(Tab::Schematic);
+    // Two fresh parts with free pins, side by side, plus a third below.
+    let c = app.schematic.center;
+    for (dx, dy) in [(-8.0, 0.0), (8.0, 0.0), (0.0, 8.0)] {
+        app.run(
+            "component.add",
+            json!({"kind": "resistor", "position": Point::new(c.x + dx, c.y + dy)}),
+        );
+    }
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![], Modifiers::NONE);
+    }
+    let fresh: Vec<_> = app.project.components.iter().rev().take(3).collect();
+    let pin_at = |i: usize| -> Result<(Id, String, Point), String> {
+        let comp = fresh.get(i).ok_or("a fresh part is missing")?;
+        let pin = comp.pins.first().ok_or("part has no pins")?;
+        let at = comp
+            .pin_position(&pin.number)
+            .ok_or("pin has no position")?;
+        Ok((comp.id, pin.number.clone(), at))
+    };
+    let (a, _, a_at) = pin_at(0)?;
+    let (b, _, b_at) = pin_at(1)?;
+    let (_, _, c_at) = pin_at(2)?;
+    // Draw a wire from pin A to pin B by dragging.
+    let start = screen_of(&app, a_at);
+    let end = screen_of(&app, b_at);
+    assert!(
+        app.canvas_rect.contains(start) && app.canvas_rect.contains(end),
+        "both pins are on screen"
+    );
+    drag(&ctx, &mut app, start, end, Modifiers::NONE);
+    let before = app.project.drawn_wires.len();
+    assert!(before > 0, "dragging pin to pin created a drawn wire");
+    let wire = app
+        .project
+        .drawn_wires
+        .last()
+        .ok_or("the drawn wire is missing")?;
+    let wire_id = wire.id;
+    let original_start = wire.points.first().cloned().ok_or("wire has no start")?;
+    let original_end = wire.points.last().cloned().ok_or("wire has no end")?;
+    // Pick the end of the wire that is closer to pin B and drag it onto pin C.
+    let (drag_from, drag_to, target) =
+        if (original_end - b_at).hypot() < (original_start - b_at).hypot() {
+            (original_end, c_at, "the end")
+        } else {
+            (original_start, c_at, "the start")
+        };
+    let from = screen_of(&app, drag_from);
+    let to = screen_of(&app, target);
+    assert!(
+        app.canvas_rect.contains(from) && app.canvas_rect.contains(to),
+        "the wire end and target pin are on screen"
+    );
+    drag(&ctx, &mut app, from, to, Modifiers::NONE);
+    let wire_after = app
+        .project
+        .drawn_wires
+        .iter()
+        .find(|w| w.id == wire_id)
+        .ok_or("the wire is gone after reconnect")?;
+    let new_start = wire_after
+        .points
+        .first()
+        .cloned()
+        .ok_or("reconnected wire has no start")?;
+    let new_end = wire_after
+        .points
+        .last()
+        .cloned()
+        .ok_or("reconnected wire has no end")?;
+    // One end should now be at pin C's position (within snapping tolerance).
+    let snapped_to_c = (new_start - c_at).hypot() < 0.5 || (new_end - c_at).hypot() < 0.5;
+    assert!(
+        snapped_to_c,
+        "reconnecting the {target} moved the wire end onto pin C: {new_start:?} -> {new_end:?} (pin C at {c_at:?})"
+    );
+    // The net that pin C belongs to should now have the wire connected.
+    let pin_c_net = app
+        .project
+        .pin(&PinRef {
+            component: fresh[2].id,
+            name: fresh[2].pins.first().as_ref().unwrap().number.clone(),
+        })
+        .and_then(|p| p.net);
+    if let Some(net) = pin_c_net {
+        assert_eq!(wire_after.net, net, "the wire joined the net of pin C");
+    }
+    // Undo restores the original connection to pin B.
+    app.tool_call("undo", json!({}));
+    let wire_restored = app
+        .project
+        .drawn_wires
+        .iter()
+        .find(|w| w.id == wire_id)
+        .ok_or("the wire is gone after undo")?;
+    let restored_start = wire_restored
+        .points
+        .first()
+        .cloned()
+        .ok_or("restored wire has no start")?;
+    let restored_end = wire_restored
+        .points
+        .last()
+        .cloned()
+        .ok_or("restored wire has no end")?;
+    let back_at_b = (restored_start - b_at).hypot() < 0.5 || (restored_end - b_at).hypot() < 0.5;
+    assert!(
+        back_at_b,
+        "one Undo gives the wire back its original connection to pin B"
+    );
     Ok(())
 }
