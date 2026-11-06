@@ -832,4 +832,333 @@ mod tests {
         }
         near(c.delta_cost, 5.0 - now)
     }
+
+    fn pin(cell: usize) -> Pin {
+        Pin {
+            cell,
+            dx: 0.0,
+            dy: 0.0,
+        }
+    }
+
+    fn square(id: u64, x: f64, y: f64, fixed: bool) -> Cell {
+        Cell {
+            id,
+            x,
+            y,
+            half_x: 1.0,
+            half_y: 1.0,
+            turns: 0,
+            fixed,
+        }
+    }
+
+    fn net(a: usize, b: usize) -> NetSpring {
+        NetSpring {
+            net: 1,
+            weight: 1.0,
+            pins: vec![pin(a), pin(b)],
+        }
+    }
+
+    fn board(half: f64) -> Rect {
+        Rect {
+            x0: -half,
+            y0: -half,
+            x1: half,
+            y1: half,
+        }
+    }
+
+    /// Sum of every hard rule violation of the movable cells, by re-running the gate check.
+    fn movable_violations(model: &Model, s: &PlacementSettings) -> Result<usize, String> {
+        let mut total = 0;
+        for (i, c) in model.cells.iter().enumerate() {
+            if c.fixed {
+                continue;
+            }
+            let (o, k, e) = violations(model, s, i)?;
+            total += o + k + e;
+        }
+        Ok(total)
+    }
+
+    /// Four movable parts on a loose grid, joined in a ring, with one fixed anchor.
+    fn ring_board() -> Model {
+        Model {
+            cells: vec![
+                square(1, -10.0, -10.0, false),
+                square(2, 10.0, -10.0, false),
+                square(3, 10.0, 10.0, false),
+                square(4, -10.0, 10.0, false),
+                square(5, 0.0, 0.0, true),
+            ],
+            nets: vec![net(0, 1), net(1, 2), net(2, 3), net(3, 0), net(0, 4)],
+            board: board(30.0),
+            keepouts: vec![],
+        }
+    }
+
+    fn with_moves(seed: u64, moves: usize) -> PlacementSettings {
+        PlacementSettings {
+            seed,
+            moves: Some(moves),
+            ..PlacementSettings::default()
+        }
+    }
+
+    #[test]
+    fn polish_never_accepts_a_clearance_worsening_move() -> Result<(), String> {
+        // The movable part touches a fixed one and its net pulls it into that
+        // part, so every pull move would overlap and must be refused.
+        let mut model = Model {
+            cells: vec![square(1, 2.0, 0.0, false), square(2, 0.0, 0.0, true)],
+            nets: vec![net(0, 1)],
+            board: board(50.0),
+            keepouts: vec![],
+        };
+        let s = with_moves(3, 400);
+        let start = model.clone();
+        if movable_violations(&start, &s)? != 0 {
+            return Err("the fixture must start clean".into());
+        }
+        let out = anneal(&mut model, &s)?;
+        if out.rejected_by_rule == 0 {
+            return Err("no move was refused by a hard rule".into());
+        }
+        if movable_violations(&model, &s)? != 0 {
+            return Err("the final model breaks a hard rule".into());
+        }
+        if model != start {
+            return Err("the part did not end where it started".into());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn polish_never_enters_a_keepout() -> Result<(), String> {
+        let mut model = Model {
+            cells: vec![square(1, 4.0, 0.0, false), square(2, -20.0, 0.0, true)],
+            nets: vec![net(0, 1)],
+            board: board(50.0),
+            keepouts: vec![Rect {
+                x0: -2.0,
+                y0: -5.0,
+                x1: 1.0,
+                y1: 5.0,
+            }],
+        };
+        let s = with_moves(11, 600);
+        let out = anneal(&mut model, &s)?;
+        if out.rejected_by_rule == 0 {
+            return Err("no move was refused by the keepout".into());
+        }
+        if movable_violations(&model, &s)? != 0 {
+            return Err("the final model touches the keepout".into());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn polish_never_leaves_the_board_edge_clearance() -> Result<(), String> {
+        // The fixed partner lies outside the board, so the net pulls the part
+        // toward the edge and the edge rule must stop it.
+        let mut model = Model {
+            cells: vec![square(1, 47.5, 0.0, false), square(2, 60.0, 0.0, true)],
+            nets: vec![net(0, 1)],
+            board: board(50.0),
+            keepouts: vec![],
+        };
+        let s = with_moves(5, 600);
+        let out = anneal(&mut model, &s)?;
+        if out.rejected_by_rule == 0 {
+            return Err("no move was refused by the edge rule".into());
+        }
+        if movable_violations(&model, &s)? != 0 {
+            return Err("the final model is past the edge clearance".into());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn polish_never_makes_a_start_overlap_worse() -> Result<(), String> {
+        let mut model = Model {
+            cells: vec![
+                square(1, 0.0, 0.0, false),
+                square(2, 1.0, 0.0, false),
+                square(3, 30.0, 0.0, true),
+            ],
+            nets: vec![net(0, 2), net(1, 2)],
+            board: board(50.0),
+            keepouts: vec![],
+        };
+        let s = with_moves(9, 800);
+        let before = movable_violations(&model, &s)?;
+        anneal(&mut model, &s)?;
+        let after = movable_violations(&model, &s)?;
+        if after > before {
+            return Err(format!("violations rose from {before} to {after}"));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn polish_is_deterministic_for_one_seed() -> Result<(), String> {
+        let mut s = with_moves(42, 500);
+        s.trace_len = 64;
+        let mut first = ring_board();
+        let mut second = ring_board();
+        let a = anneal(&mut first, &s)?;
+        let b = anneal(&mut second, &s)?;
+        if a != b {
+            return Err("two runs with one seed gave different outcomes".into());
+        }
+        if first != second {
+            return Err("two runs with one seed gave different positions".into());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn polish_differs_for_another_seed_or_is_still_valid() -> Result<(), String> {
+        let mut one = with_moves(1, 500);
+        one.trace_len = 64;
+        let mut two = with_moves(2, 500);
+        two.trace_len = 64;
+        let mut first = ring_board();
+        let mut second = ring_board();
+        let a = anneal(&mut first, &one)?;
+        let b = anneal(&mut second, &two)?;
+        // Different seeds draw different moves, so the traces differ; either
+        // way both results must obey every rule.
+        if a.trace == b.trace && first != second {
+            return Err("equal traces gave different positions".into());
+        }
+        if movable_violations(&first, &one)? != 0 || movable_violations(&second, &two)? != 0 {
+            return Err("a seeded run broke a hard rule".into());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn polish_never_ends_worse_than_it_started() -> Result<(), String> {
+        for seed in 0..8 {
+            let mut model = ring_board();
+            let s = with_moves(seed, 500);
+            let out = anneal(&mut model, &s)?;
+            if out.cost_after > out.cost_before + 1e-9 {
+                return Err(format!(
+                    "seed {seed}: cost rose from {} to {}",
+                    out.cost_before, out.cost_after
+                ));
+            }
+            // The returned model is the best state, so its own cost is the reported one.
+            near(cost(&model, &s)?, out.cost_after)?;
+            if out.hpwl_after > out.hpwl_before + 1e-9 && out.cost_after >= out.cost_before {
+                return Err(format!("seed {seed}: wire rose with no cost gain"));
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn polish_shortens_wire_on_a_loose_fixture() -> Result<(), String> {
+        let mut model = ring_board();
+        let s = with_moves(7, 2000);
+        let out = anneal(&mut model, &s)?;
+        if out.hpwl_after >= out.hpwl_before {
+            return Err(format!(
+                "wire did not shrink: {} to {}",
+                out.hpwl_before, out.hpwl_after
+            ));
+        }
+        near(model.hpwl_of(), out.hpwl_after)
+    }
+
+    #[test]
+    fn polish_stays_within_its_move_budget() -> Result<(), String> {
+        let mut model = ring_board();
+        let s = with_moves(4, 137);
+        let out = anneal(&mut model, &s)?;
+        if out.moves_used > s.moves_for(4) {
+            return Err(format!("{} moves passed the budget", out.moves_used));
+        }
+        let auto = PlacementSettings::default();
+        let mut again = ring_board();
+        let out = anneal(&mut again, &auto)?;
+        if out.moves_used > auto.moves_for(4) {
+            return Err(format!(
+                "{} moves passed the automatic budget",
+                out.moves_used
+            ));
+        }
+        let counted = out.accepted + out.rejected_by_rule + out.rejected_by_cost;
+        if counted != out.moves_used {
+            return Err(format!("{counted} decisions for {} moves", out.moves_used));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn polish_with_nothing_to_move_stops_at_once() -> Result<(), String> {
+        let mut model = pair(15.0, true);
+        let before = model.clone();
+        let out = anneal(&mut model, &PlacementSettings::default())?;
+        if out.stop != Stop::NothingToMove {
+            return Err(format!("stopped with {:?}", out.stop));
+        }
+        if out.moves_used != 0 || !out.moved.is_empty() || model != before {
+            return Err("a run with nothing to move changed something".into());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn polish_refuses_too_many_parts() -> Result<(), String> {
+        let mut model = ring_board();
+        let s = PlacementSettings {
+            max_polish_cells: 3,
+            ..PlacementSettings::default()
+        };
+        let before = model.clone();
+        match anneal(&mut model, &s) {
+            Ok(_) => Err("four parts passed a cap of three".into()),
+            Err(text) => {
+                if text != "too many movable parts: 4 exceeds 3" {
+                    return Err(format!("unexpected error text: {text}"));
+                }
+                if model != before {
+                    return Err("a refused run changed the model".into());
+                }
+                Ok(())
+            }
+        }
+    }
+
+    #[test]
+    fn a_newcomer_polishes_a_layout_without_breaking_any_rule() -> Result<(), String> {
+        let mut model = ring_board();
+        let s = with_moves(21, 1500);
+        let start = model.clone();
+        let out = anneal(&mut model, &s)?;
+        if movable_violations(&model, &s)? != 0 {
+            return Err("the polished layout breaks a rule".into());
+        }
+        if out.cost_after > out.cost_before {
+            return Err("the polish made the layout worse".into());
+        }
+        for m in &out.moved {
+            let found = model
+                .cells
+                .iter()
+                .any(|c| c.id == m.id && c.x == m.x && c.y == m.y);
+            if !found {
+                return Err(format!("moved part {} is not where it is reported", m.id));
+            }
+        }
+        if model.cells[4] != start.cells[4] {
+            return Err("the fixed part moved".into());
+        }
+        Ok(())
+    }
 }
