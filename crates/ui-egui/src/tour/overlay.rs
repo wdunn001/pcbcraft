@@ -27,7 +27,10 @@
 use super::data::{Doc, Step, Tour};
 use super::layout::{StepLayout, step_layout};
 use super::state::{Controller, TourRecord};
-use egui::{Align2, Color32, Context, Id, LayerId, Order, Rect, RichText, Stroke, StrokeKind};
+use egui::{
+    Align2, Color32, Context, EventFilter, Id, Key, LayerId, Modifiers, Order, Rect, RichText,
+    Stroke, StrokeKind,
+};
 use pcbcraft_text::{lookup, t};
 use std::collections::BTreeMap;
 
@@ -60,9 +63,7 @@ pub(crate) fn paint_step_overlay(
     paint_dim(ctx, screen, &layout, accent);
     let shown = Shown { tour, step, index };
     paint_card(ctx, ctrl, progress, &shown, &layout, muted, accent);
-    if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-        ctrl.skip(progress);
-    }
+    handle_keyboard(ctx, ctrl, progress);
     true
 }
 
@@ -133,14 +134,19 @@ fn paint_card(
                     );
                     ui.label(lookup(&step.body, &[]));
                     ui.add_space(6.0);
-                    ui.label(
-                        crate::fonts::caption(t!(
-                            "tour.runner.step",
-                            step = index + 1,
-                            total = tour.steps.len()
-                        ))
-                        .color(muted),
+                    let step_text = t!(
+                        "tour.runner.step",
+                        step = index + 1,
+                        total = tour.steps.len()
                     );
+                    let counter = ui
+                        .label(crate::fonts::caption(&step_text).color(muted))
+                        .on_hover_text(&step_text);
+                    ui.ctx().accesskit_node_builder(counter.id, |node| {
+                        node.set_role(egui::accesskit::Role::Status);
+                        node.set_live(egui::accesskit::Live::Polite);
+                        node.set_label(&step_text);
+                    });
                     ui.horizontal(|ui| {
                         if index > 0
                             && ui
@@ -167,4 +173,48 @@ fn paint_card(
                     });
                 });
         });
+}
+
+/// Handle keyboard navigation for the tour card.
+fn handle_keyboard(
+    ctx: &Context,
+    ctrl: &mut Controller,
+    progress: &mut BTreeMap<String, TourRecord>,
+) {
+    if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        ctrl.skip(progress);
+    }
+
+    // Focus lock: keep Tab within the tour card buttons
+    let card_id = Id::new("tour-card");
+    if let Some(focused) = ctx.memory(|m| m.focused()) {
+        if focused == card_id {
+            ctx.memory_mut(|m| {
+                m.set_focus_lock_filter(
+                    card_id,
+                    EventFilter {
+                        horizontal_arrows: true,
+                        ..Default::default()
+                    },
+                );
+            });
+        }
+    }
+
+    // Left/Right arrow keys step backward/forward when no text field has focus
+    if let Some(meta) = ctrl.active().map(|(m, s)| (m, s as usize)) {
+        let has_text_focus = ctx.memory(|m| {
+            m.focused().is_some_and(|id| {
+                ctx.read_response(id)
+                    .is_some_and(|r| r.data(|d| d.get::<egui::TextBuffer>().is_some()))
+            })
+        });
+        if !has_text_focus {
+            if ctx.input(|i| i.key_pressed(egui::Key::ArrowRight)) {
+                ctrl.advance(progress);
+            } else if ctx.input(|i| i.key_pressed(egui::Key::ArrowLeft)) {
+                ctrl.back(progress);
+            }
+        }
+    }
 }
