@@ -120,6 +120,21 @@ const LIBRARY_TAB: RegionTab = RegionTab {
     icon: None,
 };
 const DRAWING_TABS: [RegionTab; 2] = [LAYERS_TAB, LIBRARY_TAB];
+/// The Files page's own tabs: the project files tree, then its history.
+const FILES_TABS: [RegionTab; 2] = [
+    RegionTab {
+        id: "files",
+        label: || t!("files.tab.files"),
+        tip: || t!("files.tab.files.tip"),
+        icon: None,
+    },
+    RegionTab {
+        id: "history",
+        label: || t!("files.tab.history"),
+        tip: || t!("files.tab.history.tip"),
+        icon: None,
+    },
+];
 /// The Library page's own tabs: the part browser, then the machine library.
 const PARTS_TAB: RegionTab = RegionTab {
     id: "library",
@@ -178,16 +193,19 @@ impl Workspace for FilesWorkspace {
         app.files_toolbar(ui);
     }
     fn left_tabs(&self) -> &'static [RegionTab] {
-        &DRAWING_TABS
+        &FILES_TABS
     }
     fn left_body(&self, app: &mut App, tab: &str, ui: &mut egui::Ui) {
-        drawing_left(app, tab, ui);
+        match tab {
+            "history" => app.files_history(ui),
+            _ => app.files_tree(ui),
+        }
     }
     fn center(&self, app: &mut App, ui: &mut egui::Ui) {
         app.files_center(ui);
     }
     fn default_layout(&self) -> RegionLayout {
-        RegionLayout::new("library", "findings")
+        RegionLayout::new("files", "findings")
     }
 }
 
@@ -330,6 +348,19 @@ static LIBRARY: LibraryWorkspace = LibraryWorkspace;
 static SCHEMATIC: SchematicWorkspace = SchematicWorkspace;
 static LAYOUT: LayoutWorkspace = LayoutWorkspace;
 static MANUFACTURE: ManufactureWorkspace = ManufactureWorkspace;
+
+/// Bring a saved layout up to date: the Files left aside no longer has the Layers or Library
+/// tabs, so a saved layout that points at one of them shows the project files tree.
+///
+/// # Rules
+/// - Only the Files layout changes; other workspaces keep what they saved.
+pub(crate) fn migrate_layouts(layouts: &mut std::collections::BTreeMap<String, RegionLayout>) {
+    if let Some(layout) = layouts.get_mut(FILES.id())
+        && !FILES_TABS.iter().any(|t| t.id == layout.left_tab)
+    {
+        layout.left_tab = FILES_TABS[0].id.to_owned();
+    }
+}
 
 /// The workspace that owns a tab, or `None` for the pages (Rules, Settings,
 /// Libraries, Checks) that are not work areas.
