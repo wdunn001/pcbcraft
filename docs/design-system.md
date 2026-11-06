@@ -23,7 +23,7 @@ Where the old tabs went: Checks is the bottom sheet Findings tab (Run checks but
 
 1. No developer text in the UI. Not revision counters, key hint strings, crate or command names, scope paragraphs, "Tool: Pick", "rev 16". Key hints live in tooltips and in Help, Shortcuts. Long explanations live behind a disclosure ("About these checks") or a tooltip.
 2. Every control has a visible plain label, or if it is an icon button, a tooltip and an accessible name. Labels are one to three words: Add, Apply, Hide, Mute, Save, Show. The effect goes in the tooltip.
-3. A panel shows only what is relevant to the active tab. Layers tree: schematic objects on Schematic, board layers on Layout, output tree on Manufacture. Physical board setup (finish, thickness, substrate, plated edge, stackup) lives only in File > Project settings, Board and stackup.
+3. A panel shows only what is relevant to the active tab. Layers tree: schematic objects on Schematic, board layers on Layout, output tree on Manufacture. Physical board setup (finish, thickness, substrate, plated edge, stackup) lives only in File > Project settings, Board. The board is a free-form closed path a machine cuts: its tab shows the shape, never a width or height setting, and a rectangle is only a template (Start from a rectangle).
 4. Sub-views are tabs at the top of their region (page tabs, aside tabs, sheet tabs). Never a rail, never a button strip in the middle of a page.
 5. Show state in text or shape as well as colour (warning triangle plus word, eye icon plus dimmed row).
 6. Empty states explain what is missing and offer one button.
