@@ -61,6 +61,6 @@ A CAM and outputs workspace. Tool bar: Generate all (primary), Add output, Panel
 
 | Region | Files | Schematic | Layout (2D and 3D) | Analyze | Manufacture | Library |
 | --- | --- | --- | --- | --- | --- | --- |
-| Left aside | Layers or Library | Layers or Library | Layers or Library | Analyses | Outputs or Machines | Part browser |
+| Left aside | Project files tree or History | Layers or Library | Layers or Library | Analyses | Outputs or Machines | Part browser |
 | Right aside | Project properties | Part properties | Part properties | Page properties | Output properties | Part properties |
 | Bottom sheet | collapsed | collapsed | Findings open | collapsed | Output log | collapsed |
