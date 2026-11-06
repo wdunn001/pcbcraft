@@ -120,3 +120,83 @@ fn prepare_for_target(app: &mut App, target: &str) {
         app.region().left_tab = "library".into();
     }
 }
+
+fn probe_step(id: &str, target: &str, title: &str, body: &str) -> data::Step {
+    data::Step {
+        id: id.into(),
+        target: target.into(),
+        title: title.into(),
+        body: body.into(),
+        placement: "bottom".into(),
+        condition: None,
+        wait_for: None,
+    }
+}
+
+#[test]
+fn a_newcomer_follows_a_tour_card_with_a_spotlight_and_leaves_it_with_skip() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.change_tab(Tab::Schematic);
+    app.tours = data::Doc {
+        tour: vec![data::Tour {
+            id: "overlay_probe".into(),
+            version: 1,
+            workspace: "schematic".into(),
+            trigger: "manual".into(),
+            steps: vec![
+                probe_step(
+                    "one",
+                    "shell.tab.schematic",
+                    "tour.card.first_launch.title",
+                    "tour.card.first_launch.body",
+                ),
+                probe_step(
+                    "two",
+                    "none",
+                    "tour.card.learn_more",
+                    "tour.card.first_launch.footer",
+                ),
+                probe_step("three", "none", "tour.card.not_now", "tour.chip.hint"),
+            ],
+        }],
+    };
+    app.tour = tour::Controller::new(vec![tour::state::TourMeta {
+        id: "overlay_probe".into(),
+        version: 1,
+        trigger: tour::state::Trigger::Manual,
+        workspace: tour::WorkspaceId::Schematic,
+        step_count: 3,
+    }]);
+    app.tour.start_from_menu(
+        &mut app.preferences.tour_progress,
+        "overlay_probe",
+        tour::state::MenuAction::Start,
+    );
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(paints_text(&ctx, &mut app, "New here?")?, "step one title");
+    assert!(
+        paints_text(&ctx, &mut app, "Step 1 of 3")?,
+        "step one counter"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Next")?;
+    assert!(paints_text(&ctx, &mut app, "Show me")?, "step two title");
+    assert!(
+        !paints_text(&ctx, &mut app, "New here?")?,
+        "step one card is gone"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Skip")?;
+    assert!(
+        !paints_text(&ctx, &mut app, "Show me")?,
+        "the card closes on Skip"
+    );
+    let record = app
+        .preferences
+        .tour_progress
+        .get("overlay_probe")
+        .ok_or("Skip keeps the place")?;
+    assert_eq!(record.step, 1);
+    Ok(())
+}

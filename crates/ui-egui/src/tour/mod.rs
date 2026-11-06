@@ -6,6 +6,7 @@ mod app;
 pub mod data;
 pub(crate) mod layout;
 mod offer;
+mod overlay;
 pub mod playback;
 pub mod replay;
 pub mod state;

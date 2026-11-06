@@ -8157,6 +8157,7 @@ impl App {
             ui,
             &mut self.tour,
             &mut self.preferences.tour_progress,
+            &self.tours,
             muted,
             accent,
         );

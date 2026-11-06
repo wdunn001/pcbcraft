@@ -10,10 +10,13 @@ pub(crate) fn paint_offers(
     ui: &mut egui::Ui,
     ctrl: &mut Controller,
     progress: &mut std::collections::BTreeMap<String, super::state::TourRecord>,
+    tours: &super::data::Doc,
     muted: Color32,
     accent: Color32,
 ) {
-    paint_active_runner(ui, ctrl, progress, muted, accent);
+    if !super::overlay::paint_step_overlay(ui.ctx(), ctrl, progress, tours, muted, accent) {
+        paint_active_runner(ui, ctrl, progress, muted, accent);
+    }
     let Some(offer) = ctrl.pending_offer().cloned() else {
         return;
     };

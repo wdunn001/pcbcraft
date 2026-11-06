@@ -1,335 +1,170 @@
-//! Tour spotlight overlay and navigation card.
+//! Tour spotlight overlay and step card (#770).
 //!
-//! Renders a dimmed overlay with a spotlight "hole" cut out around the target
-//! widget, plus a floating card with title, body, and navigation buttons.
+//! While a tour runs, the window is dimmed everywhere except a cutout around
+//! the control the step names, and a card with the step title, body and the
+//! Back, Skip and Next buttons sits beside the cutout. The dim layer paints
+//! only; it never takes a click, so the highlighted control and the rest of
+//! the window keep working. Geometry comes from [`super::layout::step_layout`]
+//! and the target rectangle from the anchor registry, recomputed every frame
+//! so scroll, resize and scale changes follow.
 //!
-//! Architecture: the overlay is drawn every frame while a tour is active.
-//! It queries the anchor registry for the target rect, computes card placement
-//! via the layout module, and renders the overlay + card.
-//!
-//! Key decisions:
-//! - Four rectangles around the target, not a hole mask (wgpu/browser compat)
-//! - Card placement follows the chosen side, with fallback to the opposite
-//!   side if it would overflow the screen.
-//! - Recomputed every frame to handle scroll, resize, scale.
+//! # Rules
+//! - The card words are catalog keys read from the tour data, never literals.
+//! - A tour that is not in the data (a test fixture) gets no overlay and the
+//!   caller falls back to the small step panel.
 //!
 //! # Dependencies
 //! - crates/ui-egui/src/tour/anchor.rs
+//! - crates/ui-egui/src/tour/data.rs
 //! - crates/ui-egui/src/tour/layout.rs
 //! - crates/ui-egui/src/tour/state.rs
+//! - crates/text/strings/en.txt
+//!
+//! # Do not
+//! - Make the dim layer sense clicks; a person must be able to use the
+//!   highlighted control.
 
-use eframe::egui;
-use std::collections::HashMap;
+use super::data::{Doc, Step, Tour};
+use super::layout::{StepLayout, step_layout};
+use super::state::{Controller, TourRecord};
+use egui::{Align2, Color32, Context, Id, LayerId, Order, Rect, RichText, Stroke, StrokeKind};
+use pcbcraft_text::{lookup, t};
+use std::collections::BTreeMap;
 
-use super::anchor::{AnchorId, anchor_registry};
-use super::layout::{self, Layout};
-use super::state::{Controller, TourState};
+const DIM_ALPHA: u8 = 150;
 
-// Tour overlay styling. These are hardcoded to avoid needing a theme reference;
-// the tour overlay should look consistent across themes.
-const OVERLAY_COLOR: [f32; 4] = [0.1, 0.1, 0.15, 0.6];
-const CARD_BG: [f32; 4] = [0.95, 0.95, 0.97, 1.0];
-const CARD_BORDER: [f32; 4] = [0.7, 0.7, 0.75, 1.0];
-const CARD_TEXT: [f32; 4] = [0.2, 0.2, 0.25, 1.0];
-const CARD_SUBTEXT: [f32; 4] = [0.5, 0.5, 0.55, 1.0];
-const BUTTON_BG: [f32; 4] = [0.85, 0.85, 0.88, 1.0];
-const BUTTON_BG_HOVER: [f32; 4] = [0.75, 0.75, 0.8, 1.0];
-const BUTTON_TEXT: [f32; 4] = [0.2, 0.2, 0.25, 1.0];
-const PROGRESS_TEXT: [f32; 4] = [0.4, 0.4, 0.45, 1.0];
-
-/// Render the tour overlay for the current step.
+/// Paint the overlay and card for the running tour step.
 ///
-/// Returns `true` if the tour should continue (no navigation action taken),
-/// `false` if the user clicked Next, Back, or Skip.
-///
-/// # Panics
-/// - If `step_index` is out of range for `controller.steps()`
-pub fn paint(
-    ctx: &egui::Context,
-    controller: &Controller,
-    step_index: usize,
-    anchor_id: AnchorId,
+/// Returns true when a card was painted. False means no tour is running or the
+/// running tour has no step data, so the caller may show the plain panel.
+pub(crate) fn paint_step_overlay(
+    ctx: &Context,
+    ctrl: &mut Controller,
+    progress: &mut BTreeMap<String, TourRecord>,
+    tours: &Doc,
+    muted: Color32,
+    accent: Color32,
 ) -> bool {
-    let steps = controller.steps();
-    if step_index >= steps.len() {
-        panic!("tour overlay: step_index out of range");
-    }
-
-    let step = &steps[step_index];
-
-    // Query the anchor registry for the target rect.
-    let target = match anchor_registry().get(&anchor_id) {
-        Some(rect) => rect,
-        None => {
-            // Target not registered or not visible; draw card centered.
-            // This can happen if the widget hasn't been drawn yet this frame.
-            let display = ctx.screen_rect();
-            let layout = layout::Layout {
-                card: egui::Rect::from_center_size(
-                    display.center(),
-                    egui::vec2(layout::CARD_MAX.x, 120.0),
-                ),
-                hole: step.target,
-                side: layout::Side::Bottom,
-                padding: layout::HOLE_PAD,
-            };
-            paint_overlay_and_card(ctx, controller, step_index, &layout, step, display);
-            return true;
-        }
+    let Some((meta, index)) = ctrl.active().map(|(m, s)| (m.clone(), s as usize)) else {
+        return false;
     };
-
-    let display = ctx.screen_rect();
-    let layout = match layout::step_layout(target, display, step.placement) {
-        Ok(layout) => layout,
-        Err(msg) => {
-            // Layout computation failed; fall back to centered card.
-            let layout = layout::Layout {
-                card: egui::Rect::from_center_size(
-                    display.center(),
-                    egui::vec2(layout::CARD_MAX.x, 120.0),
-                ),
-                hole: target,
-                side: layout::Side::Bottom,
-                padding: layout::HOLE_PAD,
-            };
-            paint_overlay_and_card(ctx, controller, step_index, &layout, step, display);
-            return true;
-        }
+    let Some(tour) = tours.tour.iter().find(|t| t.id == meta.id) else {
+        return false;
     };
-
-    let handled = paint_overlay_and_card(ctx, controller, step_index, &layout, step, display);
-    handled
-}
-
-fn paint_overlay_and_card(
-    ctx: &egui::Context,
-    controller: &Controller,
-    step_index: usize,
-    layout: &Layout,
-    step: &layout::Step,
-    display: egui::Rect,
-) -> bool {
-    // Paint dim overlay (four rectangles around the hole).
-    paint_overlay(ctx, &layout.hole, display);
-
-    // Paint the card.
-    let handled = paint_card(ctx, controller, step_index, layout, step);
-    handled
-}
-
-/// Paint the dimmed overlay as four rectangles around the target.
-fn paint_overlay(ctx: &egui::Context, target: &egui::Rect, display: egui::Rect) {
-    // Top
-    ctx.fill(
-        egui::Rect::from_min_max(display.min, egui::pos2(display.max.x, target.min.y)),
-        egui::Color32::from_array(OVERLAY_COLOR),
-    );
-
-    // Bottom
-    ctx.fill(
-        egui::Rect::from_min_max(egui::pos2(display.min.x, target.max.y), display.max),
-        egui::Color32::from_array(OVERLAY_COLOR),
-    );
-
-    // Left
-    ctx.fill(
-        egui::Rect::from_min_max(
-            egui::pos2(display.min.x, target.min.y),
-            egui::pos2(target.min.x, target.max.y),
-        ),
-        egui::Color32::from_array(OVERLAY_COLOR),
-    );
-
-    // Right
-    ctx.fill(
-        egui::Rect::from_min_max(
-            egui::pos2(target.max.x, target.min.y),
-            egui::pos2(display.max.x, target.max.y),
-        ),
-        egui::Color32::from_array(OVERLAY_COLOR),
-    );
-
-    // Rounded outline around the hole
-    let outline_rect = target.expand(layout::HOLE_PAD * 0.5);
-    ctx.stroke(
-        &outline_rect,
-        2.0,
-        egui::Color32::from_array([0.9, 0.9, 1.0, 0.8]),
-        egui::CornerRadius::uniform(8.0),
-    );
-}
-
-/// Paint the tour card with title, body, and navigation buttons.
-fn paint_card(
-    ctx: &egui::Context,
-    controller: &Controller,
-    step_index: usize,
-    layout: &Layout,
-    step: &layout::Step,
-) -> bool {
-    let card_rect = layout.card;
-
-    // Card background
-    ctx.fill(
-        card_rect,
-        egui::Color32::from_array(CARD_BG),
-        egui::CornerRadius::uniform(6.0),
-    );
-
-    // Card border
-    ctx.stroke(
-        &card_rect,
-        1.0,
-        egui::Color32::from_array(CARD_BORDER),
-        egui::CornerRadius::uniform(6.0),
-    );
-
-    // Title
-    let title_color = egui::Color32::from_array(CARD_TEXT);
-    let mut title = ctx.fonts().layout_text(
-        &step.title,
-        egui::TextOrientation::LeftToRight,
-        card_rect.width() - 32.0,
-        egui::FontSelection::new(egui::TextStyle::Heading),
-    );
-    let title_size = title.size();
-    let title_pos = egui::pos2(card_rect.min.x + 16.0, card_rect.min.y + 16.0);
-    ctx.text(title_pos, title_color, step.title);
-
-    // Body
-    let body_color = egui::Color32::from_array(CARD_SUBTEXT);
-    let body_pos = egui::pos2(
-        card_rect.min.x + 16.0,
-        card_rect.min.y + 32.0 + title_size.y,
-    );
-    let body_width = card_rect.width() - 32.0;
-    let body = ctx.fonts().layout_text(
-        &step.body,
-        egui::TextOrientation::LeftToRight,
-        body_width,
-        egui::FontSelection::new(egui::TextStyle::Body),
-    );
-    ctx.text(body_pos, body_color, step.body);
-
-    // Step counter
-    let total = controller.steps().len();
-    let counter_text = format!("Step {} of {}", step_index + 1, total);
-    let counter_color = egui::Color32::from_array(PROGRESS_TEXT);
-    let counter = ctx.fonts().layout_text(
-        &counter_text,
-        egui::TextOrientation::LeftToRight,
-        0.0,
-        egui::FontSelection::new(egui::TextStyle::Small),
-    );
-    let counter_pos = egui::pos2(
-        card_rect.max.x - 16.0 - counter.size().x,
-        card_rect.max.y - 40.0,
-    );
-    ctx.text(counter_pos, counter_color, counter_text);
-
-    // Buttons: Back, Next/Skip
-    let btn_height = 28.0;
-    let btn_y = card_rect.max.y - 36.0;
-
-    // Back button
-    let back_enabled = step_index > 0;
-    let back_width = 60.0;
-    let back_rect = egui::Rect::from_min_max(
-        egui::pos2(card_rect.min.x + 16.0, btn_y),
-        egui::pos2(card_rect.min.x + 16.0 + back_width, btn_y + btn_height),
-    );
-    paint_button(ctx, back_rect, "Back", back_enabled);
-    if back_enabled
-        && ctx
-            .input()
-            .pointer
-            .clicked(egui::PointerButton::Primary, back_rect)
-    {
-        controller.back();
+    let Some(step) = tour.steps.get(index) else {
         return false;
+    };
+    let screen = ctx.content_rect();
+    let target = super::anchor::lookup(ctx, &step.target);
+    let layout = step_layout(screen, &step.target, target, &step.placement);
+    paint_dim(ctx, screen, &layout, accent);
+    let shown = Shown { tour, step, index };
+    paint_card(ctx, ctrl, progress, &shown, &layout, muted, accent);
+    if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        ctrl.skip(progress);
     }
-
-    // Next or Skip button
-    let last = step_index == total - 1;
-    let next_text = if last { "Skip tour" } else { "Try it" };
-    let next_width = 90.0;
-    let next_rect = egui::Rect::from_min_max(
-        egui::pos2(card_rect.max.x - 16.0 - next_width, btn_y),
-        egui::pos2(card_rect.max.x - 16.0, btn_y + btn_height),
-    );
-    paint_button(ctx, next_rect, next_text, true);
-    if ctx
-        .input()
-        .pointer
-        .clicked(egui::PointerButton::Primary, next_rect)
-    {
-        if last {
-            controller.skip();
-        } else {
-            controller.advance();
-        }
-        return false;
-    }
-
-    // Escape key
-    if ctx.input().key_pressed(egui::Key::Escape) {
-        controller.skip();
-        return false;
-    }
-
-    // Left/Right arrow keys
-    if step_index < total && !step.body.is_empty() {
-        // Only step on arrows if no text field is focused (heuristic: body text)
-        if ctx.input().key_pressed(egui::Key::ArrowLeft) && back_enabled {
-            controller.back();
-            return false;
-        }
-        if ctx.input().key_pressed(egui::Key::ArrowRight) {
-            if last {
-                controller.skip();
-            } else {
-                controller.advance();
-            }
-            return false;
-        }
-    }
-
     true
 }
 
-fn paint_button(ctx: &egui::Context, rect: egui::Rect, text: &str, enabled: bool) {
-    let bg = if enabled {
-        BUTTON_BG
-    } else {
-        [0.9, 0.9, 0.9, 1.0]
+/// Dim the window around the cutout, or everywhere when the step has no target.
+fn paint_dim(ctx: &Context, screen: Rect, layout: &StepLayout, accent: Color32) {
+    let painter = ctx.layer_painter(LayerId::new(Order::Foreground, Id::new("tour-dim")));
+    let dim = Color32::from_black_alpha(DIM_ALPHA);
+    let Some(hole) = layout.hole else {
+        painter.rect_filled(screen, 0.0, dim);
+        return;
     };
-    ctx.fill(
-        rect,
-        egui::Color32::from_array(bg),
-        egui::CornerRadius::uniform(4.0),
+    let strips = [
+        Rect::from_min_max(screen.min, egui::pos2(screen.max.x, hole.min.y)),
+        Rect::from_min_max(egui::pos2(screen.min.x, hole.max.y), screen.max),
+        Rect::from_min_max(
+            egui::pos2(screen.min.x, hole.min.y),
+            egui::pos2(hole.min.x, hole.max.y),
+        ),
+        Rect::from_min_max(
+            egui::pos2(hole.max.x, hole.min.y),
+            egui::pos2(screen.max.x, hole.max.y),
+        ),
+    ];
+    for strip in strips {
+        if strip.width() > 0.0 && strip.height() > 0.0 {
+            painter.rect_filled(strip, 0.0, dim);
+        }
+    }
+    painter.rect_stroke(
+        hole,
+        crate::theme::RADIUS_CARD,
+        Stroke::new(2.0, accent),
+        StrokeKind::Outside,
     );
-    ctx.stroke(
-        &rect,
-        1.0,
-        egui::Color32::from_array(CARD_BORDER),
-        egui::CornerRadius::uniform(4.0),
-    );
+}
 
-    let text_color = if enabled {
-        BUTTON_TEXT
-    } else {
-        [0.6, 0.6, 0.6, 1.0]
-    };
-    let text_rect = rect.expand(4.0);
-    let text_size = ctx.fonts().layout_text(
-        text,
-        egui::TextOrientation::LeftToRight,
-        0.0,
-        egui::FontSelection::new(egui::TextStyle::Small),
-    );
-    let text_pos = egui::pos2(
-        rect.center().x - text_size.size().x / 2.0,
-        rect.center().y - text_size.size().y / 2.0,
-    );
-    ctx.text(text_pos, egui::Color32::from_array(text_color), text);
+/// The step being shown and where it sits in its tour.
+#[derive(Clone, Copy)]
+struct Shown<'a> {
+    tour: &'a Tour,
+    step: &'a Step,
+    index: usize,
+}
+
+fn paint_card(
+    ctx: &Context,
+    ctrl: &mut Controller,
+    progress: &mut BTreeMap<String, TourRecord>,
+    shown: &Shown<'_>,
+    layout: &StepLayout,
+    muted: Color32,
+    accent: Color32,
+) {
+    let Shown { tour, step, index } = *shown;
+    egui::Area::new(Id::new("tour-card"))
+        .order(Order::Tooltip)
+        .fixed_pos(layout.card.min)
+        .pivot(Align2::LEFT_TOP)
+        .show(ctx, |ui| {
+            egui::Frame::popup(ui.style())
+                .fill(ui.style().visuals.window_fill)
+                .show(ui, |ui| {
+                    ui.set_width(layout.card.width());
+                    ui.label(
+                        RichText::new(lookup(&step.title, &[]))
+                            .strong()
+                            .color(accent),
+                    );
+                    ui.label(lookup(&step.body, &[]));
+                    ui.add_space(6.0);
+                    ui.label(
+                        crate::fonts::caption(t!(
+                            "tour.runner.step",
+                            step = index + 1,
+                            total = tour.steps.len()
+                        ))
+                        .color(muted),
+                    );
+                    ui.horizontal(|ui| {
+                        if index > 0
+                            && ui
+                                .button(t!("tour.runner.back"))
+                                .on_hover_text(t!("tour.runner.back.tip"))
+                                .clicked()
+                        {
+                            ctrl.back(progress);
+                        }
+                        if ui
+                            .button(t!("tour.runner.skip"))
+                            .on_hover_text(t!("tour.runner.skip.tip"))
+                            .clicked()
+                        {
+                            ctrl.skip(progress);
+                        }
+                        if ui
+                            .button(t!("tour.runner.next"))
+                            .on_hover_text(t!("tour.runner.next.tip"))
+                            .clicked()
+                        {
+                            ctrl.advance(progress);
+                        }
+                    });
+                });
+        });
 }
