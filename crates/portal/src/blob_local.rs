@@ -163,75 +163,86 @@ mod tests {
     use super::*;
     use std::fs::write;
 
-    fn make_store() -> (tempfile::TempDir, LocalFolderBlobStore) {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let store = open(dir.path()).expect("open");
-        (dir, store)
+    /// Turn any debuggable error into the test result's string error.
+    fn msg<E: std::fmt::Debug>(e: E) -> String {
+        format!("{e:?}")
+    }
+
+    fn make_store() -> Result<(tempfile::TempDir, LocalFolderBlobStore), String> {
+        let dir = tempfile::tempdir().map_err(msg)?;
+        let store = open(dir.path()).map_err(msg)?;
+        Ok((dir, store))
     }
 
     #[test]
-    fn local_store_survives_a_new_instance() {
-        let (dir, store) = make_store();
+    fn local_store_survives_a_new_instance() -> Result<(), String> {
+        let (dir, store) = make_store()?;
         let data = b"hello";
         let hash = sha256_hex(data);
-        store.put(&hash, data).expect("put");
+        store.put(&hash, data).map_err(msg)?;
         // Drop the first instance, open again.
         drop(store);
-        let store2 = open(dir.path()).expect("open again");
-        let got = store2.get(&hash).expect("get");
+        let store2 = open(dir.path()).map_err(msg)?;
+        let got = store2.get(&hash).map_err(msg)?;
         assert_eq!(got, data);
+        Ok(())
     }
 
     #[test]
-    fn local_store_detects_a_corrupted_object() {
-        let (dir, store) = make_store();
+    fn local_store_detects_a_corrupted_object() -> Result<(), String> {
+        let (dir, store) = make_store()?;
         let data = b"hello";
         let hash = sha256_hex(data);
-        store.put(&hash, data).expect("put");
+        store.put(&hash, data).map_err(msg)?;
         // Corrupt the file on disk.
         let path = object_path(dir.path(), &hash);
-        write(&path, b"corrupted").expect("write corrupted");
+        write(&path, b"corrupted").map_err(msg)?;
         let result = store.get(&hash);
         assert!(matches!(result, Err(PortalError::Storage(_))));
+        Ok(())
     }
 
     #[test]
-    fn local_store_refuses_a_traversal_hash() {
-        let (_dir, store) = make_store();
+    fn local_store_refuses_a_traversal_hash() -> Result<(), String> {
+        let (_dir, store) = make_store()?;
         let result = store.get("../../x");
         assert!(matches!(result, Err(PortalError::Invalid(_))));
         let data = b"test";
         let bad_hash = "../../x";
         let result2 = store.put(bad_hash, data);
         assert!(matches!(result2, Err(PortalError::Invalid(_))));
+        Ok(())
     }
 
     #[test]
-    fn local_store_put_is_idempotent() {
-        let (_dir, store) = make_store();
+    fn local_store_put_is_idempotent() -> Result<(), String> {
+        let (_dir, store) = make_store()?;
         let data = b"hello";
         let hash = sha256_hex(data);
-        store.put(&hash, data).expect("first put");
-        store.put(&hash, data).expect("second put");
-        let got = store.get(&hash).expect("get");
+        store.put(&hash, data).map_err(msg)?;
+        store.put(&hash, data).map_err(msg)?;
+        let got = store.get(&hash).map_err(msg)?;
         assert_eq!(got, data);
+        Ok(())
     }
 
     #[test]
-    fn local_store_get_missing_is_not_found() {
-        let (_dir, store) = make_store();
+    fn local_store_get_missing_is_not_found() -> Result<(), String> {
+        let (_dir, store) = make_store()?;
         let hash = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
         let result = store.get(hash);
         assert!(matches!(result, Err(PortalError::NotFound(_))));
+        Ok(())
     }
 
     #[test]
-    fn local_store_has_reflects_put() {
-        let (_dir, store) = make_store();
+    fn local_store_has_reflects_put() -> Result<(), String> {
+        let (_dir, store) = make_store()?;
         let data = b"hello";
         let hash = sha256_hex(data);
-        assert!(!store.has(&hash).expect("has before"));
-        store.put(&hash, data).expect("put");
-        assert!(store.has(&hash).expect("has after"));
+        assert!(!store.has(&hash).map_err(msg)?);
+        store.put(&hash, data).map_err(msg)?;
+        assert!(store.has(&hash).map_err(msg)?);
+        Ok(())
     }
 }
