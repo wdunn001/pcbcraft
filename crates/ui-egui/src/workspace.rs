@@ -332,7 +332,7 @@ static LAYOUT: LayoutWorkspace = LayoutWorkspace;
 static MANUFACTURE: ManufactureWorkspace = ManufactureWorkspace;
 
 /// The workspace that owns a tab, or `None` for the pages (Rules, Settings,
-/// Libraries, Checks) that are not work areas.
+/// Checks) that are not work areas.
 pub(crate) fn workspace_for(tab: Tab) -> Option<&'static dyn Workspace> {
     match tab {
         Tab::Files => Some(&FILES),

@@ -432,7 +432,7 @@ impl App {
                     )
                     .clicked()
                     {
-                        self.change_tab(Tab::Libraries);
+                        self.open_library_collections();
                         self.library.kind = true;
                         self.library.pending = None;
                         self.library.path.clear();

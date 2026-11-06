@@ -494,7 +494,7 @@ impl App {
             self.show_files(Page::Import);
         }
         if sources {
-            self.change_tab(Tab::Libraries);
+            self.open_library_sources();
         }
     }
 

@@ -2,9 +2,9 @@
 //! app, not to a project, split into tabs by concern.
 //!
 //! Context: issue #1690 and the approved mockups `dialog-preferences`, `prefs-appearance`,
-//! `prefs-language-units`, `prefs-keys`, `prefs-libraries` and `prefs-assistant` in the
-//! design folder. The tabs are Appearance, Language and units, Keys, Libraries and
-//! Assistant. Project rules, stackup and outputs live in File > Project settings.
+//! `prefs-language-units`, `prefs-keys` and `prefs-assistant` in the
+//! design folder. The tabs are Appearance, Language and units, Keys and
+//! Assistant. Library sources live in the Library tab (issue #1799). Project rules, stackup and outputs live in File > Project settings.
 //! Local rules: changes apply at once and are saved with the other preferences when the
 //! window saves its state. Done and Escape only close the dialog. Reset to defaults puts
 //! back the settings of the tab in view and never deletes a saved connection or its key.
@@ -36,10 +36,8 @@ pub(crate) const TAB_APPEARANCE: usize = 0;
 pub(crate) const TAB_LANGUAGE: usize = 1;
 /// Tab index of Keys.
 pub(crate) const TAB_KEYS: usize = 2;
-/// Tab index of Libraries.
-pub(crate) const TAB_LIBRARIES: usize = 3;
 /// Tab index of Assistant.
-pub(crate) const TAB_ASSISTANT: usize = 4;
+pub(crate) const TAB_ASSISTANT: usize = 3;
 
 /// What the open dialog remembers between frames.
 #[derive(Default)]
@@ -97,7 +95,6 @@ impl App {
             (t!("prefs.tab.appearance"), t!("prefs.tab.appearance.tip")),
             (t!("prefs.tab.language"), t!("prefs.tab.language.tip")),
             (t!("prefs.tab.keys"), t!("prefs.tab.keys.tip")),
-            (t!("prefs.tab.libraries"), t!("prefs.tab.libraries.tip")),
             (t!("prefs.tab.assistant"), t!("prefs.tab.assistant.tip")),
         ];
         let tabs: Vec<TabItem<'_>> = labels
@@ -140,7 +137,6 @@ impl App {
             TAB_APPEARANCE => self.prefs_appearance(ui),
             TAB_LANGUAGE => self.prefs_language(ui),
             TAB_KEYS => self.prefs_keys(ui),
-            TAB_LIBRARIES => self.prefs_libraries(ui),
             TAB_ASSISTANT => {
                 assistant::settings::connections_card(self, ui);
                 ui.add_space(theme::SPACE[3]);
@@ -188,11 +184,6 @@ impl App {
                 p.modifiers.reset_all();
                 self.keymap_notice = t!("prefs.keys.reset_done");
             }
-            TAB_LIBRARIES => {
-                p.library_sources_off.clear();
-                p.fetch_open_library_3d = fresh.fetch_open_library_3d;
-                self.apply_library_source_prefs();
-            }
             TAB_ASSISTANT => {
                 p.assistant_enabled = fresh.assistant_enabled;
                 p.assistant_mode = fresh.assistant_mode;
@@ -214,7 +205,6 @@ impl App {
             "appearance" => TAB_APPEARANCE,
             "language" => TAB_LANGUAGE,
             "keys" => TAB_KEYS,
-            "libraries" => TAB_LIBRARIES,
             "assistant" => TAB_ASSISTANT,
             _ => return false,
         };

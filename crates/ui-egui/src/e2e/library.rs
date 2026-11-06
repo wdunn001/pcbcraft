@@ -550,7 +550,7 @@ fn a_newcomer_sees_a_quality_badge_beside_each_project_footprint() -> Result<(),
         "the squashed footprint should be marked as having a mistake to fix"
     );
     let ctx = egui::Context::default();
-    app.change_tab(Tab::Libraries);
+    app.open_library_collections();
     app.library.editor.mode = 0;
     let mut shown = false;
     for _ in 0..4 {
@@ -995,27 +995,39 @@ fn a_newcomer_switches_between_the_library_and_the_editor() -> Result<(), String
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    app.change_tab(Tab::Libraries);
+    app.open_library_collections();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    assert_eq!(app.tab, Tab::Libraries, "the Libraries page stays open");
-    tap_id(&ctx, &mut app, "button:Editor")?;
-    assert_eq!(app.library.editor.mode, 2, "Editor opens the editor");
-    tap_id(&ctx, &mut app, "button:Library")?;
-    assert_eq!(app.library.editor.mode, 0, "Library comes back to browsing");
+    assert_eq!(
+        app.tab,
+        Tab::Library,
+        "the Collections page is in the Library tab"
+    );
     tap_id(&ctx, &mut app, "button:New symbol")?;
     assert!(
         matches!(app.library.editor.draft, Some(Draft::Symbol(_))),
         "New symbol starts a symbol draft"
+    );
+    assert_eq!(
+        app.libws.page,
+        library_workspace::Page::Edit,
+        "New symbol opens the editor on the Edit page"
+    );
+    tap_id(&ctx, &mut app, "tab:Collections")?;
+    assert_eq!(
+        app.libws.page,
+        library_workspace::Page::Collections,
+        "the Collections tab comes back to browsing"
     );
     tap_id(&ctx, &mut app, "button:New footprint")?;
     assert!(
         matches!(app.library.editor.draft, Some(Draft::Footprint(_))),
         "New footprint starts a package draft"
     );
+    tap_id(&ctx, &mut app, "tab:Collections")?;
     app.library.editor.mode = 0;
     tap_id(&ctx, &mut app, "button:Original starter symbols")?;
     assert!(
-        paints_text(&ctx, &mut app, "Place in schematic >")?,
+        paints_text_tall(&ctx, &mut app, "Place in schematic >")?,
         "the starter symbols open with a button to place each one"
     );
     Ok(())
@@ -1056,10 +1068,10 @@ fn a_newcomer_exports_their_edited_part_to_a_file() -> Result<(), String> {
             "the edited symbol lives in the project library"
         );
     }
-    authoring::tests::tap(&ctx, &mut app, "Library")?;
+    authoring::tests::tap(&ctx, &mut app, "Collections")?;
     assert!(
         paints_text(&ctx, &mut app, "This project's definitions")?,
-        "the project library list is on the Libraries page"
+        "the project library list is on the Collections page"
     );
     let export_file = std::env::temp_dir().join(format!(
         "pcbcraft-newcomer-export-{}.kicad_sym",
@@ -1116,7 +1128,7 @@ fn a_newcomer_exports_a_part_with_unknown_nodes_and_loses_none_of_them() -> Resu
             .map_err(|e| e.to_string())?;
     }
     app.refresh();
-    authoring::tests::tap(&ctx, &mut app, "Library")?;
+    authoring::tests::tap(&ctx, &mut app, "Collections")?;
     // The page grows as the browser's folder read lands; type only once the
     // export box is painted and switched on.
     waits_for_collections(&ctx, &mut app)?;
@@ -1157,7 +1169,7 @@ fn a_newcomer_exports_a_footprint_and_keeps_its_pad_details_and_extra_nodes() ->
             .map_err(|e| e.to_string())?;
     }
     app.refresh();
-    authoring::tests::tap(&ctx, &mut app, "Library")?;
+    authoring::tests::tap(&ctx, &mut app, "Collections")?;
     let folder = std::env::temp_dir().join(format!("pcbcraft-lossless-fp-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&folder);
     waits_for_collections(&ctx, &mut app)?;
@@ -1218,7 +1230,7 @@ fn libraries_page(
     let mut app = App::create(shared.clone(), Preferences::default(), None, None);
     app.refresh();
     let ctx = egui::Context::default();
-    app.change_tab(Tab::Libraries);
+    app.open_library_collections();
     waits_for_collections(&ctx, &mut app)?;
     Ok((own, shared, app, ctx))
 }
@@ -1226,6 +1238,7 @@ fn libraries_page(
 #[test]
 fn a_newcomer_adds_a_folder_picks_its_library_and_searches_it() -> Result<(), String> {
     let (_own, _shared, mut app, ctx) = libraries_page("browser")?;
+    app.open_library_sources();
     let shelf = std::fs::canonicalize(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../library/tests/fixtures"),
     )
@@ -1246,9 +1259,7 @@ fn a_newcomer_adds_a_folder_picks_its_library_and_searches_it() -> Result<(), St
         "adding the folder reports back: {}",
         app.library.notice
     );
-    waits_for_collections(&ctx, &mut app)?;
-    // Pressing the button with the box now empty changes nothing.
-    tap_id(&ctx, &mut app, "button:Add folder")?;
+    tap_id(&ctx, &mut app, "tab:Collections")?;
     waits_for_collections(&ctx, &mut app)?;
     let added_path = app
         .library
@@ -1327,7 +1338,7 @@ fn a_newcomer_saves_a_collection_file_and_loads_it_back() -> Result<(), String> 
     app.refresh();
     let ctx = egui::Context::default();
     authoring::tests::tap(&ctx, &mut app, "Save symbol to project library")?;
-    tap_id(&ctx, &mut app, "button:Library")?;
+    tap_id(&ctx, &mut app, "tab:Collections")?;
     waits_for_collections(&ctx, &mut app)?;
     type_into(
         &ctx,

@@ -270,7 +270,10 @@ fn a_newcomer_walks_every_button_of_the_files_page() -> Result<(), String> {
         );
     }
     tap_id(&ctx, &mut app, "button:Library sources")?;
-    assert_eq!(app.tab, Tab::Libraries, "Library sources opens its page");
+    assert!(
+        app.tab == Tab::Library && app.libws.page == library_workspace::Page::Sources,
+        "Library sources opens Library > Sources"
+    );
     app.change_tab(Tab::Files);
     tap_id(&ctx, &mut app, "button:Go to Manufacture")?;
     assert_eq!(app.tab, Tab::PlotFiles, "Go to Manufacture opens that tab");

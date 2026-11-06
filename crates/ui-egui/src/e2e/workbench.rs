@@ -357,7 +357,7 @@ fn a_newcomer_reads_every_dock_and_tab_body_with_room_to_spare() -> Result<(), S
             );
         }
     }
-    for tab in [Tab::Files, Tab::Libraries, Tab::Checks] {
+    for tab in [Tab::Files, Tab::Checks] {
         app.change_tab(tab);
         let out = settled(&ctx, &mut app);
         // The left aside grows to the widest thing it held (the Layers tree).

@@ -267,11 +267,11 @@ fn library_strings_are_all_catalog_keys() -> Result<(), String> {
         ("library.rs", "library_preview"),
         ("authoring.rs", "library_editor"),
         ("authoring.rs", "project_library"),
-        ("authoring.rs", "library_workspaces"),
+        ("authoring.rs", "library_collections_page"),
         ("authoring.rs", "graphic"),
         ("authoring.rs", "add_graphic"),
         ("lib.rs", "browser"),
-        ("lib.rs", "library"),
+        ("lib.rs", "library_starter_symbols"),
         ("library_quality.rs", "quality_badge"),
         ("library_quality.rs", "refresh_footprint_quality"),
     ] {
@@ -796,8 +796,8 @@ fn a_newcomer_reads_plain_tool_names_and_closes_and_reopens_a_view() -> Result<(
     authoring::tests::tap(&ctx, &mut app, "Files")?;
     authoring::tests::tap(&ctx, &mut app, "Library sources")?;
     assert!(
-        matches!(app.tab, Tab::Libraries),
-        "Library sources stays reachable"
+        app.tab == Tab::Library && app.libws.page == library_workspace::Page::Sources,
+        "Library sources stays reachable in Library > Sources"
     );
     Ok(())
 }
@@ -1409,7 +1409,6 @@ fn a_newcomer_never_meets_a_control_too_small_to_hit() -> Result<(), String> {
         Tab::Rules,
         Tab::Checks,
         Tab::Settings,
-        Tab::Libraries,
         Tab::PlotFiles,
     ] {
         app.change_tab(tab);
