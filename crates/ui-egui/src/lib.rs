@@ -6,6 +6,7 @@
     allow(dead_code, unused_imports, unused_variables)
 )]
 mod a11y;
+mod analyze;
 mod arrange;
 mod art_layer_panel;
 mod artifact_rows;
@@ -778,6 +779,7 @@ enum Tab {
     Schematic,
     Pcb,
     Board3d,
+    Analyze,
     Rules,
     Checks,
     Settings,
@@ -1498,6 +1500,8 @@ pub struct App {
     dock: library_dock::Dock,
     /// The Library tab: open parts, the showing page, recorded supplier answers.
     libws: library_workspace::State,
+    /// The Analyze tab: the picked entry, the filter and what was last shown.
+    analyze: analyze::State,
     /// The machine chosen in the Manufacture pick and place row, by id.
     pnp_pick: Option<String>,
     tour: tour::Controller,
@@ -2121,6 +2125,7 @@ impl App {
                 Some("pcb" | "layout" | "checks") => Tab::Pcb,
                 Some("files") => Tab::Files,
                 Some("library") => Tab::Library,
+                Some("analyze") => Tab::Analyze,
                 Some("rules") => Tab::Rules,
                 Some("settings") => Tab::Settings,
                 Some("plots") => Tab::PlotFiles,
@@ -2249,6 +2254,7 @@ impl App {
             part_search_focus: false,
             dock: library_dock::Dock::default(),
             libws: library_workspace::State::default(),
+            analyze: analyze::State::default(),
             pnp_pick: None,
             datasheet: datasheet_reader::State::default(),
             datasheet_pane: datasheet::Pane::default(),
@@ -3710,21 +3716,23 @@ impl App {
                 });
             });
     }
-    /// The tab row: Files, Schematic, Layout, Manufacture and Library, left-aligned
+    /// The tab row: Files, Schematic, Layout, Analyze, Manufacture and Library, left-aligned
     /// with the active tab underlined. Rules, Checks and Settings are reached
     /// from the File, Edit and View menus and the status bar.
     fn workbench_tabs(&mut self, ui: &mut egui::Ui) {
-        const TAB_ANCHORS: [&str; 5] = [
+        const TAB_ANCHORS: [&str; 6] = [
             "shell.tab.files",
             "shell.tab.schematic",
             "shell.tab.layout",
+            "shell.tab.analyze",
             "shell.tab.manufacture",
             "shell.tab.library",
         ];
-        let shown: [(Tab, String); 5] = [
+        let shown: [(Tab, String); 6] = [
             (Tab::Files, t!("docks.workbench_tabs.files")),
             (Tab::Schematic, t!("docks.workbench_tabs.schematic")),
             (Tab::Pcb, t!("docks.workbench_tabs.layout")),
+            (Tab::Analyze, t!("docks.workbench_tabs.analyze")),
             (Tab::PlotFiles, t!("docks.workbench_tabs.manufacture")),
             (Tab::Library, t!("docks.workbench_tabs.library")),
         ];
@@ -4239,6 +4247,11 @@ impl App {
     fn view_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button(t!("menu.view"), |ui| {
             for (tab, label, tip) in [
+                (
+                    Tab::Analyze,
+                    t!("menu.view.analyze"),
+                    t!("menu.view.analyze.tip"),
+                ),
                 (
                     Tab::Checks,
                     t!("menu.view.checks"),
@@ -7158,6 +7171,12 @@ impl App {
                 .show(ui, |ui| self.library_properties(ui));
             return;
         }
+        if self.tab == Tab::Analyze {
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| self.analyze_properties(ui));
+            return;
+        }
         if self.tab == Tab::Files {
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
@@ -7895,6 +7914,19 @@ impl App {
             // `--select row:title` (or symbols, power, drawing) opens that page row.
             self.capture_select = None;
             self.select_sheet_row(0, &row);
+        }
+        if self.frames == 3
+            && let Some(slug) = self
+                .capture_select
+                .as_deref()
+                .and_then(|s| s.strip_prefix("analyze:"))
+                .map(str::to_owned)
+        {
+            // `--select analyze:scope` (or checks pages such as electrical_checks) shows that entry.
+            self.capture_select = None;
+            if let Some(entry) = analyze::Entry::from_slug(&slug) {
+                self.analyze.entry = entry;
+            }
         }
         if self.frames == 3
             && let Some(rest) = self

@@ -402,6 +402,7 @@ impl App {
             Tab::PlotFiles => "output files",
             Tab::Files => "files",
             Tab::Library => "library",
+            Tab::Analyze => "analyze",
             Tab::Settings => "settings",
         };
         let selection = self.selected.map(|id| {

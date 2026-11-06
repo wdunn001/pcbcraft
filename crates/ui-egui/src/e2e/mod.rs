@@ -6,6 +6,7 @@ pub(crate) mod support;
 mod a11y_gate;
 mod acute_corner_drc;
 mod add_tool_preview;
+mod analyze;
 mod artifact_rows;
 mod artifacts;
 mod aside_widths;

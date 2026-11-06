@@ -64,7 +64,7 @@ impl RegionLayout {
 ///
 /// # Implementations
 /// - `crates/ui-egui/src/workspace.rs` holds `FilesWorkspace`, `LibraryWorkspace`, `SchematicWorkspace`,
-///   `LayoutWorkspace`, and `ManufactureWorkspace`.
+///   `LayoutWorkspace`, `AnalyzeWorkspace` and `ManufactureWorkspace`.
 ///
 /// # Do not
 /// Put document logic here; call `App` methods.
@@ -134,6 +134,12 @@ const LIBRARY_MACHINES_TAB: RegionTab = RegionTab {
     icon: Some(crate::ui_kit::icons::GEAR),
 };
 const LIBRARY_PAGE_TABS: [RegionTab; 2] = [PARTS_TAB, LIBRARY_MACHINES_TAB];
+const ANALYZE_TABS: [RegionTab; 1] = [RegionTab {
+    id: "analyses",
+    label: || t!("analyze.aside.title"),
+    tip: || t!("analyze.aside.title.tip"),
+    icon: None,
+}];
 const MANUFACTURE_TABS: [RegionTab; 2] = [
     RegionTab {
         id: "outputs",
@@ -168,6 +174,8 @@ pub(crate) struct SchematicWorkspace;
 pub(crate) struct LayoutWorkspace;
 /// Manufacture: outputs and machines.
 pub(crate) struct ManufactureWorkspace;
+/// Analyze: checks, signal and power analysis, instruments and rules.
+pub(crate) struct AnalyzeWorkspace;
 
 impl Workspace for FilesWorkspace {
     // Contract: this file, `Workspace`.
@@ -325,11 +333,37 @@ impl Workspace for ManufactureWorkspace {
     }
 }
 
+impl Workspace for AnalyzeWorkspace {
+    // Contract: this file, `Workspace`. The left region lists the analyses, the centre is the page
+    // of the picked one, and the right aside is drawn by `App::inspector`.
+    fn id(&self) -> &'static str {
+        "analyze"
+    }
+    fn toolbar(&self, app: &mut App, ui: &mut egui::Ui) {
+        app.analyze_toolbar(ui);
+    }
+    fn left_tabs(&self) -> &'static [RegionTab] {
+        &ANALYZE_TABS
+    }
+    fn left_body(&self, app: &mut App, tab: &str, ui: &mut egui::Ui) {
+        if tab == "analyses" {
+            app.analyze_left(ui);
+        }
+    }
+    fn center(&self, app: &mut App, ui: &mut egui::Ui) {
+        app.analyze_center(ui);
+    }
+    fn default_layout(&self) -> RegionLayout {
+        RegionLayout::new("analyses", "findings")
+    }
+}
+
 static FILES: FilesWorkspace = FilesWorkspace;
 static LIBRARY: LibraryWorkspace = LibraryWorkspace;
 static SCHEMATIC: SchematicWorkspace = SchematicWorkspace;
 static LAYOUT: LayoutWorkspace = LayoutWorkspace;
 static MANUFACTURE: ManufactureWorkspace = ManufactureWorkspace;
+static ANALYZE: AnalyzeWorkspace = AnalyzeWorkspace;
 
 /// The workspace that owns a tab, or `None` for the pages (Rules, Settings,
 /// Libraries, Checks) that are not work areas.
@@ -339,6 +373,7 @@ pub(crate) fn workspace_for(tab: Tab) -> Option<&'static dyn Workspace> {
         Tab::Library => Some(&LIBRARY),
         Tab::Schematic => Some(&SCHEMATIC),
         Tab::Pcb | Tab::Board3d => Some(&LAYOUT),
+        Tab::Analyze => Some(&ANALYZE),
         Tab::PlotFiles => Some(&MANUFACTURE),
         _ => None,
     }
@@ -386,7 +421,7 @@ impl App {
     pub(crate) fn toolbar_panel(&mut self, ui: &mut egui::Ui) {
         if !matches!(
             self.tab,
-            Tab::Files | Tab::Library | Tab::Schematic | Tab::Pcb | Tab::Board3d
+            Tab::Files | Tab::Library | Tab::Analyze | Tab::Schematic | Tab::Pcb | Tab::Board3d
         ) {
             return;
         }

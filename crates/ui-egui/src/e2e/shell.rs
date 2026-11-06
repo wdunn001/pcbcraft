@@ -1099,6 +1099,7 @@ fn a_newcomer_sees_library_after_manufacture_in_the_tab_bar() -> Result<(), Stri
         ("shell.tab.files", Tab::Files),
         ("shell.tab.schematic", Tab::Schematic),
         ("shell.tab.layout", Tab::Pcb),
+        ("shell.tab.analyze", Tab::Analyze),
         ("shell.tab.manufacture", Tab::PlotFiles),
         ("shell.tab.library", Tab::Library),
     ];
@@ -1113,7 +1114,7 @@ fn a_newcomer_sees_library_after_manufacture_in_the_tab_bar() -> Result<(), Stri
     let want: Vec<&str> = order.iter().map(|(id, _)| *id).collect();
     assert_eq!(
         read, want,
-        "the tab row reads Files, Schematic, Layout, Manufacture, Library"
+        "the tab row reads Files, Schematic, Layout, Analyze, Manufacture, Library"
     );
     // Click each tab from the far end back, so every click is a real change.
     for (id, tab) in order.iter().rev() {
