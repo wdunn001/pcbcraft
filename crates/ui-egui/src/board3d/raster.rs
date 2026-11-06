@@ -28,7 +28,6 @@
 use super::scene::{Drawable, box_corners, box_indices, prepare};
 use super::{Basis, FOV_TAN, NEAR, V, cross, dot, flip, sub, unit};
 use pcbcraft_io::{BoardMesh, MeshPart, PartKind, apply_matrix};
-use pcbcraft_io::{MaterialClass, MaterialDraw, material_surface};
 
 /// What to draw and how, besides the camera.
 #[derive(Clone, Debug, PartialEq)]
