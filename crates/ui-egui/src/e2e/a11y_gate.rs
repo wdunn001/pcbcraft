@@ -31,6 +31,8 @@ pub(crate) struct Row {
     pub undersized: usize,
     pub unreached: usize,
     pub trapped: bool,
+    pub colour_only_status: usize,
+    pub focus_order: usize,
     pub duplicate_list: Vec<String>,
     pub undersized_list: Vec<String>,
 }
@@ -95,6 +97,8 @@ fn measure(ctx: &egui::Context, app: &mut App, screen: &str) -> Row {
         .filter(|l| !exempt.iter().any(|(e, _)| l.contains(e.as_str())))
         .collect();
     row.undersized = row.undersized_list.len();
+    row.colour_only_status = count_colour_only_status(&out, app);
+    row.focus_order = check_focus_order(ctx, app, nodes.len());
     // Keyboard reach: press Tab and note every control that takes focus.
     let wanted: BTreeSet<u64> = nodes.iter().filter(|n| !n.4).map(|n| n.0).collect();
     let mut reached = BTreeSet::new();
@@ -124,7 +128,62 @@ fn measure(ctx: &egui::Context, app: &mut App, screen: &str) -> Row {
     row
 }
 
-pub(crate) fn practice() -> (egui::Context, App) {
+/// Status nodes with no text label rely on colour alone.
+pub(crate) fn count_colour_only_status(out: &egui::FullOutput, _app: &mut App) -> usize {
+    let Some(update) = &out.platform_output.accesskit_update else {
+        return 0;
+    };
+    let mut count = 0;
+    for node in update.nodes.values() {
+        if matches!(
+            node.role(),
+            egui::accesskit::Role::Status
+                | egui::accesskit::Role::Image
+                | egui::accesskit::Role::Indicator
+        ) && node.label().map_or(true, |l| l.is_empty())
+        {
+            count += 1;
+        }
+    }
+    count
+}
+
+/// Walk the Tab order and count steps that move up or left.
+fn check_focus_order(ctx: &egui::Context, app: &mut App, node_count: usize) -> usize {
+    let mut violations = 0;
+    let mut last_rect: Option<egui::Rect> = None;
+    for _ in 0..node_count.min(160) {
+        let tab = egui::Event::Key {
+            key: egui::Key::Tab,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        };
+        frame(ctx, app, vec![tab], egui::Modifiers::NONE);
+        let Some(id) = ctx.memory(|m| m.focused()) else {
+            break;
+        };
+        let Some(resp) = ctx.read_response(id) else {
+            break;
+        };
+        if let Some(prev) = last_rect {
+            let center = resp.rect.center();
+            let prev_center = prev.center();
+            if center.y < prev_center.y - 10.0 {
+                violations += 1;
+            } else if (center.y - prev_center.y).abs() < 10.0 {
+                if center.x < prev_center.x - 10.0 {
+                    violations += 1;
+                }
+            }
+        }
+        last_rect = Some(resp.rect);
+    }
+    violations
+}
+
+fn practice() -> (egui::Context, App) {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
@@ -218,6 +277,8 @@ fn write_report(rows: &[Row]) {
                 "screen": r.screen, "controls": r.controls, "unnamed": r.unnamed,
                 "duplicate_names": r.duplicate_names, "undersized": r.undersized,
                 "unreached": r.unreached, "trapped": r.trapped,
+                "colour_only_status": r.colour_only_status,
+                "focus_order": r.focus_order,
                 "duplicates": r.duplicate_list,
             })
         })
@@ -258,6 +319,8 @@ fn a11y_walk_stays_within_the_ratchet() -> Result<(), String> {
             ("unreached-by-tab", r.unreached),
             ("focus-trap", usize::from(r.trapped)),
             ("undersized", r.undersized),
+            ("colour-only", r.colour_only_status),
+            ("focus-order", r.focus_order),
         ] {
             if now > 0 {
                 now_lines.push(format!("{kind} | {} | {now} | ", r.screen));
