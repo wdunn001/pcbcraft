@@ -4,6 +4,7 @@
 pub(crate) mod support;
 
 mod a11y_gate;
+mod acute_corner_drc;
 mod add_tool_preview;
 mod artifact_rows;
 mod artifacts;
@@ -16,6 +17,7 @@ mod board3d;
 mod board_shape;
 mod board_side;
 mod bom_flavours;
+mod browser_limits;
 mod builds;
 mod checks;
 mod compare;
@@ -63,6 +65,7 @@ mod project_settings;
 mod route_drag;
 mod rules;
 mod rules_dialog;
+mod samtec_manufacturer;
 mod schematic_add;
 mod schematic_label_edit;
 mod schematic_labels;

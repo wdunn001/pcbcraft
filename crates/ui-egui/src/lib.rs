@@ -917,6 +917,9 @@ struct Preferences {
     /// `installed`, `online`).
     #[serde(default)]
     library_sources_off: Vec<String>,
+    /// Show vendor and marketplace features; off hides every such control.
+    #[serde(default)]
+    vendor_integrations_enabled: bool,
 }
 fn default_units() -> String {
     "mm".into()
@@ -994,6 +997,7 @@ impl Default for Preferences {
             board_grid_mm: default_board_grid_mm(),
             number_format: 0,
             library_sources_off: Vec::new(),
+            vendor_integrations_enabled: false,
         }
     }
 }
@@ -8253,13 +8257,31 @@ impl eframe::App for App {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, "preferences", &self.preferences);
         self.assistant_save();
-        #[cfg(target_arch = "wasm32")]
-        if let Ok(session) = self.session.lock()
-            && let Ok(text) = serde_json::to_string(&session.project)
-            && text.len() <= pcbcraft_io_limit()
+        if self.browser
+            && let Ok(session) = self.session.lock()
         {
-            storage.set_string("recovery", text);
+            store_recovery(storage, &session.project);
         }
+    }
+}
+
+/// Write the open project into the browser's page storage under the key `recovery`.
+///
+/// The browser keeps no files, so this copy is how a reload brings the work back: the
+/// web entry point reads the same key before it builds the first session. A project over
+/// the size limit is not stored and the earlier copy stays.
+///
+/// # Rules
+/// - Called from `App::save` for the browser build only; the desktop build uses the
+///   recovery folder instead.
+///
+/// # Dependencies
+/// - apps/pcbcraft-web/src/main.rs (`opening_session` reads the key back)
+pub(crate) fn store_recovery(storage: &mut dyn eframe::Storage, project: &pcbcraft_doc::Project) {
+    if let Ok(text) = serde_json::to_string(project)
+        && text.len() <= pcbcraft_io_limit()
+    {
+        storage.set_string("recovery", text);
     }
 }
 
@@ -8307,7 +8329,6 @@ fn recovery_slots(
     }
 }
 
-#[cfg(target_arch = "wasm32")]
 fn pcbcraft_io_limit() -> usize {
     8 * 1024 * 1024
 }
@@ -10256,3 +10277,14 @@ mod tests {
 
 #[cfg(test)]
 mod e2e;
+
+#[cfg(test)]
+mod vendor_integrations_tests {
+    use super::*;
+
+    #[test]
+    fn vendor_integrations_off_by_default() {
+        let prefs = Preferences::default();
+        assert!(!prefs.vendor_integrations_enabled);
+    }
+}
