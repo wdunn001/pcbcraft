@@ -7,7 +7,7 @@
 import { readdirSync, readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, statSync } from 'node:fs';
 import { join, dirname, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { checkMap, pageSlug } from './docs-map-core.mjs';
+import { checkMap, isExcluded, pageSlug } from './docs-map-core.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const siteDir = join(here, '..');
@@ -57,7 +57,7 @@ function rewriteLinks(body, file, map) {
         }
         const alt = map.siteLinks?.[target];
         if (alt) return `[${text}](${posix.relative(`/docs/${from}/`, `/docs/${alt}/`)}/${anchor})`;
-        if (map.excluded[target]) return text;
+        if (isExcluded(map, target)) return text;
         const inRepo = posix.normalize(posix.join('docs', target));
         if (inRepo.startsWith('..')) return text;
         const kind = existsSync(join(siteDir, '..', inRepo)) && statSync(join(siteDir, '..', inRepo)).isDirectory() ? 'tree' : 'blob';

@@ -80,6 +80,7 @@ mod rules_fab;
 mod schematic_port;
 mod selection;
 mod setup_wizard;
+mod shape_preview;
 mod sheet_lit;
 mod sheet_rows;
 mod sheet_shape_tool;
@@ -2049,6 +2050,7 @@ impl App {
             .and_then(|s| eframe::get_value(s, "preferences"))
             .unwrap_or_default();
         preferences.normalize_keymaps();
+        workspace::migrate_layouts(&mut preferences.layouts);
         if light {
             preferences.dark = false;
         }

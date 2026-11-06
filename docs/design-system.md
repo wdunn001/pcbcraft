@@ -5,7 +5,7 @@ Status: accepted by the maintainer. Page by page layouts are in [page-layouts.md
 The app is a dockable workbench with one frame for every page:
 
 1. menu bar (brand, File, Edit, View, Help)
-2. tab nav, work areas only: Files, Schematic, Layout, Manufacture, Library (3D is the 2D | 3D toggle in the Layout view card, not a tab)
+2. tab nav, work areas only: Files, Schematic, Layout, Analyze, Manufacture, Library (3D is the 2D | 3D toggle in the Layout view card, not a tab)
 3. tool bar, one row, changes per tab
 4. left aside: Layers | Library tabs on Schematic and Layout, Outputs | Machines on Manufacture, Layers | Library on Files
 5. centre work area (canvas or page)
@@ -23,7 +23,7 @@ Where the old tabs went: Checks is the bottom sheet Findings tab (Run checks but
 
 1. No developer text in the UI. Not revision counters, key hint strings, crate or command names, scope paragraphs, "Tool: Pick", "rev 16". Key hints live in tooltips and in Help, Shortcuts. Long explanations live behind a disclosure ("About these checks") or a tooltip.
 2. Every control has a visible plain label, or if it is an icon button, a tooltip and an accessible name. Labels are one to three words: Add, Apply, Hide, Mute, Save, Show. The effect goes in the tooltip.
-3. A panel shows only what is relevant to the active tab. Layers tree: schematic objects on Schematic, board layers on Layout, output tree on Manufacture. Physical board setup (finish, thickness, substrate, plated edge, stackup) lives only in File > Project settings, Board and stackup.
+3. A panel shows only what is relevant to the active tab. Layers tree: schematic objects on Schematic, board layers on Layout, output tree on Manufacture. Physical board setup (finish, thickness, substrate, plated edge, stackup) lives only in File > Project settings, Board. The board is a free-form closed path a machine cuts: its tab shows the shape, never a width or height setting, and a rectangle is only a template (Start from a rectangle).
 4. Sub-views are tabs at the top of their region (page tabs, aside tabs, sheet tabs). Never a rail, never a button strip in the middle of a page.
 5. Show state in text or shape as well as colour (warning triangle plus word, eye icon plus dimmed row).
 6. Empty states explain what is missing and offer one button.
@@ -252,7 +252,7 @@ PCBCraft pins the shared UI library of the companion CAD app. Anything that libr
 
 **Panel tabs.** The left aside keeps Layers | Library tabs on Schematic and Layout: the Library panel finds and places parts. The Library tab in the tab nav is a separate full workspace (part browser, datasheet reader, vendor prices, source editing, symbol and footprint editors, compare view).
 
-**Files tab.** Its own workspace: a tool bar of New, Open, Save, Import, Export and Open sample project; the Library in the left aside; the project summary, Project files, Made files and Recent projects in the centre; project Properties on the right.
+**Files tab.** Its own workspace: a tool bar of New, Open, Save, Import, Export and Open sample project; the project files tree (Files and History tabs) in the left aside; the project header, the Parts, Nets, Board shape and Checks cards with their links, Shape of each layer, Next and Recent projects in the centre; project Properties on the right, where Properties shows the Shape (read only outline, corners and reach) and never a board width or height. The Board shape card draws the outline with the shared painter in `crates/ui-egui/src/shape_preview.rs`.
 
 **Mockup table.** Accepted mockups are attached to these issues on wdunn001/pcbcraft and are not committed. Open the issue to see the image.
 
