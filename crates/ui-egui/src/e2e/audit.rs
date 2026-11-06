@@ -294,14 +294,12 @@ fn walk(path: &Path) {
         ("rules", None, Some(Tab::Rules)),
         ("checks", None, Some(Tab::Checks)),
         ("settings", None, Some(Tab::Settings)),
-        ("libraries", None, Some(Tab::Libraries)),
-        ("symbol-editor", Some("symbol-editor"), None),
-        ("footprint-editor", Some("footprint-editor"), None),
-        ("project-library", Some("project-library"), None),
+        ("library-sources", Some("libraries"), None),
+        ("library-collections", Some("project-library"), None),
+        ("library-editor", Some("symbol-editor"), None),
         ("preferences-appearance", None, Some(Tab::Pcb)),
         ("preferences-language", None, Some(Tab::Pcb)),
         ("preferences-keys", None, Some(Tab::Pcb)),
-        ("preferences-libraries", None, Some(Tab::Pcb)),
         ("preferences-assistant", None, Some(Tab::Pcb)),
     ];
     let mut painted: BTreeMap<String, &str> = BTreeMap::new();
@@ -323,7 +321,14 @@ fn walk(path: &Path) {
         }
         TALL_SCREEN.with(|tall| tall.set(true));
         settle(&ctx, &mut app);
-        if tab == Some(Tab::Libraries) {
+        if name == "library-sources" {
+            // The folder list is read on a worker thread; list the page once it is in.
+            let _ = super::support::waits_until(&ctx, &mut app, |app| {
+                app.library.sources.is_some() && app.library.pending.is_none()
+            });
+            settle(&ctx, &mut app);
+        }
+        if name == "library-collections" {
             // The collection browser reads its folders on a worker thread;
             // list the page only once that answer is in, so every run sees
             // the same controls.

@@ -441,9 +441,7 @@ impl App {
                 .cloned()
             {
                 self.library.editor.draft = Some(authoring::Draft::Footprint(def));
-                self.library.editor.mode = 2;
-                self.library.editor.notice = None;
-                self.change_tab(Tab::Libraries);
+                self.library_show_editor();
             }
             return;
         }

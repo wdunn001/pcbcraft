@@ -64,8 +64,6 @@ menu.settings.pad_labels.tip = Elige qué va en el centro de cada pad de la plac
 menu.settings.pad_labels.number.tip = Dibujar en la placa el número de cada pad.
 menu.settings.pad_labels.net.tip = Dibujar el nombre de la red en cada pad, útil al depurar.
 menu.settings.pad_labels.off.tip = Ocultar las etiquetas de pads para una vista limpia.
-menu.settings.library_sources = Fuentes de las librerías…
-menu.settings.library_sources.tip = Administrar las carpetas que alimentan la lista de componentes.
 menu.settings.language.system = Idioma del sistema
 menu.settings.language.system.tip = Seguir el idioma de esta computadora.
 

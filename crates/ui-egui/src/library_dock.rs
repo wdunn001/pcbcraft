@@ -734,6 +734,9 @@ impl App {
         }
         if !self.dock.hide_installed && self.dock.tag.is_none() {
             for item in &self.dock.items {
+                if self.library_folder_off(&item.path) {
+                    continue;
+                }
                 cards.push(Card::Installed(item.clone()));
             }
         }

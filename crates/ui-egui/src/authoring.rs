@@ -133,12 +133,7 @@ impl Editor {
 /// Create an editor for the tab named, loading the first library item if needed.
 pub(super) fn initial_editor(tab: Option<&str>, project: &Project) -> Editor {
     match tab {
-        Some("project-library") => Editor {
-            mode: 1,
-            ..Default::default()
-        },
         Some("symbol-editor") => Editor {
-            mode: 2,
             draft: Some(Draft::Symbol(
                 project
                     .library
@@ -151,7 +146,6 @@ pub(super) fn initial_editor(tab: Option<&str>, project: &Project) -> Editor {
             ..Default::default()
         },
         Some("footprint-editor") => Editor {
-            mode: 2,
             draft: Some(Draft::Footprint(
                 project
                     .library
@@ -1435,64 +1429,22 @@ impl App {
         }
     }
 
-    /// Library workspace selector and new item buttons.
-    ///
-    /// Provides tabs to switch between library browser and editor views,
-    /// plus buttons to create new symbols, footprints, or run the footprint
-    /// generation wizard.
+    /// The Collections page of the Library tab: new item buttons, the folder collections and the
+    /// definitions saved in this project, the datasheet reader and the starter symbols.
     ///
     /// # Rules
-    /// - Mode 0 is the library browser; mode 2 is the editor.
-    /// - Creating a new item switches to editor mode and clears notices.
+    /// - Mode 1 shows the datasheet reader while one is open; every other mode shows the lists.
+    /// - New symbol, New footprint and Generate footprint open the editor on the Edit page.
+    /// - Folders are added and removed on the Sources page, not here.
     ///
     /// # Dependencies
-    /// - crates/text/strings/en.txt (library.workspaces string keys)
+    /// - crates/ui-egui/src/library_workspace/mod.rs (`Page::Edit`)
+    /// - crates/text/strings/en.txt (library.library_workspaces string keys)
     ///
     /// # Do not
-    /// - Change the mode values without updating all mode comparisons.
-    pub(super) fn library_workspaces(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.selectable_value(
-                &mut self.library.editor.mode,
-                0,
-                t!("library.library_workspaces.library"),
-            )
-            .on_hover_text(t!("library.library_workspaces.library.tip"));
-            ui.selectable_value(
-                &mut self.library.editor.mode,
-                2,
-                t!("library.library_workspaces.editor"),
-            )
-            .on_hover_text(t!("library.library_workspaces.editor.tip"));
-            if ui
-                .button(t!("library.library_workspaces.new_symbol"))
-                .on_hover_text(t!("library.library_workspaces.new_symbol.tip"))
-                .clicked()
-            {
-                self.library.editor.draft = Some(Draft::Symbol(new_symbol()));
-                self.library.editor.mode = 2;
-                self.library.editor.notice = None;
-                self.library.editor.needs_fit = true;
-            }
-            if ui
-                .button(t!("library.library_workspaces.new_footprint"))
-                .on_hover_text(t!("library.library_workspaces.new_footprint.tip"))
-                .clicked()
-            {
-                self.library.editor.draft = Some(Draft::Footprint(new_footprint()));
-                self.library.editor.mode = 2;
-                self.library.editor.notice = None;
-                self.library.editor.needs_fit = true;
-            }
-            if ui
-                .button(t!("library.library_workspaces.generate_footprint"))
-                .on_hover_text(t!("library.library_workspaces.generate_footprint.tip"))
-                .clicked()
-            {
-                self.library.editor.wizard.open = true;
-                self.library.editor.mode = 2;
-            }
-        });
+    /// - Draw the editor here; the Edit page owns it.
+    pub(crate) fn library_collections_page(&mut self, ui: &mut egui::Ui) {
+        self.library_new_item_buttons(ui);
         ui.separator();
         match self.library.editor.mode {
             1 if self.datasheet.open => {
@@ -1503,32 +1455,77 @@ impl App {
                     &mut self.library.editor.mode,
                 );
             }
-            2 => self.library_editor(ui),
             _ => {
                 self.library.editor.mode = 0;
-                self.unified_library(ui)
+                self.unified_library(ui);
+                self.library_starter_symbols(ui);
             }
         }
     }
-    /// One library page: every collection from every added or installed
-    /// source, then the definitions this project can edit, in one scroll.
+    /// The row of New symbol, New footprint and Generate footprint buttons.
+    ///
+    /// # Rules
+    /// - Each one opens the editor on the Edit page with a fresh draft or the wizard.
+    pub(crate) fn library_new_item_buttons(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            if ui
+                .button(t!("library.library_workspaces.new_symbol"))
+                .on_hover_text(t!("library.library_workspaces.new_symbol.tip"))
+                .clicked()
+            {
+                self.library.editor.draft = Some(Draft::Symbol(new_symbol()));
+                self.library_show_editor();
+            }
+            if ui
+                .button(t!("library.library_workspaces.new_footprint"))
+                .on_hover_text(t!("library.library_workspaces.new_footprint.tip"))
+                .clicked()
+            {
+                self.library.editor.draft = Some(Draft::Footprint(new_footprint()));
+                self.library_show_editor();
+            }
+            if ui
+                .button(t!("library.library_workspaces.generate_footprint"))
+                .on_hover_text(t!("library.library_workspaces.generate_footprint.tip"))
+                .clicked()
+            {
+                self.library.editor.wizard.open = true;
+                self.library_show_editor();
+            }
+        });
+    }
+    /// Show the editor on the Library tab's Edit page.
+    ///
+    /// # Rules
+    /// - Clears the notice and fits the drawing on the next frame.
+    pub(crate) fn library_show_editor(&mut self) {
+        self.library.editor.notice = None;
+        self.library.editor.needs_fit = true;
+        self.libws.page = library_workspace::Page::Edit;
+        self.set_library_left_tab("library");
+        if self.tab != Tab::Library {
+            self.change_tab(Tab::Library);
+        }
+    }
+    /// One library page: the definitions this project can edit, then every
+    /// collection from every added or installed source, in one scroll.
     ///
     /// Combines the collection browser and project library into a single
     /// scrollable view for browsing and managing all library content.
     ///
     /// # Rules
-    /// - Collections are listed first, then project definitions.
+    /// - Project definitions are listed first, then collections.
     /// - A separator divides the two sections.
     ///
     /// # Dependencies
     /// - crates/ui-egui/src/authoring.rs (collection_browser, project_library)
     ///
     /// # Do not
-    /// - Change the order of collection browser vs project library.
+    /// - Change the order of project library vs collection browser; the stories scroll only a little.
     pub(super) fn unified_library(&mut self, ui: &mut egui::Ui) {
-        self.collection_browser(ui);
-        ui.separator();
         self.project_library(ui);
+        ui.separator();
+        self.collection_browser(ui);
     }
     fn project_library(&mut self, ui: &mut egui::Ui) {
         ui.heading(t!("library.project_library.this_project_s_definitions"));
@@ -1618,9 +1615,7 @@ impl App {
                     .clicked()
                 {
                     self.library.editor.draft = Some(Draft::Symbol(def.clone()));
-                    self.library.editor.mode = 2;
-                    self.library.editor.notice = None;
-                    self.library.editor.needs_fit = true;
+                    self.library_show_editor();
                 }
                 let supported = pcbcraft_doc::library_component(
                     def.clone(),
@@ -1711,9 +1706,7 @@ impl App {
                     .clicked()
                 {
                     self.library.editor.draft = Some(Draft::Footprint(def.clone()));
-                    self.library.editor.mode = 2;
-                    self.library.editor.notice = None;
-                    self.library.editor.needs_fit = true;
+                    self.library_show_editor();
                 }
                 let selected = self.selected.and_then(|id| self.project.component(id));
                 let matching = selected.is_some_and(|c| {
@@ -2237,6 +2230,7 @@ pub(crate) mod tests {
             "Settings" => ("View", "Board settings"),
             "Rules" => ("View", "Rules"),
             "Checks" => ("View", "Checks"),
+            "Library sources" => ("View", "Library sources\u{2026}"),
             other => return Err(format!("{other} is not a page in a menu")),
         };
         tap(ctx, app, menu)?;
@@ -2417,6 +2411,8 @@ pub(crate) mod tests {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
         let mut app = App::create(shared.clone(), Preferences::default(), None, Some(kind));
         app.refresh();
+        // The Library tab has more chrome than the old page: give the editor a tall screen.
+        crate::e2e::support::TALL_SCREEN.with(|tall| tall.set(true));
         Ok((shared, app, egui::Context::default()))
     }
     #[test]
@@ -2503,14 +2499,14 @@ pub(crate) mod tests {
     {
         let (shared, mut app, ctx) = editor("symbol-editor")?;
         tap(&ctx, &mut app, "Save symbol to project library")?;
-        tap(&ctx, &mut app, "Library")?;
+        tap(&ctx, &mut app, "Collections")?;
         tap(&ctx, &mut app, "Edit")?;
         assert_eq!(
             draft_symbol(&app)?.name,
             "NewSymbol",
             "Edit reopens the very definition that was saved"
         );
-        tap(&ctx, &mut app, "Library")?;
+        tap(&ctx, &mut app, "Collections")?;
         tap(&ctx, &mut app, "Remove")?;
         let session = shared.lock().map_err(|_| "session unavailable")?;
         assert!(
@@ -2529,7 +2525,7 @@ pub(crate) mod tests {
         let _ = std::fs::remove_file(&file);
         let (shared, mut app, ctx) = editor("symbol-editor")?;
         tap(&ctx, &mut app, "Save symbol to project library")?;
-        tap(&ctx, &mut app, "Library")?;
+        tap(&ctx, &mut app, "Collections")?;
         app.library.editor.path = file.to_string_lossy().into_owned();
         tap(&ctx, &mut app, "Save library")?;
         assert!(
@@ -2550,7 +2546,7 @@ pub(crate) mod tests {
         );
         app2.refresh();
         let ctx2 = egui::Context::default();
-        app2.library.editor.mode = 0;
+        app2.open_library_collections();
         app2.library.editor.path = file.to_string_lossy().into_owned();
         tap(&ctx2, &mut app2, "Load library")?;
 

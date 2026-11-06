@@ -22,6 +22,7 @@ pub(crate) fn reads_the_design(id: &str) -> bool {
             | "board.materials"
             | "board.panel"
             | "board.statistics"
+            | "board.layer_shapes"
             | "board.select_connected"
             | "board.select_net"
             | "net.members"

@@ -782,7 +782,6 @@ enum Tab {
     Rules,
     Checks,
     Settings,
-    Libraries,
     PlotFiles,
     Library,
 }
@@ -2127,8 +2126,9 @@ impl App {
                 Some("settings") => Tab::Settings,
                 Some("plots") => Tab::PlotFiles,
                 Some("3d") => Tab::Board3d,
+                // Names of the old Libraries page: it is the Library tab now.
                 Some("libraries" | "project-library" | "symbol-editor" | "footprint-editor") => {
-                    Tab::Libraries
+                    Tab::Library
                 }
                 _ => Tab::Schematic,
             },
@@ -2378,6 +2378,14 @@ impl App {
             sheet_text_input: String::new(),
         };
         app.apply_library_source_prefs();
+        match tab {
+            Some("libraries") => app.libws.page = library_workspace::Page::Sources,
+            Some("symbol-editor" | "footprint-editor") => {
+                app.libws.page = library_workspace::Page::Edit;
+            }
+            Some("project-library") => app.libws.page = library_workspace::Page::Collections,
+            _ => {}
+        }
         app
     }
     fn tour_modal_open(&self) -> bool {
@@ -2809,7 +2817,7 @@ impl App {
                 .find(|f| f.component == c.id)
                 .map(|f| f.id);
         }
-        if (tab == Tab::Schematic || tab == Tab::Libraries)
+        if tab == Tab::Schematic
             && let Some(f) = self.selected.and_then(|id| self.project.footprint(id))
         {
             self.selected = Some(f.component);
@@ -4259,6 +4267,14 @@ impl App {
                 }
             }
             if ui
+                .button(t!("menu.view.library_sources"))
+                .on_hover_text(t!("menu.view.library_sources.tip"))
+                .clicked()
+            {
+                self.open_library_sources();
+                ui.close();
+            }
+            if ui
                 .button(t!("menu.view.reset_layout"))
                 .on_hover_text(t!("menu.view.reset_layout.tip"))
                 .clicked()
@@ -4367,7 +4383,7 @@ impl App {
             }
             return;
         }
-        self.change_tab(Tab::Libraries);
+        self.open_library_collections();
         self.library.editor.mode = 1;
         self.datasheet.open_source(ctx, url);
     }
@@ -4422,7 +4438,7 @@ impl App {
     }
     /// True when the window is too narrow to put the library dock beside the
     /// drawing (WCAG 1.4.10 reflow at 320 points). The dock steps aside and the
-    /// Lib button opens the Libraries page instead.
+    /// Lib button opens the Library tab instead.
     fn narrow_window(ctx: &egui::Context) -> bool {
         aside::is_narrow(ctx.content_rect().width())
     }
@@ -4963,18 +4979,6 @@ impl App {
     }
     /// Room for a full-page panel to breathe: wide side margins and one
     /// readable column, so nothing sits flush against the window edge.
-    /// Padding for a full-width tab body: 16 px at the sides, 12 above.
-    fn padded<T>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> T) -> T {
-        egui::Frame::NONE
-            .inner_margin(egui::Margin {
-                left: 28,
-                right: 16,
-                top: 12,
-                bottom: 12,
-            })
-            .show(ui, add)
-            .inner
-    }
     fn margined<T>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> T) -> T {
         egui::Frame::NONE
             .inner_margin(egui::Margin::symmetric(28, 20))
@@ -7754,8 +7758,8 @@ impl App {
                 });
         }
     }
-    fn library(&mut self, ui: &mut egui::Ui) {
-        self.library_workspaces(ui);
+    /// The collapsed list of the original starter symbols, with a place button each.
+    pub(crate) fn library_starter_symbols(&mut self, ui: &mut egui::Ui) {
         ui.collapsing(t!("library.library.original_starter_symbols"), |ui| {
             for t in TEMPLATES {
                 egui::Frame::group(ui.style())
@@ -7951,14 +7955,19 @@ impl App {
             self.capture_scene();
         }
         ui_kit::menu::request_capture(ctx, self.capture_menu_tag.as_deref());
-        let library_ready = self.tab != Tab::Libraries
+        let library_ready = !(self.tab == Tab::Library
+            && self.libws.page == library_workspace::Page::Collections)
             || self.library.editor.mode != 0
             || (self.library.catalog.is_some()
                 && (self.library.results.is_some() || self.library.path.is_empty())
                 && self.library.pending.is_none());
+        let sources_ready = !(self.tab == Tab::Library
+            && self.libws.page == library_workspace::Page::Sources)
+            || (self.library.sources.is_some() && self.library.pending.is_none());
         if self.capture.is_some()
             && self.frames >= 5
             && library_ready
+            && sources_ready
             && self.online_settled()
             && self.edit.dialog.script.ready()
             // A staged dialog fades in; wait until it is fully drawn.
@@ -8215,11 +8224,6 @@ impl App {
                         workspace.center(self, ui);
                     } else {
                         match self.tab {
-                            Tab::Libraries => {
-                                egui::ScrollArea::vertical()
-                                    .show(ui, |ui| Self::padded(ui, |ui| self.library(ui)))
-                                    .inner
-                            }
                             Tab::Rules => {
                                 egui::ScrollArea::vertical()
                                     .show(ui, |ui| Self::margined(ui, |ui| self.rules_tab(ui)));
@@ -8481,15 +8485,13 @@ mod tests {
         let file = config.file("library-sources.json")?;
         let shared = e2e::support::session_with(config);
         let mut app = App::create(shared, Preferences::default(), None, None);
-        app.change_tab(Tab::Libraries);
+        app.open_library_sources();
         app.refresh();
         let ctx = egui::Context::default();
-        frames_until(&ctx, &mut app, 400, |app| {
-            app.library.catalog.is_some() && app.library.sources.is_some()
-        });
+        frames_until(&ctx, &mut app, 400, |app| app.library.sources.is_some());
         assert!(
-            app.library.catalog.is_some(),
-            "the catalog arrives on its own"
+            app.library.sources.is_some(),
+            "the folder listing arrives on its own"
         );
         let shelf = std::fs::canonicalize(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../library/tests/fixtures"),
@@ -8513,40 +8515,12 @@ mod tests {
             "the folder is remembered in the config file"
         );
         let listed = frames_until(&ctx, &mut app, 400, |app| {
-            app.library
-                .catalog
-                .as_ref()
-                .and_then(|catalog| catalog.get("symbol_libraries"))
-                .and_then(Value::as_array)
-                .is_some_and(|libs| {
-                    libs.iter().any(|lib| {
-                        lib.get("path")
-                            .and_then(Value::as_str)
-                            .is_some_and(|path| path.starts_with(&shelf))
-                    })
-                })
+            app.library_source_rows()
+                .iter()
+                .any(|row| row.folder.as_deref().is_some_and(|f| f.starts_with(&shelf)))
         });
-        assert!(
-            listed,
-            "the added folder's collections join the unified list"
-        );
-        let added_path = app
-            .library
-            .catalog
-            .as_ref()
-            .and_then(|catalog| catalog.get("symbol_libraries"))
-            .and_then(Value::as_array)
-            .and_then(|libs| {
-                libs.iter().find_map(|lib| {
-                    lib.get("path")
-                        .and_then(Value::as_str)
-                        .filter(|path| path.starts_with(&shelf))
-                        .map(str::to_owned)
-                })
-            })
-            .ok_or("the added collection vanished from the list")?;
-        app.library.path = added_path;
-        let removed = press_until(&ctx, &mut app, "Remove source", |app| {
+        assert!(listed, "the added folder is a row of the Sources table");
+        let removed = press_until(&ctx, &mut app, "Remove", |app| {
             app.library.notice.contains("Removed")
         })?;
         assert!(removed, "removal reports back: {}", app.library.notice);
@@ -8678,11 +8652,7 @@ mod tests {
         authoring::tests::tap(&ctx, &mut app, "Back to a plain rectangle")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
-            app.project
-                .board
-                .outline
-                .as_ref()
-                .is_none_or(|o| o.len() < 3),
+            app.project.board.outline.as_ref().map_or(0, |o| o.len()) == 4,
             "the board is a plain rectangle again"
         );
         let _ = std::fs::remove_file(&file);
@@ -9003,7 +8973,7 @@ mod tests {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
         let mut app = App::create(shared, Preferences::default(), None, None);
         app.refresh();
-        app.change_tab(Tab::Libraries);
+        app.open_library_collections();
         app.library.editor.mode = 1; // an old split-view selection
         let ctx = egui::Context::default();
         let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
@@ -9043,7 +9013,7 @@ mod tests {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
         let mut app = App::create(shared, Preferences::default(), None, None);
         app.refresh();
-        app.change_tab(Tab::Libraries);
+        app.open_library_collections();
         app.library.catalog = Some(json!({"symbol_libraries":[
             {"name":"Device","path":"/installed/Device.kicad_sym","source":"Installed collections"},
             {"name":"DigiKeyParts","path":"/home/me/digikey/DigiKeyParts.kicad_sym","source":"Digi-Key shelf"}
@@ -9847,7 +9817,7 @@ mod tests {
         );
 
         // Step 3: every tab paints, and each one shows something useful.
-        for tab in [Tab::Pcb, Tab::Libraries, Tab::Checks, Tab::Schematic] {
+        for tab in [Tab::Pcb, Tab::Library, Tab::Checks, Tab::Schematic] {
             app.change_tab(tab);
             let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
             assert_eq!(
@@ -9983,7 +9953,7 @@ mod tests {
                 .first()
                 .is_some_and(|c| c.library_symbol.is_some())
         );
-        app.change_tab(Tab::Libraries);
+        app.change_tab(Tab::Schematic);
         assert_eq!(app.selected, project.components.first().map(|c| c.id));
         let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert_eq!(output.viewport_output.len(), 1);
