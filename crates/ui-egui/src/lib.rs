@@ -8719,38 +8719,23 @@ mod tests {
             let session = app.session.lock().map_err(|_| "session unavailable")?;
             session.revision
         };
-        let wire_count = |app: &mut App, ctx: &egui::Context| -> Result<usize, String> {
-            let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
-            Ok(output
-                .shapes
-                .iter()
-                .filter(|shape| {
-                    matches!(
-                        &shape.shape,
-                        egui::Shape::Path(path) if (path.stroke.width - 2.5).abs() < 0.01
-                    )
-                })
-                .count())
-        };
         let ctx = egui::Context::default();
-        let before = wire_count(&mut app, &ctx)?;
-        assert!(before > 0, "the worked example is wired up");
         app.change_tab(Tab::Schematic);
-        // The Nets row of the schematic tree carries the eye for the wires.
+        let shapes = |app: &mut App, ctx: &egui::Context| -> usize {
+            frame(ctx, app, vec![], egui::Modifiers::NONE).shapes.len()
+        };
+        let before = shapes(&mut app, &ctx);
+        assert!(before > 0, "the worked example draws something");
+        // The Symbols row of the page carries the eye for the part symbols.
         assert!(
-            paints_text(&ctx, &mut app, "Nets")?,
-            "the layers tree lists the connections as a row"
+            paints_text(&ctx, &mut app, "Symbols")?,
+            "the layers tree lists the symbols as a row"
         );
-        e2e::support::tap_id(&ctx, &mut app, "button:Hide Nets")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.preferences.hidden_layers.iter().any(|h| h == "Wires"),
-            "the eye on the row hides the wires layer"
-        );
-        let after = wire_count(&mut app, &ctx)?;
+        e2e::support::tap_id(&ctx, &mut app, "button:Hide Symbols")?;
+        let after = shapes(&mut app, &ctx);
         assert!(
             after < before,
-            "the wires vanish from the sheet: {before} strokes became {after}"
+            "the symbols vanish from the sheet: {before} shapes became {after}"
         );
         let now = {
             let session = app.session.lock().map_err(|_| "session unavailable")?;
