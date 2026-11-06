@@ -1823,15 +1823,7 @@ impl App {
         let shown = |name: &str| self.layer_shown(name);
         let row_shown = |row: &str| self.page_row_shown(page, row);
         let sc = sheet::SheetColours::for_theme(self.colours().dark);
-        let mut sheet_frame = sheet::sheet_for(p, page);
-        // The title block names the page being drawn, not always the first.
-        sheet_frame.page = 1 + p
-            .sheets
-            .iter()
-            .position(|s| s.id == page)
-            .map_or(0, |i| i + 1);
-        sheet_frame.title_shown &= row_shown("title");
-        sheet_frame.title_shown &= row_shown("title");
+        let sheet_frame = sheet::sheet_for(p, page);
         sheet::paint_sheet(
             painter,
             rect,
@@ -1931,12 +1923,11 @@ impl App {
             .labels
             .iter()
             .filter(|l| on_page(p, page, l.id))
-            .filter(|l| {
-                if l.kind == "power" {
-                    row_shown("power")
-                } else {
-                    shown("Net labels")
-                }
+            .filter(|l| match l.kind.as_str() {
+                "power" => row_shown("power"),
+                "bus" => shown("Net labels") && row_shown("buses"),
+                "junction" => shown("Net labels"),
+                _ => shown("Net labels") && row_shown("labels"),
             })
         {
             let at = camera.screen(l.position, rect);

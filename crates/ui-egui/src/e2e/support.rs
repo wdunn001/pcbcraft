@@ -666,7 +666,7 @@ pub(crate) fn flips_to(
 }
 
 /// Screen column right of which the Properties dock sits.
-const PROPERTIES_LEFT: f32 = 1000.0;
+pub(crate) const PROPERTIES_LEFT: f32 = 1000.0;
 
 /// Click the control the gate calls `id`, like a person pressing it.
 pub(crate) fn tap_id(ctx: &egui::Context, app: &mut App, id: &str) -> Result<(), String> {
