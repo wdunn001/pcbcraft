@@ -54,10 +54,11 @@ target = "region.schematic.library"
 title = "tour.place_a_part.library_tab.title"
 body = "tour.place_a_part.library_tab.body"
 placement = "right"
+wait_for = "click:region.schematic.library"
 
 [[tour.steps]]
 id = "search"
-target = "shell.schematic.library.search"
+target = "schematic.library.search"
 title = "tour.place_a_part.search.title"
 body = "tour.place_a_part.search.body"
 placement = "bottom"
@@ -72,7 +73,7 @@ wait_for = "document_changed"
 
 [[tour.steps]]
 id = "inspector"
-target = "shell.schematic.part.inspector"
+target = "schematic.inspector"
 title = "tour.place_a_part.inspector.title"
 body = "tour.place_a_part.inspector.body"
 placement = "left"

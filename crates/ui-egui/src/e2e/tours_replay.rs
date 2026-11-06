@@ -239,7 +239,12 @@ fn perform_wait(
         }
         _ if wait.starts_with("click:") => {
             let anchor = wait.strip_prefix("click:").unwrap_or("");
-            tap_id(ctx, app, anchor).or_else(|_| {
+            let by_anchor = anchor::lookup(ctx, anchor).map(|rect| tap_at(ctx, app, rect.center()));
+            match by_anchor {
+                Some(done) => done,
+                None => tap_id(ctx, app, anchor),
+            }
+            .or_else(|_| {
                 if let Some((menu, item)) = anchor.split_once('.') {
                     let menu = menu.replace('_', " ");
                     let item = item.replace('_', " ");
