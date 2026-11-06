@@ -131,7 +131,7 @@ pub(crate) struct State {
     rows: Vec<egui::Id>,
     /// What the last Files action said when it failed.
     /// Loading a project: Some(step) means loading is in progress at this step.
-    loading_step: Option<usize>,
+    pub(crate) loading_step: Option<usize>,
     pub(crate) error: String,
 }
 
