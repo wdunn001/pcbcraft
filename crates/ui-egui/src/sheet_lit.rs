@@ -66,8 +66,8 @@ impl App {
                     }
                 }
             }
-            "power" => {
-                for id in self.sheet_row_ids(page, "power") {
+            "power" | "labels" => {
+                for id in self.sheet_row_ids(page, row) {
                     if let Some(l) = p.labels.iter().find(|l| l.id == id) {
                         lit.nets.insert(l.net);
                     }

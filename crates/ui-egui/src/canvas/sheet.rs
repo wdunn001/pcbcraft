@@ -152,25 +152,25 @@ const SHEET_SIZES: [(&str, f64, f64); 8] = [
 /// The drawing frame of the schematic: where it sits, how it is zoned and
 /// what its title block says.
 #[derive(Clone, Debug)]
-pub(super) struct Sheet {
-    pub lo: Point,
-    pub hi: Point,
+pub(crate) struct Sheet {
+    pub(crate) lo: Point,
+    pub(crate) hi: Point,
     /// Width of the margin band that carries the zone letters and numbers.
-    pub band: f64,
-    pub cols: usize,
-    pub rows: usize,
-    pub size: String,
-    pub title: String,
-    pub date: String,
-    pub revision: String,
-    pub company: String,
-    pub drawn_by: String,
+    pub(crate) band: f64,
+    pub(crate) cols: usize,
+    pub(crate) rows: usize,
+    pub(crate) size: String,
+    pub(crate) title: String,
+    pub(crate) date: String,
+    pub(crate) revision: String,
+    pub(crate) company: String,
+    pub(crate) drawn_by: String,
     /// False when the page switched its title block off.
-    pub title_shown: bool,
-    pub page: usize,
-    pub pages: usize,
-    /// The page name, the same one the tab strip and the Layers tree show.
-    pub name: String,
+    pub(crate) title_shown: bool,
+    pub(crate) page: usize,
+    pub(crate) pages: usize,
+    /// The project name, printed small in the corner of the block.
+    pub(crate) project: String,
 }
 
 /// Everything the schematic draws, as one world rectangle, with room for the
@@ -265,7 +265,7 @@ fn today() -> String {
 ///
 /// # Do not
 /// - Move or resize anything in the project; the sheet follows the drawing.
-pub(super) fn sheet_for(p: &Project, page: pcbcraft_doc::Id) -> Sheet {
+pub(crate) fn sheet_for(p: &Project, page: pcbcraft_doc::Id) -> Sheet {
     let settings = p.page_settings_of(page);
     let (clo, chi) =
         content_bounds(p, page).unwrap_or((Point::new(0.0, 0.0), Point::new(80.0, 48.0)));
@@ -297,14 +297,13 @@ pub(super) fn sheet_for(p: &Project, page: pcbcraft_doc::Id) -> Sheet {
         (cx - w / 2.0).round(),
         (cy - band - (h - 2.0 * band - tb_h) / 2.0).round(),
     );
-    let title = Some(settings.title.clone())
+    // The page name is the one title of a page: tab, tree, Properties and this block.
+    let title = crate::pages::page_label(p, page);
+    let project = p
+        .meta
+        .get("title")
+        .map(|t| t.trim().to_owned())
         .filter(|t| !t.is_empty())
-        .or_else(|| {
-            p.meta
-                .get("title")
-                .filter(|t| !t.trim().is_empty())
-                .cloned()
-        })
         .unwrap_or_else(|| p.name.clone());
     let number = if page == 0 {
         1
@@ -340,7 +339,7 @@ pub(super) fn sheet_for(p: &Project, page: pcbcraft_doc::Id) -> Sheet {
         title_shown: !settings.title_hidden,
         page: number,
         pages: p.sheets.len() + 1,
-        name: crate::pages::page_label(p, page),
+        project,
     }
 }
 
@@ -562,8 +561,7 @@ fn paint_title_block(
     let number = t!(
         "schematic.sheet.page",
         page = sheet.page,
-        pages = sheet.pages,
-        name = sheet.name
+        pages = sheet.pages
     );
     let cell = |i: usize| cells[i + 1] - cells[i];
     place(
@@ -587,12 +585,16 @@ fn paint_title_block(
         &sheet.date,
         &value,
     );
-    let credit = [sheet.company.as_str(), sheet.drawn_by.as_str()]
-        .iter()
-        .filter(|s| !s.is_empty())
-        .copied()
-        .collect::<Vec<_>>()
-        .join(" / ");
+    let credit = [
+        sheet.project.as_str(),
+        sheet.company.as_str(),
+        sheet.drawn_by.as_str(),
+    ]
+    .iter()
+    .filter(|s| !s.is_empty())
+    .copied()
+    .collect::<Vec<_>>()
+    .join(" / ");
     if let (Some(c), false) = (caption.clone(), credit.is_empty()) {
         let credit = cut_to_fit(&credit, width * 0.6, c.size);
         painter.text(
@@ -1083,6 +1085,32 @@ pub(super) fn hover_outline(painter: &egui::Painter, outlines: &[HitOutline], ac
         egui::StrokeKind::Inside,
     );
     ctx.request_repaint();
+}
+
+/// Paint one supply symbol by its style name (`ground`, `bar`, `arrow` or
+/// `negative`; anything else paints the bar).
+///
+/// # Rules
+/// - Draws exactly what a placed power symbol of that style draws, so a ghost
+///   of it and the real one cannot differ.
+///
+/// # Do not
+/// - Pick the style from the net here; the caller already knows it.
+pub(crate) fn power_symbol(
+    painter: &egui::Painter,
+    rect: Rect,
+    camera: Camera,
+    style: &str,
+    at: Point,
+    name: &str,
+    sc: &SheetColours,
+) {
+    match style {
+        "ground" => ground_symbol(painter, rect, camera, at, name, sc),
+        "arrow" => arrow_symbol(painter, rect, camera, at, name, sc),
+        "negative" => negative_symbol(painter, rect, camera, at, name, sc),
+        _ => rail_symbol(painter, rect, camera, at, name, sc),
+    }
 }
 
 #[cfg(test)]

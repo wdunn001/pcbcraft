@@ -23,6 +23,7 @@ use text_style::{TextRole, font_mm, role_font};
 mod board_art;
 mod context;
 pub(crate) mod gestures;
+pub(crate) mod ghost;
 mod layout_art;
 
 /// Side of the ruler strips at the canvas top and left, shared with the floating
@@ -819,58 +820,15 @@ impl App {
                 self.accent(),
             );
         }
+        let ghost_at = cursor.or_else(|| {
+            self.capture_ghost
+                .then(|| camera.world(rect.center() + Vec2::new(70.0, -30.0), rect))
+        });
+        self.refresh_placement_ghost(ghost_at);
+        self.paint_placement_ghost(&painter, rect, camera);
         if let Some(pos) = cursor {
             let snapped = self.constrained(snap(pos));
             match &self.tool {
-                Tool::Place(kind) => {
-                    if let Some(c) =
-                        pcbcraft_doc::component_template(kind, 1, "preview".into(), snapped)
-                    {
-                        self.symbol(&painter, rect, camera, &c, false, true);
-                    }
-                }
-                Tool::LibraryPlace(_, _, definition) | Tool::CustomPlace(_, definition) => {
-                    if let Ok(c) = pcbcraft_doc::library_component(
-                        definition.as_ref().clone(),
-                        "preview".into(),
-                        0,
-                        format!("{}?", definition.reference),
-                        snapped,
-                        None,
-                    ) {
-                        for view in c.schematic_views() {
-                            self.symbol(&painter, rect, camera, &view, false, true);
-                        }
-                    }
-                }
-                Tool::Fiducial => {
-                    painter.circle_stroke(
-                        camera.screen(snapped, rect),
-                        (self.fiducial_diameter / 2.0) as f32 * camera.zoom,
-                        Stroke::new(1.5, self.accent()),
-                    );
-                }
-                Tool::Pad if self.tab == Tab::Pcb => {
-                    self.paint_pad_ghost(&painter, rect, camera, snapped);
-                }
-                Tool::Keepout => self.paint_keepout_ghost(&painter, rect, camera, snapped),
-                Tool::Via if self.tab == Tab::Pcb => {
-                    self.paint_via_ghost(&painter, rect, camera, pos)
-                }
-                Tool::Hole => {
-                    painter.circle_stroke(
-                        camera.screen(snapped, rect),
-                        (self.hole_diameter / 2.0) as f32 * camera.zoom,
-                        Stroke::new(1.5, self.accent()),
-                    );
-                }
-                Tool::Cutout if pcbcraft_geom::positive(self.cutout_radius) => {
-                    painter.circle_stroke(
-                        camera.screen(snapped, rect),
-                        self.cutout_radius as f32 * camera.zoom,
-                        Stroke::new(1.5, self.accent()),
-                    );
-                }
                 Tool::Wire(Some(_)) => {
                     let line: Vec<Pos2> = self
                         .wire_draft_preview(snapped)
@@ -1865,15 +1823,7 @@ impl App {
         let shown = |name: &str| self.layer_shown(name);
         let row_shown = |row: &str| self.page_row_shown(page, row);
         let sc = sheet::SheetColours::for_theme(self.colours().dark);
-        let mut sheet_frame = sheet::sheet_for(p, page);
-        // The title block names the page being drawn, not always the first.
-        sheet_frame.page = 1 + p
-            .sheets
-            .iter()
-            .position(|s| s.id == page)
-            .map_or(0, |i| i + 1);
-        sheet_frame.title_shown &= row_shown("title");
-        sheet_frame.title_shown &= row_shown("title");
+        let sheet_frame = sheet::sheet_for(p, page);
         sheet::paint_sheet(
             painter,
             rect,
@@ -1973,12 +1923,11 @@ impl App {
             .labels
             .iter()
             .filter(|l| on_page(p, page, l.id))
-            .filter(|l| {
-                if l.kind == "power" {
-                    row_shown("power")
-                } else {
-                    shown("Net labels")
-                }
+            .filter(|l| match l.kind.as_str() {
+                "power" => row_shown("power"),
+                "bus" => shown("Net labels") && row_shown("buses"),
+                "junction" => shown("Net labels"),
+                _ => shown("Net labels") && row_shown("labels"),
             })
         {
             let at = camera.screen(l.position, rect);

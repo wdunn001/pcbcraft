@@ -1433,6 +1433,13 @@ pub struct App {
     outline_ui: outline_arcs::OutlineUi,
     drag_offset: Point,
     cursor: Option<Point>,
+    /// What the armed Add tool shows under the pointer this frame.
+    ghost: Option<canvas::ghost::PlacementGhost>,
+    /// The armed library part's outline paths: the library path, the part name
+    /// and the paths, rebuilt only when the armed part changes.
+    ghost_paths: Option<(String, String, Vec<Vec<Point>>)>,
+    /// Capture option: show the Add tool ghost without a pointer.
+    capture_ghost: bool,
     canvas_rect: Rect,
     canvas_menu: Option<(egui::Pos2, canvas::CanvasMenuKind)>,
     message: String,
@@ -1949,6 +1956,25 @@ impl App {
         };
         self
     }
+    /// Arm an Add tool (`part`, `label`, `power`, `port`, `noconnect`, `pad`,
+    /// `via` or `hole`) and show its ghost mid-canvas, so a `--capture` image
+    /// shows what the tool will place.
+    pub fn with_capture_tool(mut self, name: Option<String>) -> Self {
+        let tool = match name.as_deref() {
+            Some("part") => Tool::Place("resistor".into()),
+            Some("label") => Tool::SchematicLabel(wire_canvas::SchematicLabelKind::Local),
+            Some("power") => Tool::SchematicLabel(wire_canvas::SchematicLabelKind::Power),
+            Some("port") => Tool::Port,
+            Some("noconnect") => Tool::NoConnect,
+            Some("pad") => Tool::Pad,
+            Some("via") => Tool::Via,
+            Some("hole") => Tool::Hole,
+            _ => return self,
+        };
+        self.tool = tool;
+        self.capture_ghost = true;
+        self
+    }
     /// Start with a drawing target (`silk`, `edge` or `copper`), `flipped` to
     /// look from the bottom, `hide-silk` or `hide-all` to hide layers, or `select-cutout`,
     /// `select-hole` or `select-outline` to pick that board object, so a
@@ -2256,6 +2282,9 @@ impl App {
             outline_ui: outline_arcs::OutlineUi::default(),
             drag_offset: Point::default(),
             cursor: None,
+            ghost: None,
+            ghost_paths: None,
+            capture_ghost: false,
             canvas_rect: Rect::NOTHING,
             canvas_menu: None,
             message: if cfg!(target_arch = "wasm32") {
@@ -2306,11 +2335,32 @@ impl App {
             compare_tint: std::collections::BTreeMap::new(),
             library,
             tour: {
-                #[allow(unused_mut)]
+                let tours = tour::data::embedded_for_shell();
                 let mut catalog = Vec::new();
+                for t in tours.tour {
+                    if let (Some(ws), Some(tr)) = (
+                        tour::state::WorkspaceId::parse(&t.workspace),
+                        tour::state::Trigger::parse(&t.trigger),
+                    ) {
+                        catalog.push(tour::state::TourMeta {
+                            id: t.id,
+                            version: t.version,
+                            trigger: tr,
+                            workspace: ws,
+                            step_count: t.steps.len(),
+                        });
+                    }
+                }
                 #[cfg(test)]
                 catalog.extend(tour::state::e2e_fixture_catalog());
-                tour::Controller::new(catalog)
+                let controller = tour::Controller::new(catalog);
+                #[cfg(test)]
+                let controller = {
+                    let mut quiet = controller;
+                    quiet.set_unprompted_offers(false);
+                    quiet
+                };
+                controller
             },
             #[cfg(test)]
             icon_rects: BTreeMap::new(),
@@ -7392,8 +7442,8 @@ impl App {
                                     if ui_kit::button::secondary_button(
                                         ui,
                                         None,
-                                        &t!("board.inspector.delete_del"),
-                                        &command_tip("object.delete"),
+                                        &t!("board.inspector.delete"),
+                                        &t!("board.inspector.delete.tip"),
                                         ui_kit::button::Size::Normal,
                                         true,
                                     )
@@ -7843,6 +7893,31 @@ impl App {
             self.select_sheet_row(0, &row);
         }
         if self.frames == 3
+            && let Some(rest) = self
+                .capture_select
+                .as_deref()
+                .and_then(|s| s.strip_prefix("page:"))
+                .map(str::to_owned)
+        {
+            // `--select page:Compute` shows that page (a name or an id) and selects its row in
+            // the Layers tree; `page:Compute/symbols` selects its Symbols row instead.
+            self.capture_select = None;
+            let (page, row) = rest.split_once('/').unwrap_or((rest.as_str(), ""));
+            let id = (0..=self.project.sheets.iter().map(|s| s.id).max().unwrap_or(0)).find(|id| {
+                (*id == 0 || self.project.sheets.iter().any(|s| s.id == *id))
+                    && (self.page_name(*id) == page || id.to_string() == page)
+            });
+            if let Some(id) = id {
+                self.show_page(id);
+                if row.is_empty() {
+                    self.select(None);
+                    self.tree.selected_key = Some(Self::page_row_key(id));
+                } else {
+                    self.select_sheet_row(id, row);
+                }
+            }
+        }
+        if self.frames == 3
             && let Some(reference) = self.capture_select.take()
             && let Some(component) = self
                 .project
@@ -8160,6 +8235,7 @@ impl App {
             ui,
             &mut self.tour,
             &mut self.preferences.tour_progress,
+            &self.tours,
             muted,
             accent,
         );

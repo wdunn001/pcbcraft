@@ -13,7 +13,7 @@ fn main() -> eframe::Result {
     };
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!(
-            "PCBCraft — one-window Rust EDA\n\n--sample | --project FILE\n--control 127.0.0.1:7991\n--size WxH\n--tab files|schematic|pcb|rules|settings|libraries|project-library|symbol-editor|footprint-editor|checks|3d\n--light\n--capture /absolute/path.png\n--select REFERENCE\n--search WORDS\n--place-first-online\n--left library|layers\n--context-menu\n--show file-export|export-dialog|export-flavour|settings-board|settings-rules|settings-classes|settings-electrical|settings-machines|settings-title\n--menu tree-layer|tree-part|tree-net|library-card|finding|page-tab\n--sheet\n--target silk|edge\n--view3d top|front|side|bottom\n--assistant run|run-done|run-open|review|applied|next"
+            "PCBCraft — one-window Rust EDA\n\n--sample | --project FILE\n--control 127.0.0.1:7991\n--size WxH\n--tab files|schematic|pcb|rules|settings|libraries|project-library|symbol-editor|footprint-editor|checks|3d\n--light\n--capture /absolute/path.png\n--select REFERENCE\n--search WORDS\n--place-first-online\n--left library|layers\n--context-menu\n--show file-export|export-dialog|export-flavour|settings-board|settings-rules|settings-classes|settings-electrical|settings-machines|settings-title\n--menu tree-layer|tree-part|tree-net|library-card|finding|page-tab\n--sheet\n--target silk|edge\n--add-tool part|label|power|port|noconnect|pad|via|hole\n--view3d top|front|side|bottom\n--assistant run|run-done|run-open|review|applied|next"
         );
         return Ok(());
     }
@@ -75,6 +75,7 @@ fn main() -> eframe::Result {
     let show = option("--show");
     let sheet = args.iter().any(|a| a == "--sheet");
     let target = option("--target");
+    let add_tool = option("--add-tool");
     let search = option("--search");
     let view3d = option("--view3d");
     let assistant = option("--assistant");
@@ -101,6 +102,7 @@ fn main() -> eframe::Result {
                     .with_capture_sheet(sheet)
                     .with_capture_show(show)
                     .with_capture_target(target)
+                    .with_capture_tool(add_tool)
                     .with_capture_search(search)
                     .with_capture_view3d(view3d)
                     .with_capture_place(place_first)
