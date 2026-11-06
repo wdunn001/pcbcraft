@@ -341,63 +341,6 @@ impl App {
             ui.horizontal(|ui| {
                 let response = ui
                     .add(
-                        crate::targets::text_field(&mut self.library.new_source)
-                            .hint_text(t!("library.collection_browser.folder_to_add_as_a"))
-                            .desired_width(320.0),
-                    )
-                    .named("Folder to add as a library source")
-                    .on_hover_text(t!("library.collection_browser.folder_to_add_as_a.tip"));
-                let selected_source = items
-                    .iter()
-                    .find(|item| {
-                        item.get("path").and_then(Value::as_str) == Some(self.library.path.as_str())
-                    })
-                    .map(entry_source);
-                let removable = self
-                    .library
-                    .sources
-                    .as_ref()
-                    .and_then(|listing| listing.get("sources"))
-                    .and_then(Value::as_array)
-                    .and_then(|list| {
-                        list.iter().find(|source| {
-                            source.get("kind").and_then(Value::as_str) == Some("added")
-                                && source.get("name").and_then(Value::as_str)
-                                    == selected_source.as_deref()
-                        })
-                    })
-                    .and_then(|source| source.get("path"))
-                    .and_then(Value::as_str)
-                    .map(str::to_owned);
-                let wants_add = ui
-                    .button(t!("library.collection_browser.add_folder"))
-                    .on_hover_text(t!("library.collection_browser.add_folder.tip"))
-                    .clicked()
-                    || (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
-                if wants_add {
-                    let path = self.library.new_source.trim().to_owned();
-                    if !path.is_empty() {
-                        self.library
-                            .request(ui.ctx(), "library.add_folder", json!({"path": path}));
-                    }
-                }
-                if let Some(folder) = removable
-                    && ui
-                        .button(t!("library.collection_browser.remove_source"))
-                        .on_hover_text(t!("library.collection_browser.remove_source.tip"))
-                        .clicked()
-                {
-                    self.library.request(
-                        ui.ctx(),
-                        "library.remove_folder",
-                        json!({"path": folder}),
-                    );
-                    self.library.source_filter.clear();
-                }
-            });
-            ui.horizontal(|ui| {
-                let response = ui
-                    .add(
                         crate::targets::text_field(&mut self.library.query)
                             .hint_text(t!(
                                 "library.collection_browser.search_names_descriptions_keywords"
@@ -476,7 +419,7 @@ impl App {
                 if self.library.kind {
                     if let Some(mut def)=preview.get("definition").and_then(|v|serde_json::from_value::<FootprintDefinition>(v.clone()).ok()) {
                         right.heading(&def.name);right.label(&def.description);
-                        if right.add_enabled(preview.get("source_truncated").and_then(Value::as_bool)!=Some(true),egui::Button::new(t!("library.collection_browser.edit_a_copy"))).clicked() {let mut copy=def.clone();copy.name.push_str("_custom");self.library.editor.notice=Some(format!("Edited copy of {} from {}. KiCad-derived data credits the KiCad community contributors; custom sources retain their original license. Official collections: https://gitlab.com/kicad/libraries/kicad-symbols and https://gitlab.com/kicad/libraries/kicad-footprints.\n{}",def.name,path,include_str!("../../library/tests/fixtures/LICENSE-kicad-libraries.md")));self.library.editor.draft=Some(super::authoring::Draft::Footprint(copy));self.library.editor.mode=2;}
+                        if right.add_enabled(preview.get("source_truncated").and_then(Value::as_bool)!=Some(true),egui::Button::new(t!("library.collection_browser.edit_a_copy"))).clicked() {let mut copy=def.clone();copy.name.push_str("_custom");self.library.editor.notice=Some(format!("Edited copy of {} from {}. KiCad-derived data credits the KiCad community contributors; custom sources retain their original license. Official collections: https://gitlab.com/kicad/libraries/kicad-symbols and https://gitlab.com/kicad/libraries/kicad-footprints.\n{}",def.name,path,include_str!("../../library/tests/fixtures/LICENSE-kicad-libraries.md")));self.library.editor.draft=Some(super::authoring::Draft::Footprint(copy));self.library_show_editor();}
                         self.library_preview(right,None,Some(&def));
                         let name=def.name.clone();crate::model_transform::footprint_model_transform_panel(right, self, &name, &mut def);
                         right.label(t!("library.collection_browser.len_pads_len2_graphics", len = def.pads.len(), len2 = def.graphics.len()));
@@ -491,7 +434,7 @@ impl App {
                     }
                 } else if let Some(def)=preview.get("definition").and_then(|v|serde_json::from_value::<SymbolDefinition>(v.clone()).ok()) {
                     right.heading(&def.name);right.label(&def.description);
-                    if right.add_enabled(preview.get("source_truncated").and_then(Value::as_bool)!=Some(true),egui::Button::new(t!("library.collection_browser.edit_a_copy"))).clicked() {let mut copy=def.clone();copy.name.push_str("_custom");self.library.editor.notice=Some(format!("Edited copy of {} from {}. KiCad-derived data credits the KiCad community contributors; custom sources retain their original license. Official collections: https://gitlab.com/kicad/libraries/kicad-symbols and https://gitlab.com/kicad/libraries/kicad-footprints.\n{}",def.name,path,include_str!("../../library/tests/fixtures/LICENSE-kicad-libraries.md")));self.library.editor.draft=Some(super::authoring::Draft::Symbol(copy));self.library.editor.mode=2;}
+                    if right.add_enabled(preview.get("source_truncated").and_then(Value::as_bool)!=Some(true),egui::Button::new(t!("library.collection_browser.edit_a_copy"))).clicked() {let mut copy=def.clone();copy.name.push_str("_custom");self.library.editor.notice=Some(format!("Edited copy of {} from {}. KiCad-derived data credits the KiCad community contributors; custom sources retain their original license. Official collections: https://gitlab.com/kicad/libraries/kicad-symbols and https://gitlab.com/kicad/libraries/kicad-footprints.\n{}",def.name,path,include_str!("../../library/tests/fixtures/LICENSE-kicad-libraries.md")));self.library.editor.draft=Some(super::authoring::Draft::Symbol(copy));self.library_show_editor();}
                     self.library_preview(right,Some(&def),None);
                     let supported=pcbcraft_doc::library_component(def.clone(),"preview".into(),0,"preview".into(),Point::default(),None).is_ok();
                     right.label(t!("library.collection_browser.len_pins_v1_units", len = def.pins.len(), v1 = def.pins.iter().map(|p|p.unit).max().unwrap_or(1)));

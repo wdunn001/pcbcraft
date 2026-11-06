@@ -205,7 +205,6 @@ pub(crate) fn each_screen(
         Tab::Rules,
         Tab::Checks,
         Tab::Settings,
-        Tab::Libraries,
         Tab::PlotFiles,
     ] {
         let (ctx, mut app) = practice();

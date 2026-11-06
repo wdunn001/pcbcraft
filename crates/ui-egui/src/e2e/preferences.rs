@@ -105,7 +105,6 @@ fn a_newcomer_finds_preferences_in_the_edit_menu_and_sees_every_page() -> Result
         "Appearance",
         "Language and units",
         "Keys",
-        "Libraries",
         "Assistant",
         "Look",
         "Changes apply at once.",
@@ -115,13 +114,7 @@ fn a_newcomer_finds_preferences_in_the_edit_menu_and_sees_every_page() -> Result
             "{words} is on screen"
         );
     }
-    for tab in [
-        "Language and units",
-        "Keys",
-        "Libraries",
-        "Assistant",
-        "Appearance",
-    ] {
+    for tab in ["Language and units", "Keys", "Assistant", "Appearance"] {
         tap_id(&ctx, &mut app, &format!("tab:{tab}"))?;
         assert!(paints_text_tall(&ctx, &mut app, tab)?, "{tab} page opens");
     }
@@ -385,58 +378,6 @@ fn a_newcomer_changes_a_tool_key_and_a_modifier() -> Result<(), String> {
         app.preferences.modifiers, before,
         "Reset keys restores them"
     );
-    Ok(())
-}
-
-#[test]
-fn a_newcomer_switches_a_library_source_off_and_it_stays_off() -> Result<(), String> {
-    let (ctx, mut app) = board();
-    open_tab(&ctx, &mut app, "Libraries")?;
-    for words in [
-        "Built in parts",
-        "Installed libraries",
-        "Open library",
-        "Fetch 3D models",
-    ] {
-        assert!(
-            paints_text_tall(&ctx, &mut app, words)?,
-            "{words} is listed"
-        );
-    }
-    assert!(!app.dock.hide_installed);
-    tap_id(&ctx, &mut app, "checkbox:Installed libraries on")?;
-    assert!(
-        app.dock.hide_installed,
-        "the library list stops showing installed parts"
-    );
-    assert!(
-        app.preferences
-            .library_sources_off
-            .iter()
-            .any(|n| n == "installed"),
-        "the switch is stored"
-    );
-    tap_id(&ctx, &mut app, "checkbox:Open library on")?;
-    assert!(app.dock.hide_online);
-    tap_id(&ctx, &mut app, "checkbox:Built in parts on")?;
-    tap_id(&ctx, &mut app, "checkbox:This project on")?;
-    assert!(app.dock.hide_built_in && app.dock.hide_project);
-    tap_id(&ctx, &mut app, "checkbox:Fetch #D models")?;
-    assert!(
-        app.preferences.fetch_open_library_3d,
-        "Fetch 3D models is stored"
-    );
-    // A new start reads the stored switches.
-    let text = serde_json::to_string(&app.preferences).map_err(|e| e.to_string())?;
-    let stored: Preferences = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-    let again = App::create(shared, stored, None, None);
-    assert!(
-        again.dock.hide_installed && again.dock.hide_online,
-        "off stays off after a restart"
-    );
-    tap_id(&ctx, &mut app, "checkbox:Installed libraries on")?;
-    assert!(!app.dock.hide_installed, "switching it on again shows it");
     Ok(())
 }
 
