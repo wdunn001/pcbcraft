@@ -36,7 +36,10 @@
 //!   state seen is restored, so cost never ends above its start.
 //!
 //! Dependencies: `crates/engine/src/placement/model.rs`, `rng.rs`, `mod.rs`.
-use super::{AnnealOutcome, Candidate, Model, Move, PlacementSettings, Rng, Verdict, not_built};
+use super::{
+    AnnealOutcome, Candidate, Decision, Model, Move, MovedCell, PlacementSettings, Rng, Stop,
+    Verdict,
+};
 
 /// XOR mask that separates the probe stream from the main stream.
 pub const PROBE_SALT: u64 = 0xA5A5_A5A5_A5A5_A5A5;
@@ -629,7 +632,7 @@ pub fn anneal(model: &mut Model, settings: &PlacementSettings) -> Result<AnnealO
             window_accepted = 0;
         }
     }
-    *model = best_model;
+    *model = best_model.clone();
     let mut moved = Vec::new();
     for i in 0..model.cells.len() {
         let c = &best_model.cells[i];

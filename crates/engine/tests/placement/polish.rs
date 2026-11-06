@@ -286,7 +286,7 @@ fn run_polish_model(
 }
 
 #[test]
-#[ignore = "built in slice-1122-d"]
+
 fn seed_zero_with_five_hundred_moves_matches_the_pinned_run() -> Result<(), String> {
     let (fx, out) = run_polish_model(0, 500, 20)?;
     let letters: String = out
@@ -340,7 +340,7 @@ fn seed_zero_with_five_hundred_moves_matches_the_pinned_run() -> Result<(), Stri
 }
 
 #[test]
-#[ignore = "built in slice-1122-d"]
+
 fn a_long_run_freezes_early_and_ends_no_worse_than_it_started() -> Result<(), String> {
     let (fx, out) = run_polish_model(0, 3000, 0)?;
     let w = fx.words("run_3000")?;
@@ -355,7 +355,7 @@ fn a_long_run_freezes_early_and_ends_no_worse_than_it_started() -> Result<(), St
 }
 
 #[test]
-#[ignore = "built in slice-1122-d"]
+
 fn one_seed_is_deterministic_fixed_parts_stay_and_the_budget_bounds_the_loop() -> Result<(), String>
 {
     let (a, out_a) = run_polish_model(3, 400, 5)?;
@@ -389,7 +389,7 @@ fn one_seed_is_deterministic_fixed_parts_stay_and_the_budget_bounds_the_loop() -
 }
 
 #[test]
-#[ignore = "built in slice-1122-d"]
+
 fn a_model_with_nothing_movable_stops_at_once_and_too_many_parts_are_refused() -> Result<(), String>
 {
     let mut fixed = Fixture::parse("cell F 5 5 1 1 fixed\n")?;
