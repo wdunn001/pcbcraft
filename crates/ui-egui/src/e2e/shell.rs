@@ -267,11 +267,11 @@ fn library_strings_are_all_catalog_keys() -> Result<(), String> {
         ("library.rs", "library_preview"),
         ("authoring.rs", "library_editor"),
         ("authoring.rs", "project_library"),
-        ("authoring.rs", "library_workspaces"),
+        ("authoring.rs", "library_collections_page"),
         ("authoring.rs", "graphic"),
         ("authoring.rs", "add_graphic"),
         ("lib.rs", "browser"),
-        ("lib.rs", "library"),
+        ("lib.rs", "library_starter_symbols"),
         ("library_quality.rs", "quality_badge"),
         ("library_quality.rs", "refresh_footprint_quality"),
     ] {
@@ -1485,7 +1485,6 @@ fn a_newcomer_never_meets_a_control_too_small_to_hit() -> Result<(), String> {
         Tab::Rules,
         Tab::Checks,
         Tab::Settings,
-        Tab::Libraries,
         Tab::PlotFiles,
     ] {
         app.change_tab(tab);

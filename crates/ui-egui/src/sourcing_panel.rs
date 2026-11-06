@@ -268,6 +268,18 @@ impl App {
                 {
                     self.run("part.save", json!({"target": "personal", "id": c.id}));
                 }
+                if secondary_button(
+                    ui,
+                    None,
+                    &t!("props.sourcing.save_to_shared"),
+                    &t!("props.sourcing.save_to_shared.tip"),
+                    Size::Small,
+                    true,
+                )
+                .clicked()
+                {
+                    self.run("part.save", json!({"target": "shared", "id": c.id}));
+                }
             },
         );
     }

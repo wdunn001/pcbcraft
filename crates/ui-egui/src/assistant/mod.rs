@@ -398,7 +398,6 @@ impl App {
             Tab::Board3d => "3d",
             Tab::Rules => "rules",
             Tab::Checks => "checks",
-            Tab::Libraries => "libraries",
             Tab::PlotFiles => "output files",
             Tab::Files => "files",
             Tab::Library => "library",

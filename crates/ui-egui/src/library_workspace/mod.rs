@@ -43,12 +43,16 @@ pub(crate) mod machines;
 mod machines_view;
 mod model;
 mod overview;
+pub(crate) mod sources;
 mod vendors;
 
 use facts::PartFacts;
 
 /// Most parts open as tabs at once; opening another closes the oldest that is not showing.
 pub(crate) const MAX_OPEN_PARTS: usize = 8;
+
+/// Width of the Parts, Sources and Collections tabs at the left of the top strip.
+const VIEW_TABS_WIDTH: f32 = 260.0;
 
 /// The pages of one part.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -66,6 +70,10 @@ pub(crate) enum Page {
     Edit,
     /// Second sources and alternates for the part.
     Alternates,
+    /// Where parts come from: the table of library sources. Not a page of a part.
+    Sources,
+    /// The folder collections browser and the definitions saved in this project. Not a page of a part.
+    Collections,
 }
 
 /// What the centre shows.
@@ -91,6 +99,10 @@ pub(crate) struct State {
     pub(crate) active: Active,
     /// The page of the showing part.
     pub(crate) page: Page,
+    /// Sources page: the key of the row shown in Properties.
+    pub(crate) sources_selected: Option<String>,
+    /// Sources page: the Add source button asks the folder box to take focus on the next frame.
+    pub(crate) sources_focus_add: bool,
     /// Alternates page: the manufacturer typed for a new second source.
     pub(crate) alt_manufacturer: String,
     /// Alternates page: the part number typed for a new second source.
@@ -134,6 +146,8 @@ impl Default for State {
             parts: Vec::new(),
             active: Active::Part(0),
             page: Page::Overview,
+            sources_selected: None,
+            sources_focus_add: false,
             alt_manufacturer: String::new(),
             alt_mpn: String::new(),
             alt_symbol: String::new(),
@@ -194,7 +208,7 @@ impl App {
     }
 
     /// Stage a Library tab scene for a `--capture` image: `library-overview`, `library-datasheet`,
-    /// `library-vendors`, `library-3d`, `library-edit`, `library-compare`, `library-machines` or
+    /// `library-vendors`, `library-3d`, `library-edit`, `library-compare`, `library-sources`, `library-collections`, `library-machines` or
     /// `library-machines-add`, `library-machines-oven` (the Puhui T-962A card selected) or
     /// `library-machines-add-oven` (the Add machine window on a blank Reflow oven).
     ///
@@ -216,6 +230,14 @@ impl App {
             if scene == "library-machines-add-oven" {
                 self.libws.machines.add = Some(machines::AddForm::blank_oven());
             }
+            return;
+        }
+        if scene == "library-sources" {
+            self.open_library_sources();
+            return;
+        }
+        if scene == "library-collections" {
+            self.open_library_collections();
             return;
         }
         let demo = scene == "library-3d" || scene == "library-edit";
@@ -431,6 +453,10 @@ impl App {
                 self.machine_lib_toolbar(ui);
                 return;
             }
+            if self.libws.page == Page::Sources {
+                self.library_sources_toolbar(ui);
+                return;
+            }
             if secondary_button(
                 ui,
                 None,
@@ -487,6 +513,19 @@ impl App {
             if secondary_button(
                 ui,
                 None,
+                &t!("library.library_workspaces.generate_footprint"),
+                &t!("library.library_workspaces.generate_footprint.tip"),
+                Size::Normal,
+                true,
+            )
+            .clicked()
+            {
+                self.library.editor.wizard.open = true;
+                self.library_show_editor();
+            }
+            if secondary_button(
+                ui,
+                None,
                 &t!("libws.refresh_prices"),
                 &t!("libws.refresh_prices.tip"),
                 Size::Normal,
@@ -530,7 +569,46 @@ impl App {
             return;
         }
         self.library_poll_draft();
+        if matches!(self.libws.page, Page::Sources | Page::Collections) {
+            ui.horizontal(|ui| {
+                ui.add_space(8.0);
+                self.library_view_tabs(ui);
+            });
+            let tokens = theme::tokens(ui.ctx());
+            let y = ui.min_rect().bottom();
+            ui.painter().hline(
+                ui.max_rect().x_range(),
+                y,
+                egui::Stroke::new(theme::BORDER, tokens.line),
+            );
+            let frame = egui::Frame::NONE.inner_margin(egui::Margin::symmetric(24, 16));
+            egui::ScrollArea::vertical()
+                .id_salt("library-sources-scroll")
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    frame.show(ui, |ui| {
+                        ui.spacing_mut().item_spacing.y = theme::SPACE[3];
+                        if self.libws.page == Page::Sources {
+                            self.library_sources_page(ui);
+                        } else {
+                            self.library_collections_page(ui);
+                        }
+                    });
+                });
+            return;
+        }
         if self.libws.parts.is_empty() && self.libws.page != Page::Edit {
+            ui.horizontal(|ui| {
+                ui.add_space(8.0);
+                self.library_view_tabs(ui);
+            });
+            let tokens = theme::tokens(ui.ctx());
+            let y = ui.min_rect().bottom();
+            ui.painter().hline(
+                ui.max_rect().x_range(),
+                y,
+                egui::Stroke::new(theme::BORDER, tokens.line),
+            );
             ui.add_space(96.0);
             if crate::ui_kit::empty_state::empty_state(
                 ui,
@@ -562,6 +640,43 @@ impl App {
             });
     }
 
+    /// The page tabs of the Library tab: Parts, Sources and Collections, drawn at the left of
+    /// the top strip so they cost no height.
+    fn library_view_tabs(&mut self, ui: &mut egui::Ui) {
+        let labels = [
+            (t!("libws.view.parts"), t!("libws.page_tab.parts.tip")),
+            (t!("libws.view.sources"), t!("libws.view.sources.tip")),
+            (
+                t!("libws.view.collections"),
+                t!("libws.view.collections.tip"),
+            ),
+        ];
+        let items: Vec<TabItem<'_>> = labels.iter().map(|(l, tip)| TabItem::new(l, tip)).collect();
+        let mut current = match self.libws.page {
+            Page::Sources => 1,
+            Page::Collections => 2,
+            _ => 0,
+        };
+        let was = current;
+        ui.allocate_ui(egui::vec2(VIEW_TABS_WIDTH, TabSize::Aside.height()), |ui| {
+            tab_bar(
+                ui,
+                "library-view-tabs",
+                &mut current,
+                &items,
+                TabSize::Aside,
+                None,
+            );
+        });
+        if current != was {
+            self.libws.page = match current {
+                1 => Page::Sources,
+                2 => Page::Collections,
+                _ => Page::Overview,
+            };
+        }
+    }
+
     /// The strip of open parts: one tab each, plus Compare when two or more are open, and a
     /// button that closes the showing tab.
     fn library_part_tabs(&mut self, ui: &mut egui::Ui) {
@@ -589,6 +704,8 @@ impl App {
         };
         let was = current;
         ui.horizontal(|ui| {
+            ui.add_space(8.0);
+            self.library_view_tabs(ui);
             ui.add_space(8.0);
             let width = (ui.available_width() - 44.0).max(120.0);
             ui.allocate_ui(egui::vec2(width, TabSize::Aside.height()), |ui| {
@@ -764,6 +881,7 @@ impl App {
             Page::Model => self.library_model_page(ui, &card),
             Page::Datasheet => self.library_datasheet_page(ui, &facts),
             Page::Alternates => self.library_alternates_page(ui, &card),
+            Page::Sources | Page::Collections => {}
         }
     }
 
@@ -789,6 +907,10 @@ impl App {
     pub(crate) fn library_properties(&mut self, ui: &mut egui::Ui) {
         if self.library_on_machines() {
             self.machine_lib_properties(ui);
+            return;
+        }
+        if self.libws.page == Page::Sources {
+            self.library_sources_properties(ui);
             return;
         }
         let Some(card) = self.library_showing() else {

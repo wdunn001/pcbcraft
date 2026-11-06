@@ -1,8 +1,8 @@
 ---
-type: feature
-area: ui
+type: test
+area: text
 issues: [728]
-user_visible: true
-docs: n/a: two more buttons in the sourcing panel and their tooltips describe them
-summary: A part's sourcing panel has Save to project library and Copy to personal library buttons, and a story checks that saving keeps the manufacturer.
+user_visible: false
+docs: n/a: written by the worker harness, the issue text records the behaviour
+summary: Where user parts live: project, personal folder, shared folder (child of #699).
 ---
