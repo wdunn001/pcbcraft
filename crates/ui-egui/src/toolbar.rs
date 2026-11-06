@@ -692,12 +692,23 @@ impl App {
     }
 
     /// The right-hand options: Keepout toggles while that tool is active, Corners
-    /// while Route is active.
+    /// and Width while Route is active.
     fn toolbar_options(&mut self, ui: &mut egui::Ui, t: &Tokens) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
             ui.add_space(16.0);
             if matches!(self.tool, Tool::Route(_)) {
+                ui.add(crate::number_entry::localized_active(
+                    egui::DragValue::new(&mut self.track_width)
+                        .range(0.05..=10.0)
+                        .speed(0.05)
+                        .suffix(format!(" {}", t!("unit.mm"))),
+                    3,
+                ))
+                .named("Width")
+                .on_hover_text(t!("toolbar.width.tip"));
+                ui.label(fonts::caption(t!("toolbar.width")).color(t.muted))
+                    .on_hover_text(t!("toolbar.width.tip"));
                 let mut idx = usize::from(!self.preferences.chamfer_corners);
                 let chamfer = t!("toolbar.corners_45");
                 let square = t!("toolbar.corners_90");
