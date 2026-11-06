@@ -14,6 +14,8 @@ pub struct PortalConfig {
     pub object_store: ObjectStoreConfig,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth: Option<AuthConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vendor_integrations: Option<VendorIntegrationsConfig>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,4 +38,14 @@ pub struct AuthConfig {
     pub passkey: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub oidc_issuer: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VendorIntegrationsConfig {
+    /// Whether vendor quote handoff is enabled on this instance.
+    pub quotes_enabled: bool,
+    /// Whether the marketplace is enabled on this instance.
+    #[serde(default)]
+    pub marketplace_enabled: bool,
 }
