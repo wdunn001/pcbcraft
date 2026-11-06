@@ -8678,11 +8678,7 @@ mod tests {
         authoring::tests::tap(&ctx, &mut app, "Back to a plain rectangle")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
-            app.project
-                .board
-                .outline
-                .as_ref()
-                .is_none_or(|o| o.len() < 3),
+            app.project.board.outline.as_ref().map_or(0, |o| o.len()) == 4,
             "the board is a plain rectangle again"
         );
         let _ = std::fs::remove_file(&file);
