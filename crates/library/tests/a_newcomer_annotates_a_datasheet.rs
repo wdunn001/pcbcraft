@@ -4,7 +4,7 @@ use pcbcraft_library::datasheet_annotations::{
     remove_entry, set_store_path_for_test, upsert_entry,
 };
 
-fn with_store(path: std::path::PathBuf) -> std::sync::MutexGuard<std::sync::Mutex<()>> {
+fn with_store(path: std::path::PathBuf) -> std::sync::MutexGuard<'static, ()> {
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let guard = LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
     set_store_path_for_test(Some(path));
