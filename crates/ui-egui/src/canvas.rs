@@ -24,6 +24,7 @@ mod board_art;
 mod context;
 pub(crate) mod gestures;
 pub(crate) mod ghost;
+mod layer_shapes;
 mod layout_art;
 
 /// Side of the ruler strips at the canvas top and left, shared with the floating
@@ -953,6 +954,7 @@ impl App {
             }
         }
         self.paint_route_drag(ui, &painter, rect, camera, cursor);
+        self.paint_layer_shapes(&painter, rect, camera, &self.project);
         self.paint_outline_handles(&painter, rect, camera);
         if response.drag_started_by(egui::PointerButton::Primary)
             && let Some(pos) = cursor
@@ -965,7 +967,10 @@ impl App {
         {
             self.end_route_drag(pos, camera.zoom);
         }
-        self.outline_canvas_drag(&response, cursor, camera.zoom);
+        let pressed_at = ui
+            .input(|i| i.pointer.press_origin())
+            .map(|p| camera.world(p, rect));
+        self.outline_canvas_drag(&response, cursor, pressed_at, camera.zoom);
         if response.drag_started_by(egui::PointerButton::Primary)
             && matches!(self.tool, Tool::Select)
             && !self.route_drag.active()

@@ -39,6 +39,7 @@ mod i18n;
 mod images;
 mod impedance_target;
 mod keymap;
+mod layer_shape;
 mod layers;
 mod layout;
 mod library;

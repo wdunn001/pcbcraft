@@ -104,29 +104,9 @@ fn nice_step(zoom: f32, min_px: f32) -> f64 {
     }
 }
 
-/// Bounding box of the board outline (or plain rectangle) in millimetres.
+/// Bounding box of the board shape and every layer's own shape, in millimetres.
 fn board_bounds(p: &Project) -> (Point, Point) {
-    match &p.board.outline {
-        Some(points) if points.len() >= 3 => {
-            if let Some((lo, hi)) = pcbcraft_doc::outline_extent(points, &p.board.outline_arcs) {
-                (lo, hi)
-            } else {
-                points.iter().fold(
-                    (
-                        Point::new(f64::INFINITY, f64::INFINITY),
-                        Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY),
-                    ),
-                    |(lo, hi), q| {
-                        (
-                            Point::new(lo.x.min(q.x), lo.y.min(q.y)),
-                            Point::new(hi.x.max(q.x), hi.y.max(q.y)),
-                        )
-                    },
-                )
-            }
-        }
-        _ => (Point::default(), Point::new(p.board.width, p.board.height)),
-    }
+    p.board.extent()
 }
 
 /// Dashed closed polygon.
@@ -222,10 +202,13 @@ impl App {
             world.iter().map(|q| camera.screen(*q, rect)).collect()
         };
         painter.add(pad_shape(fill_ring, false, art.substrate));
-        painter.add(egui::Shape::closed_line(
-            edge_pts,
-            Stroke::new(1.5, art.edge),
-        ));
+        // The board shape is drawn dimmer while the active layer edits a shape of its own.
+        let edge = if self.active_own_shape().is_some() {
+            art.edge.gamma_multiply(0.45)
+        } else {
+            art.edge
+        };
+        painter.add(egui::Shape::closed_line(edge_pts, Stroke::new(1.5, edge)));
     }
 
     /// Rulers along the top and left edges in millimetres. They follow pan and
