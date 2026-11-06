@@ -1,36 +1,12 @@
-//! HTTP behind a trait so live distributor sources and tests share one shape.
+//! HTTP client trait and test implementation for library sources.
+//!
+//! The trait is re-exported from pcbcraft-platform; this module provides
+//! the RecordedHttp test fixture and convenience constructors used by
+//! library source tests.
 
-use std::collections::BTreeMap;
+pub use pcbcraft_platform::{HttpClient, HttpError, HttpRequest, HttpResponse};
+
 use std::sync::atomic::{AtomicUsize, Ordering};
-
-/// One outbound call.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HttpRequest {
-    pub method: String,
-    pub url: String,
-    pub headers: BTreeMap<String, String>,
-    pub body: Vec<u8>,
-}
-
-/// Answer from the transport.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HttpResponse {
-    pub status: u16,
-    pub headers: BTreeMap<String, String>,
-    pub body: Vec<u8>,
-}
-
-/// Why a call did not return a response body.
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-pub enum HttpError {
-    #[error("{0}")]
-    Failed(String),
-}
-
-/// Makes distributor API calls on native builds; tests replay fixtures.
-pub trait HttpClient: Send + Sync {
-    fn call(&self, request: &HttpRequest) -> Result<HttpResponse, HttpError>;
-}
 
 /// Replays recorded answers in order.
 pub struct RecordedHttp {
@@ -69,35 +45,37 @@ impl HttpClient for RecordedHttp {
     }
 }
 
-/// Match a recorded POST with a JSON body prefix (order-sensitive fields ignored).
 pub fn post_json(url: &str, body_prefix: &str) -> HttpRequest {
+    let headers = std::collections::BTreeMap::new();
     HttpRequest {
         method: "POST".into(),
         url: url.into(),
-        headers: BTreeMap::new(),
+        headers,
         body: body_prefix.as_bytes().to_vec(),
     }
 }
 
 pub fn get(url: &str) -> HttpRequest {
+    let headers = std::collections::BTreeMap::new();
     HttpRequest {
         method: "GET".into(),
         url: url.into(),
-        headers: BTreeMap::new(),
+        headers,
         body: Vec::new(),
     }
 }
 
 pub fn response(status: u16, body: &str) -> HttpResponse {
+    let headers = std::collections::BTreeMap::new();
     HttpResponse {
         status,
-        headers: BTreeMap::new(),
+        headers,
         body: body.as_bytes().to_vec(),
     }
 }
 
 pub fn response_with_header(status: u16, name: &str, value: &str, body: &str) -> HttpResponse {
-    let mut headers = BTreeMap::new();
+    let mut headers = std::collections::BTreeMap::new();
     headers.insert(name.into(), value.into());
     HttpResponse {
         status,

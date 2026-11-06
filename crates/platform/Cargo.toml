@@ -1,0 +1,12 @@
+[package]
+name = "pcbcraft-platform"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Platform provider traits and in-memory implementations for PCB design tools."
+
+[dependencies]
+pcbcraft-clock = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }

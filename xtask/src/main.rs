@@ -574,7 +574,7 @@ fn layers() -> Result<(), String> {
     let layer = |name: &str| -> Option<u8> {
         match name {
             "pcbcraft-geom" | "pcbcraft-text" | "pcbcraft-calc" | "pcbcraft-clock" => Some(0),
-            "pcbcraft-doc" | "pcbcraft-library" | "pcbcraft-sim" => Some(1),
+            "pcbcraft-platform" | "pcbcraft-doc" | "pcbcraft-library" | "pcbcraft-sim" => Some(1),
             "pcbcraft-rules" | "pcbcraft-io" | "pcbcraft-plugin" => Some(2),
             "pcbcraft-engine" => Some(3),
             "pcbcraft-mcp" | "pcbcraft-ui-egui" => Some(4),
