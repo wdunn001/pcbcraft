@@ -59,21 +59,41 @@ impl App {
             .iter()
             .filter(|l| crate::page_scope::in_view(&sheet, page, sheet.schematic_label_page(l)))
             .filter(|l| l.kind != "bus")
-            .filter(|l| l.position.distance(pos) * f64::from(zoom) <= reach(l))
+            .filter(|l| Self::label_distance(&sheet, l, pos) * f64::from(zoom) <= reach(l))
             .min_by(|a, b| {
-                a.position
-                    .distance(pos)
-                    .total_cmp(&b.position.distance(pos))
+                Self::label_distance(&sheet, a, pos)
+                    .total_cmp(&Self::label_distance(&sheet, b, pos))
             })
             .cloned()
+    }
+
+    /// How far `pos` is from a label. A power port counts its whole symbol
+    /// (the stem and bars drawn from its anchor), so a press on the symbol
+    /// body picks the port up. Other labels count their anchor.
+    pub(crate) fn label_distance(sheet: &Project, label: &Label, pos: Point) -> f64 {
+        if label.kind != "power" {
+            return label.position.distance(pos);
+        }
+        let ground = match label.style.as_str() {
+            "ground" => true,
+            "" => {
+                canvas::sheet::power_kind(sheet.net_name(label.net))
+                    == Some(canvas::sheet::PowerKind::Ground)
+            }
+            _ => false,
+        };
+        let tip = if ground { 2.4 } else { -5.0 };
+        let end = Point::new(label.position.x, label.position.y + tip);
+        pcbcraft_geom::point_segment(pos, label.position, end)
     }
 
     /// True when `label` is closer to `pos` than the pin is, so the label wins
     /// the press and the pin keeps starting wires only where no label sits.
     pub(crate) fn label_beats_pin(&self, label: &Label, pin: &PinRef, pos: Point) -> bool {
-        self.sheet_view()
+        let sheet = self.sheet_view();
+        sheet
             .pin_position(pin)
-            .is_none_or(|at| label.position.distance(pos) < at.distance(pos))
+            .is_none_or(|at| Self::label_distance(&sheet, label, pos) <= at.distance(pos))
     }
 
     /// A press on a label: select it and give back where it stands.
@@ -98,12 +118,65 @@ impl App {
         if snapped { canvas::snap(at) } else { at }
     }
 
+    /// Capture scene: move the VBUS power port 24 mm right, either with the
+    /// port command (`old` false) or with the label-only move, then frame it.
+    pub(crate) fn capture_power_port(&mut self, ctx: &egui::Context, old: bool) {
+        let sheet = self.sheet_view();
+        let Some(port) = sheet
+            .labels
+            .iter()
+            .find(|l| l.kind == "power" && sheet.net_name(l.net) == "VBUS")
+            .cloned()
+        else {
+            return;
+        };
+        let to = canvas::snap(Point::new(port.position.x + 24.0, port.position.y + 6.0));
+        let page_to = self.item_to_page(port.id, to);
+        let command = if old { "label.move" } else { "power_port.move" };
+        self.run(command, json!({"id": port.id, "position": page_to}));
+        self.select(Some(port.id));
+        self.schematic.center = Point::new(
+            (port.position.x + to.x) / 2.0,
+            (port.position.y + to.y) / 2.0,
+        );
+        self.schematic.zoom = 9.0;
+        // Keep the automatic fit from taking the frame back.
+        self.needs_fit = false;
+        ctx.data_mut(|d| d.remove_temp::<(i32, i32)>(egui::Id::new(("auto-fit", false))));
+    }
+
+    /// Where a dragged label settles: a power port dropped near a pin lands on
+    /// that pin, so the drop connects there. Other labels stay where they are.
+    pub(crate) fn drop_on_pin(&self, id: Id, to: Point, zoom: f32) -> Point {
+        let power = self
+            .project
+            .labels
+            .iter()
+            .any(|l| l.id == id && l.kind == "power");
+        if !power {
+            return to;
+        }
+        self.pick_pin(to, zoom)
+            .and_then(|pin| self.sheet_view().pin_position(&pin))
+            .unwrap_or(to)
+    }
+
     /// Run `label.move` for a finished drag; a drag that ends where it began
     /// does nothing.
     pub(crate) fn label_drag_end(&mut self, id: Id, origin: Point, to: Point) {
         if to != origin {
             let to = self.item_to_page(id, to);
-            self.run("label.move", json!({"id": id, "position": to}));
+            let power = self
+                .project
+                .labels
+                .iter()
+                .any(|l| l.id == id && l.kind == "power");
+            let command = if power {
+                "power_port.move"
+            } else {
+                "label.move"
+            };
+            self.run(command, json!({"id": id, "position": to}));
         }
     }
 

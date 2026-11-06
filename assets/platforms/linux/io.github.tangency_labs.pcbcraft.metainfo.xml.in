@@ -20,8 +20,8 @@
       <li>MCP server for agent-driven workflows</li>
     </ul>
   </description>
-<launchable type="desktop-id">io.github.tangency-labs.pcbcraft.desktop</launchable>
-  <icon type="stock">io.github.tangency-labs.pcbcraft</icon>
+<launchable type="desktop-id">io.github.tangency_labs.pcbcraft.desktop</launchable>
+  <icon type="stock">io.github.tangency_labs.pcbcraft</icon>
   <url type="homepage">https://github.com/tangency-labs/pcbcraft</url>
   <url type="bugtracker">https://github.com/tangency-labs/pcbcraft/issues</url>
   <categories>
@@ -37,6 +37,7 @@
   <provides>
     <binary>pcbcraft</binary>
     <binary>pcbcraft-cli</binary>
+    <id>io.github.tangency-labs.pcbcraft</id>
     <mediatype>application/x-pcbcraft</mediatype>
   </provides>
   <content_rating type="oars-1.1"/>
