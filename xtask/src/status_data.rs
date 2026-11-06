@@ -1256,23 +1256,33 @@ fn utc_now() -> String {
         .unwrap_or_default()
 }
 
-/// Returns the age of a snapshot in days, or None if unparseable.
+/// Seconds since the Unix epoch for an ISO timestamp, or `None` if `date` cannot read it.
+///
+/// # Rules
+/// - `text` is passed to `date -u -d`, so `now` and ISO timestamps both work.
+fn epoch_secs(text: &str) -> Option<i64> {
+    let out = Command::new("date")
+        .args(["-u", "-d", text, "+%s"])
+        .output()
+        .ok()?
+        .stdout;
+    String::from_utf8(out).ok()?.trim().parse().ok()
+}
+
+/// Returns the age of a snapshot in days at the real current time, or None if unparseable.
 fn snapshot_age_days(fetched_at: &str) -> Option<u64> {
-    // Use date to parse the ISO timestamp and compute age in seconds
-    let now = Command::new("date")
-        .args(["-u", "+%s"])
-        .output()
-        .ok()?
-        .stdout;
-    let now_secs: i64 = String::from_utf8(now).ok()?.trim().parse().ok()?;
+    snapshot_age_days_at(fetched_at, epoch_secs("now")?)
+}
 
-    let then = Command::new("date")
-        .args(["-u", "-d", fetched_at, "+%s"])
-        .output()
-        .ok()?
-        .stdout;
-    let then_secs: i64 = String::from_utf8(then).ok()?.trim().parse().ok()?;
-
+/// Returns the age of a snapshot in whole days at `now_secs`, or None if unparseable.
+///
+/// # Rules
+/// - A snapshot dated after `now_secs` is 0 days old.
+///
+/// # Do not
+/// - Read the clock here; callers pass the time so tests can fix it.
+fn snapshot_age_days_at(fetched_at: &str, now_secs: i64) -> Option<u64> {
+    let then_secs = epoch_secs(fetched_at)?;
     let age_secs = now_secs.saturating_sub(then_secs);
     if age_secs < 0 {
         return Some(0);
