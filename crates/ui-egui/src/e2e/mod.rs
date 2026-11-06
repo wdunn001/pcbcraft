@@ -46,6 +46,7 @@ mod library_browser;
 mod library_datasheet;
 mod library_dock;
 mod library_real_part;
+mod library_sources;
 mod library_workspace;
 mod machine_library;
 mod minimap;

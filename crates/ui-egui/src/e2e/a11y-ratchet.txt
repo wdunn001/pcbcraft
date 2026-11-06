@@ -15,7 +15,6 @@ focus-order | Rules | 5 | #922 first measured count, lower it as controls are fi
 colour-only | Checks | 3 | #922 first measured count, lower it as controls are fixed
 focus-order | Checks | 28 | #922 first measured count, lower it as controls are fixed
 focus-order | Settings | 5 | #922 first measured count, lower it as controls are fixed
-focus-order | Libraries | 5 | #922 first measured count, lower it as controls are fixed
 focus-order | PlotFiles | 5 | #922 first measured count, lower it as controls are fixed
 duplicate-name | Pcb, lower dock page 2 | 15 | #920 same twin layer list
 colour-only | Pcb, lower dock page 2 | 13 | #922 first measured count, lower it as controls are fixed

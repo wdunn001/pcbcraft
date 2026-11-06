@@ -251,6 +251,18 @@ fn a_newcomer_adds_a_supplier_source_to_a_part() -> Result<(), String> {
 }
 
 #[test]
+fn a_newcomer_opens_the_protection_diode_from_the_part_list() -> Result<(), String> {
+    let (ctx, mut app) = library_open();
+    tap_id(
+        &ctx,
+        &mut app,
+        "button:Protection diode, Built in \u{b7} MIT OR Apache-#.#",
+    )?;
+    assert_eq!(app.libws.parts.len(), 1, "the part opens as a tab");
+    Ok(())
+}
+
+#[test]
 fn a_newcomer_compares_two_parts_and_sees_their_differences() -> Result<(), String> {
     let (ctx, mut app) = library_open();
     tap_id(&ctx, &mut app, RESISTOR_CARD)?;
