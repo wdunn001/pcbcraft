@@ -93,14 +93,9 @@ rules_fab.rs class_pair_section
 files_home.rs files_center
 files_home.rs files_subpage
 files_home/home.rs files_toolbar
-files_home/home.rs files_home_page
 files_home/home.rs files_header
-files_home/home.rs files_stats
-files_home/home.rs files_project_card
-files_home/home.rs files_made_card
 files_home/home.rs files_recent_card
 files_home/home.rs files_recent_row
-files_home/home.rs files_properties
 files_home.rs files_open_page
 files_home.rs files_formats_page
 files_home.rs files_close_page

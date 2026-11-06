@@ -3,12 +3,13 @@
 //!
 //! Context: the Files tab is a workspace (`workspace.rs`, the Workspace contract). The
 //! approved mockup `files` has a tool bar (New, Open, Save, Import, Export, Open sample
-//! project), the Library in the left aside. The centre shows the open project's name with
-//! Save and Open folder, four stat cards, the Project files table, Made files and Recent
-//! projects. The right aside holds Properties: name, units, author, board width, height
-//! and layers. `home.rs` draws all of that. This file holds the state, the worker that
-//! looks at files, the Open, Import, Export and Close pages that the tool bar leads to,
-//! and the commands.
+//! project) and the project files tree in the left aside. The centre shows the open project's
+//! name with Save and Open folder, four cards (Parts, Nets, Board shape, Checks), the Shape of
+//! each layer row, Next and Recent projects. The right aside holds Properties: name, units,
+//! author, notes, the read only shape, layers and Project settings. There is no board width
+//! or height to edit here. `home.rs`, `shape_cards.rs`, `tree.rs` and `props.rs` draw all of
+//! that. This file holds the state, the worker that looks at files, the Open, Import, Export
+//! and Close pages that the tool bar leads to, and the commands.
 //!
 //! Local rules:
 //! - Import and Export pages list the same registry entries as the File menu (Recent,
@@ -22,7 +23,7 @@
 //!
 //! # Dependencies
 //! - crates/ui-egui/src/workspace.rs (`FilesWorkspace` calls `files_toolbar`, `files_center`)
-//! - crates/ui-egui/src/files_home/home.rs (the home page and Properties)
+//! - crates/ui-egui/src/files_home/home.rs (header and Recent projects), shape_cards.rs, tree.rs, props.rs
 //! - crates/ui-egui/src/file_dialogs.rs (`App::open_dialog`, `Recents`)
 //! - crates/engine/src/recents.rs (the list of recent paths)
 //! - crates/ui-egui/src/ui_kit/rows.rs, button.rs, empty_state.rs
@@ -33,12 +34,15 @@
 //! - Touch the real recents file in a test; set `RECENTS_PATH_TEST` to a temp dir.
 
 mod home;
+mod props;
+mod shape_cards;
+mod tree;
 
 use super::*;
 use crate::ui_kit::button::{self, Size};
 use crate::ui_kit::icons;
 use pcbcraft_io::formats::{self, Direction, Scope};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// The name a design has before it is saved anywhere.
@@ -130,6 +134,25 @@ pub(crate) struct State {
     rows: Vec<egui::Id>,
     /// What the last Files action said when it failed.
     pub(crate) error: String,
+    /// The words typed in the project files tree filter.
+    pub(crate) filter: String,
+    /// Tree rows the person flipped from their first state (top sections start open,
+    /// groups start folded).
+    tree_flipped: BTreeSet<String>,
+    /// The Start from a rectangle dialog while it is open.
+    pub(crate) rect_draft: Option<RectDraft>,
+}
+
+/// The two numbers of the Start from a rectangle dialog, in millimetres.
+///
+/// Why: a rectangle is only a template for the free-form shape, so these two numbers
+/// exist in this dialog and nowhere else on the Files page.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct RectDraft {
+    /// How far the template reaches across.
+    pub(crate) width: f64,
+    /// How far the template reaches down.
+    pub(crate) height: f64,
 }
 
 impl State {
