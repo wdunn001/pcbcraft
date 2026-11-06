@@ -640,3 +640,91 @@ fn locked_and_hidden_items_are_counted_like_other_items() -> Result<(), Error> {
     assert_eq!(vcc_row["pads"], json!(3));
     Ok(())
 }
+
+#[test]
+fn place_suggest_returns_candidates_for_decoupling() -> Result<(), Error> {
+    let (mut s, u1, c1, _) = board()?;
+    place(&mut s, u1, 10.0, 10.0)?;
+    place(&mut s, c1, 20.0, 10.0)?;
+    s.execute("rules.decoupling_set", json!({"max_distance_mm":5.0}), None)?;
+    let result = s.execute(
+        "layout.place_suggest",
+        json!({"satellite": c1, "anchor": u1, "rule": "decoupling"}),
+        None,
+    )?;
+    let r = result["result"].clone();
+    assert_eq!(r["rule"], json!("decoupling"));
+    assert_eq!(r["max_distance_mm"], json!(5.0));
+    let candidates = r["candidates"]
+        .as_array()
+        .ok_or(Error::Invalid("no candidates".into()))?;
+    assert!(!candidates.is_empty(), "should have at least one candidate");
+    for cand in candidates {
+        let dist = cand["distance_mm"]
+            .as_f64()
+            .ok_or(Error::Invalid("no distance".into()))?;
+        assert!(dist <= 5.0001, "candidate too far: {dist}");
+    }
+    Ok(())
+}
+
+#[test]
+fn place_suggest_does_not_move_the_part() -> Result<(), Error> {
+    let (mut s, u1, c1, _) = board()?;
+    place(&mut s, u1, 10.0, 10.0)?;
+    place(&mut s, c1, 20.0, 10.0)?;
+    let before = s.project.clone();
+    s.execute(
+        "layout.place_suggest",
+        json!({"satellite": c1, "anchor": u1, "rule": "decoupling"}),
+        None,
+    )?;
+    let after = s.project.clone();
+    assert_eq!(
+        serde_json::to_string(&before).map_err(|e| Error::Invalid(e.to_string()))?,
+        serde_json::to_string(&after).map_err(|e| Error::Invalid(e.to_string()))?,
+        "suggest must not change the project"
+    );
+    Ok(())
+}
+
+#[test]
+fn place_apply_moves_the_part() -> Result<(), Error> {
+    let (mut s, u1, c1, _) = board()?;
+    place(&mut s, u1, 10.0, 10.0)?;
+    place(&mut s, c1, 20.0, 10.0)?;
+    let result = s.execute(
+        "layout.place_apply",
+        json!({"component": c1, "position": {"x": 12.0, "y": 10.0}}),
+        None,
+    )?;
+    let r = result["result"].clone();
+    assert_eq!(r["component"], json!(c1));
+    assert_eq!(r["position"]["x"], json!(12.0));
+    assert_eq!(r["position"]["y"], json!(10.0));
+    let fp = fp_of(&s, c1)?;
+    let pos = s
+        .project
+        .footprint(fp)
+        .ok_or(Error::Invalid("no footprint".into()))?
+        .position;
+    assert!((pos.x - 12.0).abs() < 0.001, "x not updated");
+    assert!((pos.y - 10.0).abs() < 0.001, "y not updated");
+    Ok(())
+}
+
+#[test]
+fn place_apply_fails_for_locked_footprint() -> Result<(), Error> {
+    let (mut s, u1, c1, _) = board()?;
+    place(&mut s, u1, 10.0, 10.0)?;
+    place(&mut s, c1, 20.0, 10.0)?;
+    let fp = fp_of(&s, c1)?;
+    s.execute("footprint.set_locked", json!({"id":fp,"locked":true}), None)?;
+    let result = s.execute(
+        "layout.place_apply",
+        json!({"component": c1, "position": {"x": 12.0, "y": 10.0}}),
+        None,
+    );
+    assert!(result.is_err(), "should fail for locked footprint");
+    Ok(())
+}
