@@ -37,7 +37,7 @@ placement = "top"
 
 [[tour.steps]]
 id = "help_menu"
-target = "menu.help.tours"
+target = "shell.menu.help"
 title = "tour.window_and_tabs.help_menu.title"
 body = "tour.window_and_tabs.help_menu.body"
 placement = "bottom"

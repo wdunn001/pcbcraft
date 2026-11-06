@@ -8,18 +8,25 @@ use super::support::*;
 
 #[test]
 fn a_newcomer_opens_help_tours_and_sees_every_tour_listed() -> Result<(), String> {
+    let doc = data::embedded()?;
+    assert!(
+        doc.tour.len() >= 2,
+        "the shipped catalog must hold real tours, found {}",
+        doc.tour.len()
+    );
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
     let ctx = egui::Context::default();
     authoring::tests::tap(&ctx, &mut app, "Help")?;
     authoring::tests::tap(&ctx, &mut app, "Tours")?;
-    let tours = app.tours.tour.clone();
-    for tour in &tours {
+    let start = pcbcraft_text::lookup("tour.menu.start", &[]);
+    for tour in &doc.tour {
         let title = pcbcraft_text::lookup(&tour.list_key(), &[]);
+        let row = format!("{title} ({start})");
         assert!(
-            paints_text(&ctx, &mut app, &title)?,
-            "Help > Tours lists {title}"
+            paints_text(&ctx, &mut app, &row)?,
+            "the open Help > Tours menu lists the row `{row}`"
         );
     }
     Ok(())

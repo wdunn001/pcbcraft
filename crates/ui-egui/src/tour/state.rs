@@ -165,6 +165,12 @@ pub struct ShellView<'a> {
 pub struct Controller {
     catalog: Vec<TourMeta>,
     session: Session,
+    /// False stops the controller from putting up a first launch card or a
+    /// tab chip by itself. Tours still start from Help > Tours. The e2e
+    /// harness turns this off for every fresh app, because each story is a
+    /// first launch and the card would sit over the canvas it clicks. One
+    /// story turns it back on to prove a new person is offered the tour.
+    unprompted_offers: bool,
 }
 
 impl Controller {
@@ -172,7 +178,14 @@ impl Controller {
         Self {
             catalog,
             session: Session::default(),
+            unprompted_offers: true,
         }
+    }
+
+    /// Allow or stop offers the controller makes on its own (test harness only).
+    #[cfg(test)]
+    pub fn set_unprompted_offers(&mut self, on: bool) {
+        self.unprompted_offers = on;
     }
 
     pub(crate) fn meta(&self, id: &str) -> Option<&TourMeta> {
@@ -277,7 +290,7 @@ impl Controller {
         if self.session.active_id.is_some() || self.session.pending.is_some() {
             return;
         }
-        if !view.offer_tours || !unprompted_allowed(view, now) {
+        if !self.unprompted_offers || !view.offer_tours || !unprompted_allowed(view, now) {
             return;
         }
         for meta in self.catalog.clone() {

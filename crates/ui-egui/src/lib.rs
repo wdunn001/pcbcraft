@@ -2324,7 +2324,14 @@ impl App {
                 }
                 #[cfg(test)]
                 catalog.extend(tour::state::e2e_fixture_catalog());
-                tour::Controller::new(catalog)
+                let controller = tour::Controller::new(catalog);
+                #[cfg(test)]
+                let controller = {
+                    let mut quiet = controller;
+                    quiet.set_unprompted_offers(false);
+                    quiet
+                };
+                controller
             },
             #[cfg(test)]
             icon_rects: BTreeMap::new(),
