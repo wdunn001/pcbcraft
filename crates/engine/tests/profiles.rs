@@ -321,3 +321,25 @@ fn a_newcomer_applies_a_usb_profile_to_their_design() -> Result<(), Error> {
     assert_eq!(s.project.net_classes[0].name, "USB");
     Ok(())
 }
+
+#[test]
+fn a_newcomer_picks_usb_2_0_and_gets_the_net_class_and_required_parts() -> Result<(), Error> {
+    let mut s = Session::default();
+    s.execute("net.create", json!({"name":"USB_D+"}), None)?;
+    s.execute("net.create", json!({"name":"USB_D-"}), None)?;
+    let out = s.execute("rules.profile_apply", json!({"id":"usb2"}), None)?;
+    let plan = &out["result"]["plan"];
+    let companions = plan["companions"].as_array().ok_or_else(missing)?;
+    let roles: Vec<&str> = companions
+        .iter()
+        .filter_map(|c| c["role"].as_str())
+        .collect();
+    assert!(roles.contains(&"series_resistor"));
+    assert!(roles.contains(&"esd"));
+    assert!(out["result"]["applied"].as_bool().unwrap_or(false));
+    assert_eq!(s.project.net_classes.len(), 1);
+    assert_eq!(s.project.net_classes[0].name, "USB");
+    assert_eq!(s.project.board.diff_pairs.len(), 1);
+    assert_eq!(s.project.board.diff_pairs[0].target_impedance, Some(90.0));
+    Ok(())
+}

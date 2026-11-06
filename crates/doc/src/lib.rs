@@ -14,6 +14,7 @@ mod machine_profile;
 mod material;
 mod net_members;
 mod net_merge;
+mod power_port;
 pub use net_merge::NetMerge;
 mod corner;
 mod net_properties;
