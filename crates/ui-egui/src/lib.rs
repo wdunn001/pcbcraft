@@ -80,6 +80,7 @@ mod rules_fab;
 mod schematic_port;
 mod selection;
 mod setup_wizard;
+mod shape_preview;
 mod sheet_lit;
 mod sheet_rows;
 mod sheet_shape_tool;
@@ -2052,6 +2053,7 @@ impl App {
             .and_then(|s| eframe::get_value(s, "preferences"))
             .unwrap_or_default();
         preferences.normalize_keymaps();
+        workspace::migrate_layouts(&mut preferences.layouts);
         if light {
             preferences.dark = false;
         }
@@ -8708,11 +8710,7 @@ mod tests {
         authoring::tests::tap(&ctx, &mut app, "Back to a plain rectangle")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
-            app.project
-                .board
-                .outline
-                .as_ref()
-                .is_none_or(|o| o.len() < 3),
+            app.project.board.outline.as_ref().map_or(0, |o| o.len()) == 4,
             "the board is a plain rectangle again"
         );
         let _ = std::fs::remove_file(&file);

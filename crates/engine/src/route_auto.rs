@@ -120,11 +120,13 @@ fn default_seed() -> u64 {
     0
 }
 
-/// Find the first new error code that appeared after routing.
+/// Find the first new error that appeared after routing.
 ///
 /// # Rules
-/// - Compares two DRC error sets and returns the first code in `after` that is
-///   not in `before`, in sorted order for determinism.
+/// - Compares two DRC error sets by code and the objects involved, and returns the code of
+///   the first error in `after` that is not in `before`, in sorted order for determinism.
+/// - A second error of a code that was already present counts as new when it involves
+///   other objects.
 /// - Returns `None` if no new errors appeared.
 ///
 /// # Dependencies
@@ -136,12 +138,7 @@ fn first_new_error(
     before: &BTreeSet<(&'static str, Vec<Id>)>,
     after: &BTreeSet<(&'static str, Vec<Id>)>,
 ) -> Option<&'static str> {
-    for (code, _) in after {
-        if !before.iter().any(|(b, _)| b == code) {
-            return Some(*code);
-        }
-    }
-    None
+    after.difference(before).next().map(|(code, _)| *code)
 }
 
 #[derive(Deserialize, Clone, Copy, PartialEq)]
@@ -942,6 +939,13 @@ mod tests {
             first_new_error(&before, &after_new),
             Some("short"),
             "new error code detected"
+        );
+        let after_more: BTreeSet<(&'static str, Vec<u64>)> =
+            BTreeSet::from([("clearance", vec![1]), ("clearance", vec![3])]);
+        assert_eq!(
+            first_new_error(&before, &after_more),
+            Some("clearance"),
+            "another error of a code that was already present is new"
         );
     }
 }
