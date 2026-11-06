@@ -340,3 +340,71 @@ fn oven_and_other_machines_refuse_another_kinds_tables() -> Result<(), String> {
     assert!(mill.validate().is_err());
     Ok(())
 }
+
+#[test]
+fn reflow_oven_profiles_can_be_added_listed_and_removed() -> Result<(), String> {
+    let (mut s, folder) = session("profiles");
+    // Install the built-in oven first.
+    run(&mut s, "machine.install", json!({"id": "puhui-t-962a"}))?;
+    // Add a profile.
+    let made = run(
+        &mut s,
+        "reflow.profile_add",
+        json!({
+            "machine": "puhui-t-962a",
+            "profile": {
+                "id": "sac305-standard",
+                "name": "Standard SAC305",
+                "stages": [
+                    {"name": "preheat", "target_c": 150.0, "time_s": 120.0},
+                    {"name": "reflow", "target_c": 245.0, "time_s": 45.0}
+                ]
+            }
+        }),
+    )?;
+    assert_eq!(made["profile_count"], 1);
+    // List profiles.
+    let list = run(&mut s, "reflow.profile_list", json!({"id": "puhui-t-962a"}))?;
+    let profiles = list["profiles"].as_array().ok_or("profiles is an array")?;
+    assert!(
+        profiles.iter().any(|p| p["name"] == "Standard SAC305"),
+        "the new profile is listed"
+    );
+    // Remove the profile.
+    run(
+        &mut s,
+        "reflow.profile_remove",
+        json!({"machine": "puhui-t-962a", "profile": "sac305-standard"}),
+    )?;
+    let list2 = run(&mut s, "reflow.profile_list", json!({"id": "puhui-t-962a"}))?;
+    let profiles2 = list2["profiles"].as_array().ok_or("profiles is an array")?;
+    assert!(
+        !profiles2.iter().any(|p| p["name"] == "Standard SAC305"),
+        "the removed profile is gone"
+    );
+    let _ = std::fs::remove_dir_all(folder);
+    Ok(())
+}
+
+#[test]
+fn a_profile_cannot_exceed_the_oven_max_temperature() -> Result<(), String> {
+    let (mut s, folder) = session("profile-temp");
+    run(&mut s, "machine.install", json!({"id": "puhui-t-962a"}))?;
+    let err = run(
+        &mut s,
+        "reflow.profile_add",
+        json!({
+            "machine": "puhui-t-962a",
+            "profile": {
+                "id": "too-hot",
+                "name": "Too hot",
+                "stages": [{"name": "reflow", "target_c": 300.0, "time_s": 45.0}]
+            }
+        }),
+    )
+    .err()
+    .ok_or("a profile exceeding oven max temp is refused")?;
+    assert!(!err.is_empty());
+    let _ = std::fs::remove_dir_all(folder);
+    Ok(())
+}

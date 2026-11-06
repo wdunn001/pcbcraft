@@ -473,13 +473,59 @@ pub struct UvLimitsSection {
     pub max_pixels: u32,
 }
 
+/// One stage of a reflow profile: a named temperature and time.
+///
+/// # Rules
+/// - `name` is the stage label (preheat, soak, reflow, cool).
+/// - `target_c` is the target temperature in degrees Celsius.
+/// - `time_s` is the dwell time in seconds.
+///
+/// # Dependencies
+/// - crates/doc/src/machine_profile.rs
+///
+/// # Do not
+/// - Use this for a whole profile; that is `ReflowProfile`.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct ReflowStage {
+    /// The stage name, such as preheat, soak, reflow or cool.
+    pub name: String,
+    /// The target temperature for this stage, in degrees Celsius.
+    pub target_c: f64,
+    /// The dwell time for this stage, in seconds.
+    pub time_s: f64,
+}
+
+/// One named reflow profile the oven holds.
+///
+/// # Rules
+/// - The profile has a list of stages that run in order.
+/// - Each stage has a name, target temperature and dwell time.
+/// - Validation checks that no stage exceeds the oven's maximum temperature.
+///
+/// # Dependencies
+/// - crates/doc/src/machine_profile.rs
+///
+/// # Do not
+/// - Validate the profile here; the oven section validation does it.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct ReflowProfile {
+    /// The profile identifier.
+    pub id: String,
+    /// The profile name, as shown to the person.
+    pub name: String,
+    /// The stages this profile runs, in order.
+    pub stages: Vec<ReflowStage>,
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 /// What a reflow oven states about itself. The work area table holds the soldering area.
 ///
 /// # Rules
 /// - Every field is optional; zero or empty means the maker did not state it.
-/// - Reflow profiles are not modelled here.
+/// - Profiles are validated against the oven's maximum temperature.
 pub struct ReflowOvenSection {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     /// Rated electrical power in watts.
@@ -493,6 +539,9 @@ pub struct ReflowOvenSection {
     #[serde(default, skip_serializing_if = "is_zero_count")]
     /// How many ready-made profiles the oven holds.
     pub profile_count: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// The ready-made reflow profiles this oven holds.
+    pub profiles: Vec<ReflowProfile>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -676,6 +725,7 @@ impl ReflowOvenSection {
             && self.max_temp_c.is_none()
             && self.heating.is_empty()
             && self.profile_count == 0
+            && self.profiles.is_empty()
     }
 }
 
@@ -1035,6 +1085,36 @@ impl MachineProfile {
         }
         if !optional_bounded(&o.heating, MAX_NOTES_LEN) || o.profile_count > 1000 {
             return Err("reflow oven heating text or profile count is outside its limit".into());
+        }
+        if o.profiles.len() > 1000 {
+            return Err("reflow oven has too many profiles".into());
+        }
+        for profile in &o.profiles {
+            if profile.id.is_empty() || profile.id.len() > MAX_ID_LEN {
+                return Err("reflow profile id must be 1 to 64 bytes".into());
+            }
+            if !bounded(&profile.name, MAX_NAME_LEN) {
+                return Err("reflow profile name must be 1 to 128 bytes".into());
+            }
+            if profile.stages.is_empty() || profile.stages.len() > 16 {
+                return Err("reflow profile needs one to sixteen stages".into());
+            }
+            for stage in &profile.stages {
+                if !bounded(&stage.name, MAX_SHORT) {
+                    return Err("reflow stage name must be 1 to 64 bytes".into());
+                }
+                if !stage.target_c.is_finite() || stage.target_c < 0.0 || stage.target_c > 1500.0 {
+                    return Err("reflow stage temperature must be 0 to 1500 degrees".into());
+                }
+                if !stage.time_s.is_finite() || stage.time_s < 0.0 || stage.time_s > 3600.0 {
+                    return Err("reflow stage time must be 0 to 3600 seconds".into());
+                }
+                if let Some(max) = o.max_temp_c
+                    && stage.target_c > max
+                {
+                    return Err("reflow stage exceeds the oven maximum temperature".into());
+                }
+            }
         }
         Ok(())
     }

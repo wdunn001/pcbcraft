@@ -21,7 +21,7 @@
 //! - Write a project copy back into the library without being asked (`machine.library_save`).
 use crate::user_config::UserConfig;
 use crate::{Error, parse, upsert_machine_profile};
-use pcbcraft_doc::{MachineOrigin, MachineProfile, Project};
+use pcbcraft_doc::{MachineOrigin, MachineProfile, Project, ReflowProfile};
 use pcbcraft_io::CopyState;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -436,6 +436,26 @@ fn project_copy(p: &Project, id: &str) -> Result<MachineProfile, Error> {
         .ok_or_else(|| Error::Invalid(format!("no machine named {id} in the project")))
 }
 
+/// Parameters for `reflow.profile_add`.
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ReflowProfileAddParams {
+    /// The machine profile id.
+    pub(crate) machine: String,
+    /// The profile to add.
+    pub(crate) profile: Value,
+}
+
+/// Parameters for `reflow.profile_remove`.
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ReflowProfileRemoveParams {
+    /// The machine profile id.
+    pub(crate) machine: String,
+    /// The profile id to remove.
+    pub(crate) profile: String,
+}
+
 /// Run one library command.
 ///
 /// # Rules
@@ -574,6 +594,69 @@ pub(crate) fn run(
             }
             std::fs::remove_file(path).map_err(|e| Error::Invalid(e.to_string()))?;
             Ok(json!({"removed": a.id}))
+        }
+        "reflow.profile_add" => {
+            let a: ReflowProfileAddParams = parse(params)?;
+            let profile: ReflowProfile = parse(&a.profile)?;
+            let machine = p
+                .machine_profiles
+                .iter_mut()
+                .find(|m| m.id == a.machine)
+                .ok_or_else(|| Error::Invalid(format!("no machine named {}", a.machine)))?;
+            if machine.kind != "reflow_oven" {
+                return Err(Error::Invalid("machine is not a reflow oven".into()));
+            }
+            machine.reflow_oven.profiles.push(profile);
+            machine.reflow_oven.profile_count = machine.reflow_oven.profiles.len() as u32;
+            machine.validate().map_err(Error::Invalid)?;
+            Ok(json!({"id": a.machine, "profile_count": machine.reflow_oven.profile_count}))
+        }
+        "reflow.profile_remove" => {
+            let a: ReflowProfileRemoveParams = parse(params)?;
+            let machine = p
+                .machine_profiles
+                .iter_mut()
+                .find(|m| m.id == a.machine)
+                .ok_or_else(|| Error::Invalid(format!("no machine named {}", a.machine)))?;
+            if machine.kind != "reflow_oven" {
+                return Err(Error::Invalid("machine is not a reflow oven".into()));
+            }
+            let before = machine.reflow_oven.profiles.len();
+            machine.reflow_oven.profiles.retain(|p| p.id != a.profile);
+            if machine.reflow_oven.profiles.len() == before {
+                return Err(Error::Invalid(format!("no profile named {}", a.profile)));
+            }
+            machine.reflow_oven.profile_count = machine.reflow_oven.profiles.len() as u32;
+            machine.validate().map_err(Error::Invalid)?;
+            Ok(json!({"id": a.machine, "profile_count": machine.reflow_oven.profile_count}))
+        }
+        "reflow.profile_list" => {
+            let a: IdParams = parse(params)?;
+            let machine = p
+                .machine_profiles
+                .iter()
+                .find(|m| m.id == a.id)
+                .ok_or_else(|| Error::Invalid(format!("no machine named {}", a.id)))?;
+            if machine.kind != "reflow_oven" {
+                return Err(Error::Invalid("machine is not a reflow oven".into()));
+            }
+            let profiles: Vec<Value> = machine
+                .reflow_oven
+                .profiles
+                .iter()
+                .map(|p| {
+                    json!({
+                        "id": p.id,
+                        "name": p.name,
+                        "stages": p.stages.iter().map(|s| json!({
+                            "name": s.name,
+                            "target_c": s.target_c,
+                            "time_s": s.time_s
+                        })).collect::<Vec<Value>>()
+                    })
+                })
+                .collect();
+            Ok(json!({"profiles": profiles, "count": profiles.len()}))
         }
         _ => Err(Error::Invalid(format!("unknown machine command {command}"))),
     }
