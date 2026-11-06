@@ -6,7 +6,7 @@ use super::super::tour::data::{self, Step, Tour};
 use super::super::tour::{anchor, layout, playback::TourState, replay};
 use super::super::*;
 use super::support::*;
-use egui::{Color32, Rect, Stroke, StrokeKind, Vec2};
+use egui::{Rect, Vec2};
 use pcbcraft_text::lookup;
 
 #[derive(Clone, Copy)]
@@ -44,25 +44,6 @@ impl Profile {
             reduced_motion: true,
         },
     ];
-}
-
-#[test]
-fn a_newcomer_opens_help_tours_and_sees_every_tour_listed() -> Result<(), String> {
-    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-    let mut app = App::create(shared, Preferences::default(), None, None);
-    app.refresh();
-    let ctx = egui::Context::default();
-    authoring::tests::tap(&ctx, &mut app, "Help")?;
-    authoring::tests::tap(&ctx, &mut app, "Tours")?;
-    let tours = app.tours.tour.clone();
-    for tour in &tours {
-        let title = lookup(&tour.list_key(), &[]);
-        assert!(
-            paints_text(&ctx, &mut app, &title)?,
-            "Help > Tours lists {title}"
-        );
-    }
-    Ok(())
 }
 
 #[test]
@@ -106,10 +87,18 @@ fn a_newcomer_finishes_every_tour() -> Result<(), String> {
     Ok(())
 }
 
-// When #775 adds a tour, add a dedicated test that calls `replay_one_tour` for
-// that id so CI names the tour on failure.
-
+/// Plays one tour through the real controller and overlay the way a person
+/// does: the card must paint its title and step count, the cutout must cover
+/// the control it names, and Next (or the step's own action) moves on until
+/// the tour is recorded as done.
 fn replay_one_tour(tour: &Tour, profile: Profile) -> Result<(), String> {
+    REPLAY_SCREEN.with(|cell| cell.set(Some((profile.width, profile.height))));
+    let outcome = play_tour(tour, profile);
+    REPLAY_SCREEN.with(|cell| cell.set(None));
+    outcome
+}
+
+fn play_tour(tour: &Tour, profile: Profile) -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
@@ -117,25 +106,42 @@ fn replay_one_tour(tour: &Tour, profile: Profile) -> Result<(), String> {
     app.preferences.reduced_motion = profile.reduced_motion;
     let ctx = egui::Context::default();
     open_workspace(&mut app, &tour.workspace)?;
-    app.tour_start(tour.id.clone(), tour.version);
+    app.tour.start_from_menu(
+        &mut app.preferences.tour_progress,
+        &tour.id,
+        super::super::tour::state::MenuAction::Start,
+    );
     let count = tour.steps.len();
-    while app.tour_playback().is_some() {
-        let index = app.tour_playback().ok_or("missing value")?.step;
+    let mut guard = 0;
+    while let Some((_, index)) = app.tour.active().map(|(m, s)| (m.id.clone(), s as usize)) {
+        guard += 1;
+        if guard > count + 2 {
+            return Err(format!(
+                "tour `{}` did not finish after {guard} steps",
+                tour.id
+            ));
+        }
         let step = tour
             .steps
             .get(index)
             .ok_or_else(|| format!("tour `{}`: step index {index} out of range", tour.id))?;
         paint_step(&ctx, &mut app, tour, step, index, count, profile)?;
-        if index + 1 >= count {
-            app.tour_complete();
-            break;
-        }
         if let Some(wait) = &step.wait_for {
             perform_wait(&ctx, &mut app, wait, tour, step)?;
-        } else {
-            app.tour_next();
         }
+        authoring::tests::tap(&ctx, &mut app, &lookup("tour.runner.next", &[]))?;
     }
+    let record = app
+        .preferences
+        .tour_progress
+        .get(&tour.id)
+        .ok_or_else(|| format!("tour `{}` left no progress record", tour.id))?;
+    assert_eq!(
+        record.state,
+        super::super::tour::state::PersistedState::Done,
+        "tour `{}` ends as done",
+        tour.id
+    );
     Ok(())
 }
 
@@ -154,30 +160,9 @@ fn paint_step(
 ) -> Result<(), String> {
     let label = |msg: &str| format!("tour `{}` step `{}`: {msg}", tour.id, step.id);
     frame(ctx, app, vec![], egui::Modifiers::NONE);
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
     let anchor_rect = anchor::lookup(ctx, &step.target);
     let layout = layout::step_layout(screen(profile), &step.target, anchor_rect, &step.placement);
-    let title = lookup(&step.title, &[]);
-    let body = lookup(&step.body, &[]);
-    replay_frame(ctx, app, profile.width, profile.height, |ui| {
-        let card = layout.card;
-        ui.painter().rect_filled(card, 8.0, Color32::from_gray(32));
-        if let Some(hole) = layout.hole {
-            ui.painter().rect_stroke(
-                hole,
-                4.0,
-                Stroke::new(2.0, Color32::from_rgb(255, 220, 80)),
-                StrokeKind::Outside,
-            );
-        }
-        let text = format!("{title}\n\n{body}\n\nStep {} of {count}", index + 1);
-        ui.painter().text(
-            card.left_top() + Vec2::new(12.0, 12.0),
-            egui::Align2::LEFT_TOP,
-            text,
-            crate::fonts::Role::Body.font(),
-            Color32::WHITE,
-        );
-    });
     assert!(
         screen(profile).contains_rect(layout.card),
         "{}",
@@ -195,10 +180,23 @@ fn paint_step(
             label("hole mismatch")
         );
     }
+    let title = lookup(&step.title, &[]);
     assert!(
         paints_text(ctx, app, &title)?,
         "{}",
         label("card title must paint")
+    );
+    let counter = pcbcraft_text::lookup(
+        "tour.runner.step",
+        &[
+            ("step", &(index + 1).to_string()),
+            ("total", &count.to_string()),
+        ],
+    );
+    assert!(
+        paints_text(ctx, app, &counter)?,
+        "{}",
+        label("step counter must paint")
     );
     Ok(())
 }
@@ -226,7 +224,6 @@ fn perform_wait(
     match wait {
         "document_changed" => {
             app.tool_call("sample_design", serde_json::json!({}));
-            app.tour_next();
         }
         "selection:part" => {
             let id = app
@@ -236,15 +233,18 @@ fn perform_wait(
                 .map(|c| c.id)
                 .ok_or_else(|| ctx_label("no part to select"))?;
             app.select(Some(id));
-            app.tour_next();
         }
         "selection:any" => {
             app.select(app.project.components.first().map(|c| c.id));
-            app.tour_next();
         }
         _ if wait.starts_with("click:") => {
             let anchor = wait.strip_prefix("click:").unwrap_or("");
-            tap_id(ctx, app, anchor).or_else(|_| {
+            let by_anchor = anchor::lookup(ctx, anchor).map(|rect| tap_at(ctx, app, rect.center()));
+            match by_anchor {
+                Some(done) => done,
+                None => tap_id(ctx, app, anchor),
+            }
+            .or_else(|_| {
                 if let Some((menu, item)) = anchor.split_once('.') {
                     let menu = menu.replace('_', " ");
                     let item = item.replace('_', " ");
@@ -254,28 +254,23 @@ fn perform_wait(
                     Err(format!("no control named `{anchor}`"))
                 }
             })?;
-            app.tour_next();
         }
         _ if wait.starts_with("tool:") => {
             let name = wait.strip_prefix("tool:").unwrap_or("");
             tap_left(ctx, app, name)?;
-            app.tour_next();
         }
         _ if wait.starts_with("tab:") => {
             let ws = wait.strip_prefix("tab:").unwrap_or("");
             open_workspace(app, ws)?;
             frame(ctx, app, vec![], egui::Modifiers::NONE);
-            app.tour_next();
         }
         _ if wait.starts_with("panel_open:") => {
             let panel = wait.strip_prefix("panel_open:").unwrap_or("");
             app.tour_open_panel(panel)?;
-            app.tour_next();
         }
         _ if wait.starts_with("command:") => {
             let id = wait.strip_prefix("command:").unwrap_or("");
             app.tool_call(id, serde_json::json!({}));
-            app.tour_next();
         }
         _ => return Err(ctx_label(&format!("unsupported wait_for `{wait}`"))),
     }

@@ -93,3 +93,46 @@ fn a_newcomer_turns_off_tour_offers() -> Result<(), String> {
     );
     Ok(())
 }
+
+#[test]
+fn a_brand_new_person_is_offered_the_first_launch_tour_once() -> Result<(), String> {
+    let mut app = fresh();
+    app.tour.set_unprompted_offers(true);
+    let ctx = egui::Context::default();
+    let title = t!("tour.card.first_launch.title");
+    assert!(
+        paints_text(&ctx, &mut app, &title)?,
+        "a first launch puts up the welcome card"
+    );
+    for _ in 0..6 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let cards = output
+        .shapes
+        .iter()
+        .filter(
+            |shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.text() == title),
+        )
+        .count();
+    assert_eq!(cards, 1, "the welcome card is on screen once");
+    authoring::tests::tap(&ctx, &mut app, &t!("tour.card.not_now"))?;
+    assert!(
+        !paints_text(&ctx, &mut app, &title)?,
+        "Not now hides the card"
+    );
+    let saved = prefs_round_trip(&app)?;
+    assert!(
+        saved.tour_first_launch_done,
+        "the first launch is remembered in the preferences"
+    );
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut second = App::create(shared, saved, None, None);
+    second.refresh();
+    second.tour.set_unprompted_offers(true);
+    assert!(
+        !paints_text(&ctx, &mut second, &title)?,
+        "a second launch does not offer the tour again"
+    );
+    Ok(())
+}
