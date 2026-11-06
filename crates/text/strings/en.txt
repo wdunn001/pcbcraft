@@ -2557,7 +2557,7 @@ web.loading.compile = Preparing the app
 web.loading.start = Starting
 web.loading.slow = The first visit takes longest. The next visit loads from this browser's cache.
 web.needs_desktop = Some exports still need the desktop app. Open, Save and the main exports work in the browser through your file picker and downloads.
-web.limits = Browser version: Open picks a file and Save and Export download files. Some exports and library folders still need the desktop app.
+web.limits = Browser version: edits are kept in this browser until the storage is cleared. Open picks a file and Save and Export download files. Some exports and library folders still need the desktop app.
 web.online_cross_origin_refused = This page cannot read the open library host. Online parts stay off; drop a symbol or footprint file to import it.
 # Layers tree: what each row is (hover text on every row of both trees)
 docks.workbench_tabs.library = Library
