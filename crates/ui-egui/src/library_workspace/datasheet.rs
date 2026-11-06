@@ -581,10 +581,15 @@ impl App {
                     fonts::text(fonts::Role::Body, t!("libws.manufacturer.drop_tip"))
                         .color(t.muted),
                 );
-                let mut path = String::new();
                 ui.horizontal(|ui| {
-                    ui.add(egui::TextEdit::singleline(&mut path).desired_width(300.0))
-                        .on_hover_text(t!("libws.manufacturer.path_tip"));
+                    ui.add(
+                        crate::targets::text_field(&mut self.libws.manufacturer_path)
+                            .hint_text(t!("libws.manufacturer.path_hint"))
+                            .desired_width(300.0),
+                    )
+                    .named(&t!("libws.manufacturer.path_hint"))
+                    .on_hover_text(t!("libws.manufacturer.path_tip"));
+                    let path = self.libws.manufacturer_path.trim().to_owned();
                     if secondary_button(
                         ui,
                         None,

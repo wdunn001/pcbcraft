@@ -115,6 +115,8 @@ pub(crate) struct State {
     pub(crate) machines: machines::MachineLib,
     /// Datasheet viewer state: the open PDF and its search results.
     pub(crate) datasheet: datasheet::ViewerState,
+    /// Manufacturer box on the Datasheet page: the path typed for a downloaded file.
+    pub(crate) manufacturer_path: String,
 }
 
 impl Default for State {
@@ -138,6 +140,7 @@ impl Default for State {
             quotes_checked: false,
             machines: machines::MachineLib::default(),
             datasheet: datasheet::ViewerState::default(),
+            manufacturer_path: String::new(),
         }
     }
 }

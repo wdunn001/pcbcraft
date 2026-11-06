@@ -2237,6 +2237,7 @@ library.dock.manufacturer_page.tip = Open this part's product page on the manufa
 libws.manufacturer.title = Manufacturer page
 libws.manufacturer.drop_tip = Download the symbol, footprint or STEP file from this page and import it below.
 libws.manufacturer.import = Import downloaded file
+libws.manufacturer.path_hint = Path of the downloaded file
 libws.manufacturer.path_tip = Path to the downloaded symbol, footprint or STEP file.
 libws.manufacturer.import.tip = Import a symbol, footprint or STEP file you downloaded from the manufacturer page. The file is stored with a not-redistributed notice.
 library.datasheet_reader.close = Close reader

@@ -1,98 +1,133 @@
-//! Stories for Samtec manufacturer page and user-downloaded file import (issue #785).
+//! Stories for the Samtec manufacturer box on the Library Datasheet page (issue #785).
+//!
+//! A newcomer opens a part whose manufacturer is Samtec, types the path of a file downloaded
+//! from the manufacturer page and presses Import. Nothing is fetched: the part is a project
+//! part with a Samtec part number and the downloaded file is a small fixture in a temp folder.
+//!
+//! # Dependencies
+//! - crates/ui-egui/src/library_workspace/datasheet.rs
+//! - crates/engine/src/authoring.rs
+//! - crates/library/tests/fixtures/R_0805_2012Metric.kicad_mod
 use super::super::*;
 use super::support::*;
 
-#[test]
-fn a_newcomer_downloads_the_manufacturer_files_and_drops_them_onto_the_part() -> Result<(), String>
-{
+/// The id of the browser card of the built-in resistor.
+const RESISTOR_CARD: &str = "button:Resistor, Built in \u{b7} MIT OR Apache-#.#";
+/// The id of the path box in the manufacturer card.
+const PATH_BOX: &str = "textinput:Path of the downloaded file";
+/// The id of the Import button in the manufacturer card.
+const IMPORT: &str = "button:Import downloaded file";
+
+/// The Datasheet page of a resistor that is made by Samtec, with the manufacturer card showing.
+fn samtec_part() -> Result<(egui::Context, App, TallScope), String> {
+    let tall = TallScope::enter();
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
-    app.region().left_tab = "library".to_owned();
     app.tool_call("sample_design", json!({}));
+    let resistor = app
+        .project
+        .components
+        .iter()
+        .find(|c| c.reference.starts_with('R'))
+        .map(|c| c.id)
+        .ok_or("the practice design carries a resistor")?;
+    app.tool_call(
+        "component.set_sourcing",
+        json!({"id": resistor, "manufacturer": "Samtec", "mpn": "TMM-102-01-L-D"}),
+    );
+    app.change_tab(Tab::Library);
     let ctx = egui::Context::default();
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-
-    // Search for a Samtec part.
-    tap_id(&ctx, &mut app, "textinput:Keyword or part number")?;
-    for letter in "TMM".chars() {
-        frame(
-            &ctx,
-            &mut app,
-            vec![egui::Event::Text(letter.into())],
-            egui::Modifiers::NONE,
-        );
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     }
+    tap_id(&ctx, &mut app, RESISTOR_CARD)?;
+    tap_id(&ctx, &mut app, "tab:Datasheet")?;
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    if !app
+        .project
+        .components
+        .iter()
+        .any(|c| c.sourcing.manufacturer == "Samtec")
+    {
+        return Err("the part carries Samtec as its manufacturer".into());
+    }
+    if !paints_text(&ctx, &mut app, "Manufacturer page")? {
+        return Err("a Samtec part shows the manufacturer card".into());
+    }
+    Ok((ctx, app, tall))
+}
+
+#[test]
+fn a_newcomer_cannot_press_import_until_a_path_is_typed() -> Result<(), String> {
+    let (ctx, mut app, _tall) = samtec_part()?;
+    assert!(
+        tap_id(&ctx, &mut app, IMPORT).is_err() && app.project.library.notices.is_empty(),
+        "Import cannot be pressed while the box is empty"
+    );
+    type_into(&ctx, &mut app, PATH_BOX, "C:/downloads/part.kicad_mod")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
-        app.part_search, "TMM",
-        "typing TMM arrives in the search box"
+        app.libws.manufacturer_path, "C:/downloads/part.kicad_mod",
+        "the typed path stays in the box from one frame to the next"
     );
+    assert!(
+        tap_id(&ctx, &mut app, IMPORT).is_ok(),
+        "Import can be pressed once a path is typed"
+    );
+    Ok(())
+}
 
-    // Wait for search results to appear.
-    waits_until(&ctx, &mut app, |app| app.online_settled());
+#[test]
+fn a_newcomer_importing_a_file_that_is_not_there_reads_a_plain_message() -> Result<(), String> {
+    let (ctx, mut app, _tall) = samtec_part()?;
+    let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let missing = dir.path().join("absent.kicad_mod");
+    type_into(&ctx, &mut app, PATH_BOX, &missing.display().to_string())?;
+    tap_id(&ctx, &mut app, IMPORT)?;
+    assert!(
+        app.message.contains("no downloaded file was found"),
+        "the status line says the file is missing, got: {}",
+        app.message
+    );
+    assert!(
+        app.project.library.notices.is_empty(),
+        "a refused import stores no notice"
+    );
+    Ok(())
+}
 
-    // Find a Samtec part card and open its menu.
-    let controls = super::audit::controls(&ctx, &app);
-    let samtec_card = controls.iter().find(|c| {
-        c.id.as_deref()
-            .is_some_and(|id| id.contains("Samtec") || id.contains("TMM"))
-    });
-
-    // If no Samtec part found in online results, verify the library function works directly.
-    if samtec_card.is_none() {
-        // Test the library function directly with a known Samtec MPN.
-        let url = pcbcraft_library::samtec::manufacturer_page_url("TMM-102-01-L-D")
-            .map_err(|e| format!("manufacturer_page_url failed: {e}"))?;
-        assert!(
-            url.contains("samtec.com"),
-            "manufacturer URL points to Samtec: {url}"
-        );
-        assert!(
-            url.contains("tmm-102-01-l-d"),
-            "manufacturer URL contains the part number"
-        );
-
-        // Verify the provenance function.
-        let prov = pcbcraft_library::samtec::user_download_provenance(
-            "TMM-102-01-L-D",
-            pcbcraft_library::cad::CadKind::Footprint,
-            std::path::Path::new("/tmp/test.kicad_mod"),
-        )
-        .map_err(|e| format!("user_download_provenance failed: {e}"))?;
-        let notice = prov.notice();
-        assert!(
-            notice.contains("downloaded by the user"),
-            "provenance mentions user download: {notice}"
-        );
-        assert!(
-            notice.contains("not redistributed"),
-            "provenance mentions not redistributed: {notice}"
-        );
-
-        // Verify file kind detection.
-        assert_eq!(
-            pcbcraft_library::samtec::file_kind(std::path::Path::new("test.kicad_sym"))
-                .map_err(|e| format!("file_kind failed: {e}"))?,
-            pcbcraft_library::cad::CadKind::Symbol,
-            "kicad_sym files are detected as symbols"
-        );
-        assert_eq!(
-            pcbcraft_library::samtec::file_kind(std::path::Path::new("test.kicad_mod"))
-                .map_err(|e| format!("file_kind failed: {e}"))?,
-            pcbcraft_library::cad::CadKind::Footprint,
-            "kicad_mod files are detected as footprints"
-        );
-        assert_eq!(
-            pcbcraft_library::samtec::file_kind(std::path::Path::new("test.step"))
-                .map_err(|e| format!("file_kind failed: {e}"))?,
-            pcbcraft_library::cad::CadKind::Model,
-            "step files are detected as models"
-        );
-        return Ok(());
-    }
-
-    // Samtec card found - test the card menu.
-    // Open the card menu and look for "Open manufacturer page".
+#[test]
+fn a_newcomer_imports_a_downloaded_footprint_and_it_keeps_the_notice() -> Result<(), String> {
+    let (ctx, mut app, _tall) = samtec_part()?;
+    let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let file = dir.path().join("TMM-102-01-L-D.kicad_mod");
+    let fixture = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../library/tests/fixtures/R_0805_2012Metric.kicad_mod"
+    );
+    std::fs::copy(fixture, &file).map_err(|e| e.to_string())?;
+    type_into(&ctx, &mut app, PATH_BOX, &file.display().to_string())?;
+    tap_id(&ctx, &mut app, IMPORT)?;
+    assert!(
+        app.project
+            .library
+            .footprints
+            .iter()
+            .any(|f| f.name == "R_0805_2012Metric"),
+        "the downloaded footprint is in the project library, status: {}",
+        app.message
+    );
+    assert!(
+        app.project
+            .library
+            .notices
+            .iter()
+            .any(|n| n.contains("downloaded by the user") && n.contains("not redistributed")),
+        "the import stored the not-redistributed notice: {:?}",
+        app.project.library.notices
+    );
     Ok(())
 }
