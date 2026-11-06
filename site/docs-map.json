@@ -55,5 +55,8 @@
     "sharing/static-registry.md": "Describes a sharing registry that has not shipped.",
     "step-reader-spike.md": "The result of a short comparison spike for maintainers.",
     "vendor-handoff.md": "Describes an optional module that has no user guide yet."
+  },
+  "excludedPatterns": {
+    "adr-*.md": "Decision records for work that has not shipped. They are not published until the feature ships."
   }
 }
