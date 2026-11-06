@@ -137,6 +137,11 @@ impl Part {
         }
         Ok(())
     }
+
+    /// True when the part body is managed by a companion CAD project.
+    pub fn body_is_companion(&self) -> bool {
+        self.body_companion_id.is_some()
+    }
 }
 
 impl Model3dRef {

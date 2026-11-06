@@ -1,8 +1,8 @@
 ---
-type: chore
-area: text
+type: feat
+area: library
 issues: [734]
-user_visible: false
-docs: n/a: only text for buttons that are not built yet
-summary: Adds the English and French text for the Replace with part, Open in the CAD app and Reimport buttons of the companion CAD flow, which are not built yet.
+user_visible: true
+docs: n/a
+summary: Adds companion CAD app integration for 3D part models. Parts can write footprint bodies to companion CAD projects (.solidcraft + STEP) and read them back for reimport. Parts track a stable body_companion_id for alignment transform preservation across reimports. New engine commands: part.write_footprint_body, part.read_companion_body.
 ---

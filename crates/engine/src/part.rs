@@ -98,6 +98,33 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ),
         (
             "part.clear_distributor_credential",
+        (
+            "part.write_footprint_body",
+            "Write a footprint body as a companion CAD project (STEP + .solidcraft stub)",
+            schema(
+                json!({
+                    "id":id_schema(),
+                    "directory":{"type":"string","maxLength":4096},
+                    "base_name":{"type":"string","maxLength":128},
+                    "body_id":{"type":"string","maxLength":128},
+                    "height_mm":{"type":"number"}
+                }),
+                &["id", "directory", "base_name", "body_id"],
+            ),
+        ),
+        (
+            "part.read_companion_body",
+            "Read a companion body reference back onto a part",
+            schema(
+                json!({
+                    "id":id_schema(),
+                    "project_path":{"type":"string","maxLength":4096},
+                    "body_id":{"type":"string","maxLength":128},
+                    "cad_part":{"type":"string","maxLength":128}
+                }),
+                &["id", "project_path", "body_id"],
+            ),
+        ),
             "Remove a stored distributor API token from the native keychain (native builds only)",
             schema(
                 json!({"distributor":{"type":"string","maxLength":48}}),
@@ -211,6 +238,8 @@ pub(super) fn run(
         "part.fetch_datasheet" => part_fetch_datasheet(p, params),
         "part.set_distributor_credential" => part_set_distributor_credential(params),
         "part.clear_distributor_credential" => part_clear_distributor_credential(params),
+        "part.write_footprint_body" => companion_footprint_body(p, params),
+        "part.read_companion_body" => read_companion_body(p, params),
         _ => Err(Error::Invalid("unknown part command".into())),
     })
 }
@@ -542,4 +571,90 @@ fn upsert_symbol_footprint(
     }
     p.library.symbols.sort_by(|a, b| a.name.cmp(&b.name));
     p.library.footprints.sort_by(|a, b| a.name.cmp(&b.name));
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CompanionFootprintBodyParams {
+    id: Id,
+    directory: String,
+    base_name: String,
+    body_id: String,
+    height_mm: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReadCompanionBodyParams {
+    id: Id,
+    project_path: String,
+    body_id: String,
+    #[serde(default)]
+    cad_part: Option<String>,
+}
+
+pub(super) fn companion_footprint_body(p: &mut Project, params: &Value) -> Result<Value, Error> {
+    let a: CompanionFootprintBodyParams = parse(params)?;
+    if a.directory.is_empty() || a.base_name.is_empty() || a.body_id.is_empty() {
+        return Err(Error::Invalid(
+            "directory, base_name, and body_id are required".into(),
+        ));
+    }
+    let part = p
+        .library
+        .parts
+        .iter()
+        .find(|x| x.id == a.id)
+        .ok_or_else(|| Error::Invalid("part not found".into()))?;
+    let footprint = p
+        .library
+        .footprints
+        .iter()
+        .find(|f| f.name == part.footprint)
+        .ok_or_else(|| Error::Invalid("footprint not found".into()))?;
+    let directory = std::path::Path::new(&a.directory);
+    let (project_path, step_path) = pcbcraft_io::write_footprint_body(
+        footprint,
+        directory,
+        &a.base_name,
+        &a.body_id,
+        a.height_mm,
+    )
+    .map_err(Error::Invalid)?;
+    // Store the companion id on the part for stable alignment
+    let part = p
+        .library
+        .parts
+        .iter_mut()
+        .find(|x| x.id == a.id)
+        .ok_or_else(|| Error::Invalid("part not found".into()))?;
+    part.body_companion_id = Some(a.body_id.clone());
+    Ok(json!({
+        "project_path": project_path.to_string_lossy(),
+        "step_path": step_path.to_string_lossy(),
+        "body_id": a.body_id,
+    }))
+}
+
+pub(super) fn read_companion_body(p: &mut Project, params: &Value) -> Result<Value, Error> {
+    let a: ReadCompanionBodyParams = parse(params)?;
+    let part = p
+        .library
+        .parts
+        .iter_mut()
+        .find(|x| x.id == a.id)
+        .ok_or_else(|| Error::Invalid("part not found".into()))?;
+    let model = pcbcraft_io::model_reference(&a.project_path, &a.body_id, a.cad_part.as_deref());
+    part.model3d = Some(pcbcraft_library::Model3dRef::Step {
+        path: model.path,
+        offset: model.offset,
+        scale: model.scale,
+        rotate: model.rotate,
+    });
+    part.body_companion_id = Some(a.body_id.clone());
+    Ok(json!({
+        "id": a.id,
+        "project_path": a.project_path,
+        "body_id": a.body_id,
+    }))
 }

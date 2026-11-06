@@ -227,4 +227,6 @@ pub struct Part {
     pub attribution: Vec<String>,
     #[serde(default)]
     pub import_warnings: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_companion_id: Option<String>,
 }
