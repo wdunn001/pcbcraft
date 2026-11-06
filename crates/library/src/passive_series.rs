@@ -219,3 +219,110 @@ mod tests {
         assert!(result.is_err());
     }
 }
+
+#[test]
+fn spot_check_table_in_the_docs_matches_the_generator() {
+    let doc = include_str!("../../../docs/passive-series.md");
+    let rows = parse_spot_check_rows(doc);
+    assert_eq!(rows.len(), 8, "the spot-check table must have 8 rows");
+    for (i, row) in rows.iter().enumerate() {
+        let value = parse_spot_value(row.kind, &row.value);
+        let result = crate::passive_generator::generate_passive(
+            row.kind,
+            value,
+            &row.package,
+            row.tolerance,
+        );
+        assert!(
+            result.is_ok(),
+            "row {i} ({}) must generate",
+            row.part_number
+        );
+        let part = result.unwrap();
+        assert_eq!(part.mpn, row.part_number, "row {i} mpn mismatch");
+        assert_eq!(part.footprint.pads.len(), 2, "row {i} must have 2 pads");
+        assert_eq!(part.symbol.pins.len(), 2, "row {i} must have 2 pins");
+    }
+}
+
+fn parse_spot_check_rows(doc: &str) -> Vec<SpotCheckRow> {
+    let mut rows = Vec::new();
+    let mut in_table = false;
+    for line in doc.lines() {
+        if line.starts_with("| Kind") {
+            in_table = true;
+            continue;
+        }
+        if in_table && line.starts_with("| ---") {
+            continue;
+        }
+        if in_table && line.starts_with("|") {
+            if line.contains("RES-") || line.contains("CAP-") {
+                let parts: Vec<&str> = line
+                    .trim()
+                    .split('|')
+                    .filter(|s| !s.trim().is_empty())
+                    .collect();
+                if parts.len() == 6 {
+                    let kind_str = parts[0].trim();
+                    let kind = if kind_str == "resistor" {
+                        PassiveKind::Resistor
+                    } else {
+                        PassiveKind::Capacitor
+                    };
+                    let mpn = parts[3].trim().to_owned();
+                    let tol_str = mpn.rsplit('-').next().unwrap_or("1");
+                    let tol = tol_str.parse::<u8>().unwrap_or(1);
+                    let pads = parts[4].trim().parse::<u8>().unwrap_or(0);
+                    let pins = parts[5].trim().parse::<u8>().unwrap_or(0);
+                    rows.push(SpotCheckRow {
+                        kind,
+                        value: parts[1].trim().to_owned(),
+                        package: parts[2].trim().to_owned(),
+                        part_number: mpn,
+                        pads,
+                        pins,
+                        tolerance: tol,
+                    });
+                }
+            }
+        }
+        if in_table && !line.starts_with("|") {
+            in_table = false;
+        }
+    }
+    rows
+}
+
+fn parse_spot_value(kind: PassiveKind, text: &str) -> f64 {
+    let parts: Vec<&str> = text.split_whitespace().collect();
+    if parts.len() != 2 {
+        return 0.0;
+    }
+    let number: f64 = parts[0].parse().unwrap_or(0.0);
+    let unit = parts[1];
+    match kind {
+        PassiveKind::Resistor => match unit {
+            "ohm" => number,
+            "kohm" => number * 1000.0,
+            "Mohm" => number * 1000000.0,
+            _ => 0.0,
+        },
+        PassiveKind::Capacitor => match unit {
+            "pF" => number * 1e-12,
+            "nF" => number * 1e-9,
+            "uF" => number * 1e-6,
+            _ => 0.0,
+        },
+    }
+}
+
+struct SpotCheckRow {
+    kind: PassiveKind,
+    value: String,
+    package: String,
+    part_number: String,
+    pads: u8,
+    pins: u8,
+    tolerance: u8,
+}
