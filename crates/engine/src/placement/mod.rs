@@ -575,11 +575,64 @@ pub fn run_place_global(
 /// # Do not
 /// - Apply a state with a new error code or a new overlap.
 pub fn run_polish(
-    _project: &mut Project,
-    _scope: &Scope,
-    _settings: &PlacementSettings,
+    project: &mut Project,
+    scope: &Scope,
+    settings: &PlacementSettings,
 ) -> Result<AnnealOutcome, String> {
-    Err(not_built("slice-1122-e"))
+    if scope.is_empty() {
+        return Err("scope is empty".into());
+    }
+
+    let model = build_model(project, scope, settings)?;
+    if model.cells.iter().all(|c| c.fixed) {
+        return Err("no movable parts in scope".into());
+    }
+
+    let mut model = model;
+    let outcome = anneal(&mut model, settings)?;
+
+    let errors_before = pcbcraft_rules::drc(project);
+    let errors_before_set: std::collections::BTreeSet<(String, Vec<u64>)> = errors_before
+        .iter()
+        .filter(|f| f.severity == "error")
+        .map(|f| {
+            let mut o = f.objects.clone();
+            o.sort_unstable();
+            (f.code.clone(), o)
+        })
+        .collect();
+
+    for (i, c) in model.cells.iter().enumerate() {
+        let start = &model.cells[i];
+        if c.x != start.x || c.y != start.y || c.turns != start.turns {
+            let footprint = project
+                .board
+                .footprints
+                .iter_mut()
+                .find(|f| f.id == c.id)
+                .ok_or_else(|| format!("footprint {} not found", c.id))?;
+            footprint.position.x = c.x;
+            footprint.position.y = c.y;
+            footprint.rotation = -(c.turns as f64) * 90.0;
+        }
+    }
+
+    let errors_after = pcbcraft_rules::drc(project);
+    let errors_after_set: std::collections::BTreeSet<(String, Vec<u64>)> = errors_after
+        .iter()
+        .filter(|f| f.severity == "error")
+        .map(|f| {
+            let mut o = f.objects.clone();
+            o.sort_unstable();
+            (f.code.clone(), o)
+        })
+        .collect();
+
+    if !errors_after_set.is_subset(&errors_before_set) {
+        return Err("polish introduced a new error".into());
+    }
+
+    Ok(outcome)
 }
 
 #[cfg(test)]

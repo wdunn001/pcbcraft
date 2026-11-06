@@ -530,8 +530,199 @@ pub fn evaluate(
 ///
 /// # Do not
 /// - Read the clock, or accept a move the gate refused.
-pub fn anneal(_model: &mut Model, _settings: &PlacementSettings) -> Result<AnnealOutcome, String> {
-    Err(not_built("slice-1122-d"))
+pub fn anneal(model: &mut Model, settings: &PlacementSettings) -> Result<AnnealOutcome, String> {
+    let movable: Vec<usize> = (0..model.cells.len())
+        .filter(|&i| !model.cells[i].fixed)
+        .collect();
+
+    if movable.is_empty() {
+        return Ok(AnnealOutcome {
+            cost_before: 0.0,
+            cost_after: 0.0,
+            hpwl_before: 0.0,
+            hpwl_after: 0.0,
+            start_temperature: 0.0,
+            moves_used: 0,
+            accepted: 0,
+            rejected_by_rule: 0,
+            rejected_by_cost: 0,
+            stop: Stop::NothingToMove,
+            trace: vec![],
+            moved: vec![],
+        });
+    }
+
+    if movable.len() > settings.max_polish_cells {
+        return Err(format!(
+            "too many movable parts: {} exceeds {}",
+            movable.len(),
+            settings.max_polish_cells
+        ));
+    }
+
+    let start = model.clone();
+    let cost_before = cost(model, settings)?;
+    let hpwl_before = model.hpwl_of();
+    let mut rng = Rng::new(settings.seed);
+
+    let t0 = start_temperature(model, &movable, settings)?;
+    let mut temperature = t0;
+
+    let budget = settings.moves_for(movable.len());
+    let epoch = settings.epoch_len(budget);
+
+    let mut moves_used = 0;
+    let mut accepted = 0;
+    let mut rejected_by_rule = 0;
+    let mut rejected_by_cost = 0;
+    let mut cost_now = cost_before;
+
+    let mut best_model = start.clone();
+    let mut best_cost = cost_before;
+
+    let mut window_accepted = 0;
+    let mut window_total = 0;
+    let mut freeze = false;
+
+    let mut trace = vec![];
+    let trace_cap = settings.trace_len;
+
+    loop {
+        if freeze {
+            break;
+        }
+
+        let mv_opt = next_move(&mut rng, &movable, model, settings)?;
+        let mv = match mv_opt {
+            Some(m) => m,
+            None => break,
+        };
+
+        let cand = evaluate(model, settings, mv, cost_now)?;
+
+        if cand.verdict != Verdict::Allowed {
+            rejected_by_rule += 1;
+            if window_total >= settings.freeze_window {
+                if (window_accepted as f64)
+                    < (settings.freeze_accept * settings.freeze_window as f64)
+                {
+                    freeze = true;
+                }
+                window_accepted = 0;
+                window_total = 0;
+            }
+            window_total += 1;
+            if trace_cap > 0 && trace.len() < trace_cap {
+                trace.push(Decision::RejectedByRule);
+            }
+        } else if cand.delta_cost <= 0.0 {
+            apply_move(model, &cand.mv)?;
+            cost_now += cand.delta_cost;
+            accepted += 1;
+            window_accepted += 1;
+            if cost_now < best_cost {
+                best_cost = cost_now;
+                best_model = model.clone();
+            }
+            if window_total >= settings.freeze_window {
+                if (window_accepted as f64)
+                    < (settings.freeze_accept * settings.freeze_window as f64)
+                {
+                    freeze = true;
+                }
+                window_accepted = 0;
+                window_total = 0;
+            }
+            window_total += 1;
+            if trace_cap > 0 && trace.len() < trace_cap {
+                trace.push(Decision::Accepted);
+            }
+        } else {
+            let threshold = (-cand.delta_cost / temperature).exp();
+            let draw = rng.next_f64();
+            if draw < threshold {
+                apply_move(model, &cand.mv)?;
+                cost_now += cand.delta_cost;
+                accepted += 1;
+                window_accepted += 1;
+                if cost_now < best_cost {
+                    best_cost = cost_now;
+                    best_model = model.clone();
+                }
+                if window_total >= settings.freeze_window {
+                    if (window_accepted as f64)
+                        < (settings.freeze_accept * settings.freeze_window as f64)
+                    {
+                        freeze = true;
+                    }
+                    window_accepted = 0;
+                    window_total = 0;
+                }
+                window_total += 1;
+                if trace_cap > 0 && trace.len() < trace_cap {
+                    trace.push(Decision::Accepted);
+                }
+            } else {
+                rejected_by_cost += 1;
+                if window_total >= settings.freeze_window {
+                    if (window_accepted as f64)
+                        < (settings.freeze_accept * settings.freeze_window as f64)
+                    {
+                        freeze = true;
+                    }
+                    window_accepted = 0;
+                    window_total = 0;
+                }
+                window_total += 1;
+                if trace_cap > 0 && trace.len() < trace_cap {
+                    trace.push(Decision::RejectedByCost);
+                }
+            }
+        }
+
+        moves_used += 1;
+
+        if moves_used >= budget {
+            break;
+        }
+
+        if moves_used > 0 && moves_used % epoch == 0 {
+            temperature *= settings.cooling;
+        }
+    }
+
+    let hpwl_after_best = best_model.hpwl_of();
+    let cost_after_best = cost(&best_model, settings)?;
+
+    *model = best_model;
+
+    let mut moved = vec![];
+    for (i, c) in model.cells.iter().enumerate() {
+        let s = &start.cells[i];
+        if c.x != s.x || c.y != s.y || c.turns != s.turns {
+            moved.push(MovedCell {
+                id: c.id,
+                x: c.x,
+                y: c.y,
+                turns: c.turns,
+            });
+        }
+    }
+
+    Ok(AnnealOutcome {
+        cost_before,
+        cost_after: cost_after_best,
+        hpwl_before,
+        hpwl_after: hpwl_after_best,
+        start_temperature: t0,
+        moves_used,
+        accepted,
+        rejected_by_rule,
+        rejected_by_cost,
+        stop: if freeze { Stop::Frozen } else { Stop::Budget },
+        trace,
+        moved,
+    })
 }
 
 #[cfg(test)]
