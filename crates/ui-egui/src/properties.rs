@@ -443,8 +443,8 @@ impl App {
                     if secondary_button(
                         ui,
                         None,
-                        &t!("board.inspector.delete_del"),
-                        &command_tip("object.delete"),
+                        &t!("board.inspector.delete"),
+                        &t!("board.inspector.delete.tip"),
                         Size::Normal,
                         true,
                     )

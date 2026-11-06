@@ -492,7 +492,8 @@ fn revision_block_lines(p: &Project) -> Vec<String> {
     let mut lines = vec![
         format!(
             "Title: {}",
-            meta_or_page(p, "title", page.title.as_str()).unwrap_or(project_title(p))
+            meta_or_page(p, "title", p.page_name(0).unwrap_or_default())
+                .unwrap_or(project_title(p))
         ),
         format!(
             "Revision: {}",
