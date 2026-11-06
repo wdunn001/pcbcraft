@@ -294,6 +294,11 @@ fn a_newcomer_sees_why_a_model_did_not_load() -> Result<(), String> {
         paints_text(&ctx, &mut app, "could not be read")?,
         "the 3D tab says why in plain words"
     );
+    assert!(
+        app.message.contains("Model load failed") || app.message.contains("could not be read"),
+        "the status line shows the model load failure: {}",
+        app.message
+    );
     Ok(())
 }
 
@@ -423,5 +428,56 @@ fn a_newcomer_sees_a_flipped_part_hang_below_the_board() -> Result<(), String> {
         "undo puts the part back above the board (z={:.4})",
         restored.0[2]
     );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_shows_an_enclosure_around_the_board() -> Result<(), String> {
+    let (ctx, mut app, _) = open_3d()?;
+    assert!(
+        !paints_text(&ctx, &mut app, "Enclosure")?,
+        "the Enclosure toggle stays hidden while the board has no enclosure"
+    );
+    let mesh = pcbcraft_io::board_mesh(&app.project, pcbcraft_io::MeshLayers::default())?;
+    let json = pcbcraft_io::solidcraft_board(
+        &app.project,
+        &mesh,
+        pcbcraft_io::SolidcraftLayers::default(),
+    )?;
+    let path =
+        std::env::temp_dir().join(format!("pcbcraft-case-{}.solidcraft", std::process::id()));
+    std::fs::write(&path, json).map_err(|e| e.to_string())?;
+    let imported = app.tool_call(
+        "board.enclosure.import",
+        json!({ "path": path.to_string_lossy() }),
+    );
+    std::fs::remove_file(&path).map_err(|e| e.to_string())?;
+    assert!(imported, "the enclosure file imports");
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let visible = |app: &App| app.project.board.enclosure.as_ref().map(|e| e.visible);
+    let enclosure_parts = |app: &App| app.view3d.part_count_in_family("enclosure");
+    assert_eq!(
+        visible(&app),
+        Some(true),
+        "an imported enclosure starts shown"
+    );
+    assert!(
+        enclosure_parts(&app) > 0,
+        "the 3D view draws the enclosure bodies"
+    );
+    tap_id(&ctx, &mut app, "checkbox:Enclosure")?;
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    assert_eq!(visible(&app), Some(false), "the toggle hides the enclosure");
+    assert_eq!(enclosure_parts(&app), 0, "a hidden enclosure draws nothing");
+    tap_id(&ctx, &mut app, "checkbox:Enclosure")?;
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    assert_eq!(visible(&app), Some(true), "the toggle shows it again");
+    assert!(enclosure_parts(&app) > 0, "the bodies are back");
     Ok(())
 }

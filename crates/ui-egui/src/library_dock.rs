@@ -1294,7 +1294,11 @@ impl App {
                         format!("{} \u{b7} {licence_name}", p.source)
                     },
                     meta,
-                    licence: None,
+                    licence: if credit.is_empty() {
+                        None
+                    } else {
+                        Some(credit.clone())
+                    },
                     outside: true,
                     armed: false,
                     symbol: def.map(|_| format!("online/{}", p.sku)),
