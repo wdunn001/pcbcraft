@@ -15,6 +15,7 @@ use crate::ui_kit::button::{self, Size};
 use crate::ui_kit::chip::{BadgeKind, badge};
 use crate::ui_kit::icons;
 use pcbcraft_assistant::{Item, StepState, Suggestion, ToolStatus};
+use pcbcraft_text::t;
 
 /// What the user pressed on a card.
 pub(super) enum Pressed {

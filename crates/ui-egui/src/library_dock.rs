@@ -1504,9 +1504,11 @@ impl App {
             )
         });
         let response = match card {
-            Card::Online(_, credit) if !credit.is_empty() => {
-                response.on_hover_text(t!("library.dock.pick.tip.licensed", credit = credit))
-            }
+            Card::Online(_, credit) if !credit.is_empty() => response.on_hover_text(format!(
+                "{}\n{}",
+                t!("library.dock.pick.tip"),
+                t!("library.dock.licence.online", credit = credit)
+            )),
             _ => response.on_hover_text(t!("library.dock.pick.tip")),
         };
         let hovered = ui.rect_contains_pointer(rect);

@@ -1,8 +1,8 @@
 ---
-type: feature
+type: refactor
 area: text
 issues: [925]
-user_visible: true
-docs: n/a: written by the worker harness, the issue text records the behaviour
-summary: Localization: 142 hard-coded UI strings in eleven files.
+user_visible: false
+docs: n/a: text moved into the catalog and nothing a page describes changes
+summary: Six hard-coded labels in the assistant cards, the library dock and the sources panel now come from the strings catalog.
 ---
