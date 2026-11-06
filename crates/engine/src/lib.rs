@@ -10749,6 +10749,9 @@ fn run_command(
     if let Some(result) = packages::run(p, command, params, record_revision, mutating) {
         return result;
     }
+    if layout::handles_mutating(command) {
+        return layout::run_mutating(p, command, params, Some(record_revision));
+    }
     if let Some(result) = outline::run(p, next, command, params) {
         return result;
     }

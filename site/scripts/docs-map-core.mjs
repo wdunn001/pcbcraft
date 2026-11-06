@@ -4,6 +4,18 @@
 // every excluded entry needs a reason of at least 20 characters, and slugs must be unique.
 // Do not: read the file system here. Callers pass the page list so tests need no fixtures.
 
+/** True when `file` matches a pattern such as `adr-*.md` (`*` stands for any run of characters). */
+function matchesPattern(file, pattern) {
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+  return new RegExp(`^${escaped}$`).test(file);
+}
+
+/** True when the map excludes `file`, by its own entry or by an `excludedPatterns` pattern. */
+export function isExcluded(map, file) {
+  if (Object.hasOwn(map.excluded ?? {}, file)) return true;
+  return Object.keys(map.excludedPatterns ?? {}).some((p) => matchesPattern(file, p));
+}
+
 /** Returns a list of problem strings. An empty list means the map is complete. */
 export function checkMap(files, map) {
   const problems = [];
@@ -12,14 +24,19 @@ export function checkMap(files, map) {
   const known = new Set(files);
   for (const f of files) {
     const inPages = mapped.includes(f);
-    const inExcluded = excluded.includes(f);
+    const inExcluded = isExcluded(map, f);
     if (!inPages && !inExcluded) problems.push(`docs/${f} is neither mapped nor excluded in docs-map.json`);
     if (inPages && inExcluded) problems.push(`docs/${f} is both mapped and excluded in docs-map.json`);
   }
   for (const f of [...mapped, ...excluded]) {
     if (!known.has(f)) problems.push(`docs-map.json lists docs/${f}, which does not exist`);
   }
-  for (const [f, reason] of Object.entries(map.excluded ?? {})) {
+  for (const pattern of Object.keys(map.excludedPatterns ?? {})) {
+    if (!files.some((f) => matchesPattern(f, pattern))) {
+      problems.push(`docs-map.json lists the pattern ${pattern}, which matches no page under docs/`);
+    }
+  }
+  for (const [f, reason] of Object.entries({ ...(map.excluded ?? {}), ...(map.excludedPatterns ?? {}) })) {
     if (typeof reason !== 'string' || reason.trim().length < 20) {
       problems.push(`docs/${f} is excluded without a reason of at least 20 characters`);
     }
