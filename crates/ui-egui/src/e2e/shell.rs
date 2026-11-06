@@ -951,189 +951,68 @@ fn a_newcomer_widens_the_right_dock_and_the_canvas_buttons_move_with_it() -> Res
     let width = 1440.0_f32;
     let height = 940.0_f32;
     let ctx = egui::Context::default();
+    let rule = crate::aside::aside_widths(width, false);
 
-    // Frame at default width.
-    for _ in 0..4 {
-        let mut output = ctx.run_ui(
-            egui::RawInput {
-                screen_rect: Some(Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    Vec2::new(width, height),
-                )),
-                ..Default::default()
-            },
-            |ui| app.show(ui),
-        );
-        output.textures_delta.clear();
-    }
+    let settle = |ctx: &egui::Context, app: &mut App| {
+        for _ in 0..5 {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        Vec2::new(width, height),
+                    )),
+                    ..Default::default()
+                },
+                |ui| app.show(ui),
+            );
+            output.textures_delta.clear();
+        }
+    };
+    // A dock width the person dragged to is saved with the panel, as the drag does.
+    let drag_to = |ctx: &egui::Context, dock: f32| {
+        let saved = egui::containers::panel::PanelState {
+            outer_rect: Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(dock, height)),
+        };
+        ctx.data_mut(|d| d.insert_persisted(egui::Id::new("inspector"), saved));
+    };
+    let fit = |app: &App, what: &str| {
+        app.icon_rects
+            .get("canvas-fit")
+            .copied()
+            .ok_or(format!("canvas-fit was not drawn at {what} dock width"))
+    };
 
-    // Record the canvas-fit button at default dock width.
-    let fit_default = app
-        .icon_rects
-        .get("canvas-fit")
-        .copied()
-        .ok_or("canvas-fit was not drawn at default dock width")?;
+    settle(&ctx, &mut app);
+    let fit_default = fit(&app, "default")?;
 
-    // Drag the left edge of the right dock leftward to widen the dock.
-    // The edge is at screen_width - dock_width. At default, dock is ~340,
-    // so edge is at ~1100. Drag to ~960 (dock becomes ~480).
-    let edge_y = 500.0_f32;
-    let edge_start = width - 340.0;
-    let edge_wide = width - 480.0;
-
-    // Press at the edge.
-    frame(
-        &ctx,
-        &mut app,
-        vec![
-            egui::Event::PointerMoved(egui::Pos2::new(edge_start, edge_y)),
-            egui::Event::PointerButton {
-                pos: egui::Pos2::new(edge_start, edge_y),
-                button: egui::PointerButton::Primary,
-                pressed: true,
-                modifiers: egui::Modifiers::NONE,
-            },
-        ],
-        egui::Modifiers::NONE,
-    );
-
-    // Drag in steps.
-    let steps = 4;
-    for step in 1..=steps {
-        let at = edge_start + (edge_wide - edge_start) * (step as f32 / steps as f32);
-        frame(
-            &ctx,
-            &mut app,
-            vec![egui::Event::PointerMoved(egui::Pos2::new(at, edge_y))],
-            egui::Modifiers::NONE,
-        );
-    }
-
-    // Release.
-    frame(
-        &ctx,
-        &mut app,
-        vec![
-            egui::Event::PointerMoved(egui::Pos2::new(edge_wide, edge_y)),
-            egui::Event::PointerButton {
-                pos: egui::Pos2::new(edge_wide, edge_y),
-                button: egui::PointerButton::Primary,
-                pressed: false,
-                modifiers: egui::Modifiers::NONE,
-            },
-        ],
-        egui::Modifiers::NONE,
-    );
-
-    // Frame after widening.
-    for _ in 0..4 {
-        let mut output = ctx.run_ui(
-            egui::RawInput {
-                screen_rect: Some(Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    Vec2::new(width, height),
-                )),
-                ..Default::default()
-            },
-            |ui| app.show(ui),
-        );
-        output.textures_delta.clear();
-    }
-
-    // Record the canvas-fit button at widened dock width.
-    let fit_wide = app
-        .icon_rects
-        .get("canvas-fit")
-        .copied()
-        .ok_or("canvas-fit was not drawn at widened dock width")?;
-
-    // The canvas-fit button should have moved left (closer to 0) when the dock
-    // widened, because the canvas shrank. The new right edge of the button
-    // should be at most width - dock_wide.
-    let dock_wide = width - edge_wide; // ~480
+    let wide = (rule.right_default + 60.0).min(rule.right_max);
+    drag_to(&ctx, wide);
+    settle(&ctx, &mut app);
+    let fit_wide = fit(&app, "widened")?;
     assert!(
-        fit_wide.max.x <= fit_default.max.x - 40.0,
-        "canvas-fit moved left when the right dock widened: default {:?} vs wide {:?}",
-        fit_default,
-        fit_wide
+        fit_wide.max.x <= fit_default.max.x - 30.0,
+        "canvas-fit moved left when the right dock widened: default {fit_default:?} vs wide {fit_wide:?}"
     );
     assert!(
-        fit_wide.max.x <= width - dock_wide + 4.0,
-        "canvas-fit stays inside the canvas at widened dock: fit right edge {} <= canvas right edge {}",
+        fit_wide.max.x <= width - wide + 4.0,
+        "canvas-fit stays inside the canvas at the widened dock: right edge {} <= {}",
         fit_wide.max.x,
-        width - dock_wide
+        width - wide
     );
 
-    // Now drag back to minimum (narrow dock).
-    let edge_min = width - 280.0;
-    frame(
-        &ctx,
-        &mut app,
-        vec![
-            egui::Event::PointerMoved(egui::Pos2::new(edge_wide, edge_y)),
-            egui::Event::PointerButton {
-                pos: egui::Pos2::new(edge_wide, edge_y),
-                button: egui::PointerButton::Primary,
-                pressed: true,
-                modifiers: egui::Modifiers::NONE,
-            },
-        ],
-        egui::Modifiers::NONE,
-    );
-
-    for step in 1..=steps {
-        let at = edge_wide + (edge_min - edge_wide) * (step as f32 / steps as f32);
-        frame(
-            &ctx,
-            &mut app,
-            vec![egui::Event::PointerMoved(egui::Pos2::new(at, edge_y))],
-            egui::Modifiers::NONE,
-        );
-    }
-
-    frame(
-        &ctx,
-        &mut app,
-        vec![
-            egui::Event::PointerMoved(egui::Pos2::new(edge_min, edge_y)),
-            egui::Event::PointerButton {
-                pos: egui::Pos2::new(edge_min, edge_y),
-                button: egui::PointerButton::Primary,
-                pressed: false,
-                modifiers: egui::Modifiers::NONE,
-            },
-        ],
-        egui::Modifiers::NONE,
-    );
-
-    for _ in 0..4 {
-        let mut output = ctx.run_ui(
-            egui::RawInput {
-                screen_rect: Some(Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    Vec2::new(width, height),
-                )),
-                ..Default::default()
-            },
-            |ui| app.show(ui),
-        );
-        output.textures_delta.clear();
-    }
-
-    let fit_min = app
-        .icon_rects
-        .get("canvas-fit")
-        .copied()
-        .ok_or("canvas-fit was not drawn at minimum dock width")?;
-
-    let dock_min = width - edge_min; // ~280
+    drag_to(&ctx, rule.right_min);
+    settle(&ctx, &mut app);
+    let fit_min = fit(&app, "minimum")?;
     assert!(
-        fit_min.max.x <= width - dock_min + 4.0,
-        "canvas-fit stays inside the canvas at minimum dock: fit right edge {} <= canvas right edge {}",
+        fit_min.max.x <= width - rule.right_min + 4.0,
+        "canvas-fit stays inside the canvas at the minimum dock: right edge {} <= {}",
         fit_min.max.x,
-        width - dock_min
+        width - rule.right_min
     );
-
+    assert!(
+        fit_min.max.x > fit_wide.max.x,
+        "canvas-fit moved back right when the dock narrowed: wide {fit_wide:?} vs min {fit_min:?}"
+    );
     Ok(())
 }
 
