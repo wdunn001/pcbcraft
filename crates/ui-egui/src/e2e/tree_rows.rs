@@ -162,7 +162,7 @@ fn a_newcomer_picks_each_row_of_the_layout_tree() -> Result<(), String> {
             "button:Layer # \u{b7} Bottom, shown, unlocked",
             "button:Solder mask, shown, unlocked",
             "button:Paste, shown, unlocked",
-            "button:Edge, # x # mm",
+            "button:Rectangle, # x # mm",
             "button:Cut-out, #, #",
             "button:User layers",
             "button:GND, L#",

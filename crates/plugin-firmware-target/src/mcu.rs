@@ -47,6 +47,10 @@ pub struct McuInstance {
     pub dma: Vec<String>,
 }
 
+/// Chip identification and package info for a pin-mux record.
+///
+/// The package string must match a library package definition so the
+/// pin coordinates can be resolved to a footprint.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct McuChip {
@@ -67,16 +71,26 @@ pub struct McuRecord {
 }
 
 impl McuRecord {
+    /// Look up a pin by its electrical name (e.g. "PA4").
+    ///
+    /// Returns None when the name is not in this record. Case-sensitive.
     pub fn pin_by_name(&self, name: &str) -> Option<&McuPin> {
         self.pins.iter().find(|p| p.name == name)
     }
 
+    /// Collect the alternate functions available on a named pin.
+    ///
+    /// Returns an empty set when the pin is unknown or has no alternate
+    /// functions defined. Useful for pin-mux conflict checking.
     pub fn pin_functions(&self, pin: &str) -> BTreeSet<&str> {
         self.pin_by_name(pin)
             .map(|p| p.functions.iter().map(String::as_str).collect())
             .unwrap_or_default()
     }
 
+    /// Look up a peripheral instance by its identifier (e.g. "UART1").
+    ///
+    /// Returns None when the instance id is not in this record.
     pub fn instance_by_id(&self, id: &str) -> Option<&McuInstance> {
         self.instances.iter().find(|i| i.id == id)
     }
@@ -89,6 +103,11 @@ pub fn parse_mcu_record(text: &str) -> Result<McuRecord, String> {
     Ok(record)
 }
 
+/// Validate a parsed MCU record for completeness and consistency.
+///
+/// Checks: provenance fields non-empty, unique pin names, unique instance ids,
+/// valid boot-level values, non-empty signal names. Call after parsing to
+/// reject malformed pin-mux tables before use.
 pub fn validate_mcu_record(record: &McuRecord) -> Result<(), String> {
     if record.provenance.source.trim().is_empty() {
         return Err("mcu record provenance source is required".into());

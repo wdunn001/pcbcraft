@@ -243,6 +243,31 @@ impl App {
                     self.run("component.set_sourcing", params);
                 }
                 self.supplier_rows(ui, c);
+                ui.add_space(4.0);
+                if secondary_button(
+                    ui,
+                    None,
+                    &t!("props.sourcing.save_to"),
+                    &t!("props.sourcing.save_to.tip"),
+                    Size::Small,
+                    true,
+                )
+                .clicked()
+                {
+                    self.run("part.save", json!({"target": "project", "id": c.id}));
+                }
+                if secondary_button(
+                    ui,
+                    None,
+                    &t!("props.sourcing.copy_to_personal"),
+                    &t!("props.sourcing.copy_to_personal.tip"),
+                    Size::Small,
+                    true,
+                )
+                .clicked()
+                {
+                    self.run("part.save", json!({"target": "personal", "id": c.id}));
+                }
             },
         );
     }

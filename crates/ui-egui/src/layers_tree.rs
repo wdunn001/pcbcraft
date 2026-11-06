@@ -55,6 +55,8 @@ pub(crate) enum RowKind {
     Zone,
     Text,
     Hole,
+    /// The board outline row under the Board edge group.
+    Outline,
     Label,
     Wire,
     Shape,
@@ -306,6 +308,10 @@ pub(crate) struct TreeView {
 }
 
 impl TreeView {
+    /// Scroll the row with this key into view; opening its parents is the caller's job.
+    pub(crate) fn reveal_row(&mut self, key: &str) {
+        self.scroll_to = Some(key.to_owned());
+    }
     #[cfg(test)]
     /// Put the keyboard cursor and focus on the row with this key, as if it
     /// had been reached with the arrow keys.
@@ -1125,17 +1131,12 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
             }
         }
         ["edge"] => {
-            let mut edge = row(
-                key,
-                "edge",
-                RowKind::Leaf,
-                t!(
-                    "tree.edge",
-                    w = size_text(board.width),
-                    h = size_text(board.height)
-                ),
-            );
-            edge.dim = true;
+            // The "Board edge" group means the board outline: the outline row first,
+            // then the cut-outs. The outline is any closed shape, so the row says
+            // which kind it is and shows the size of its bounding box.
+            let (label, size) = outline_description(board);
+            let mut edge = row(key, "edge", RowKind::Outline, label);
+            edge.sub = size;
             out.push(edge);
             for cut in &board.cutouts {
                 let mut r = row(
@@ -2064,7 +2065,7 @@ fn glyph_for(kind: RowKind) -> Glyph {
     match kind {
         RowKind::Section | RowKind::Layer => Glyph::Layer,
         RowKind::Group => Glyph::Pad,
-        RowKind::Leaf => Glyph::Outline,
+        RowKind::Leaf | RowKind::Outline => Glyph::Outline,
         RowKind::Part => Glyph::Part,
         RowKind::Pad => Glyph::Outline,
         RowKind::Net => Glyph::Net,
@@ -2916,7 +2917,11 @@ fn paint_row(
         Pos2::new(label_right.max(label_left), rect.bottom()),
     );
     let p = painter.with_clip_rect(clip);
-    let top_level = matches!(r.kind, RowKind::Layer | RowKind::Part | RowKind::Net) || is_section;
+    // Cut-outs and mounting holes are objects a person edits, so they read as ink.
+    let top_level = matches!(
+        r.kind,
+        RowKind::Layer | RowKind::Part | RowKind::Net | RowKind::Hole | RowKind::Outline
+    ) || is_section;
     let ink = if is_section {
         colours.muted
     } else if top_level {
@@ -4310,6 +4315,32 @@ pub(crate) fn layers_tab(ui: &mut Ui, app: &mut crate::App) {
 
 /// A board size in millimetres to two decimals with trailing zeros dropped,
 /// so an imported 37.94230200896579 reads 37.94 and 60.0 reads 60.
+/// The outline row's words: the kind of shape and the size of its bounding box.
+///
+/// A board without a traced outline is the plain rectangle from its width and
+/// height. A traced outline is free-form, with its corner count; its size is
+/// the box around every segment, curved ones included.
+fn outline_description(board: &pcbcraft_doc::Board) -> (String, String) {
+    let Some(points) = board.outline.as_ref().filter(|p| p.len() >= 3) else {
+        let size = t!(
+            "tree.edge.size",
+            w = size_text(board.width),
+            h = size_text(board.height)
+        );
+        return (t!("tree.edge.rectangle"), size);
+    };
+    let closed = points.first() == points.last();
+    let corners = points.len() - usize::from(closed);
+    let (w, h) = pcbcraft_doc::outline_extent(points, &board.outline_arcs)
+        .map_or((board.width, board.height), |(lo, hi)| {
+            (hi.x - lo.x, hi.y - lo.y)
+        });
+    (
+        t!("tree.edge.free_form", n = corners),
+        t!("tree.edge.size", w = size_text(w), h = size_text(h)),
+    )
+}
+
 fn size_text(v: f64) -> String {
     let t = format!("{v:.2}");
     t.trim_end_matches('0').trim_end_matches('.').to_string()
