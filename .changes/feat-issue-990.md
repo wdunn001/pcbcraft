@@ -1,8 +1,8 @@
 ---
-type: feature
-area: publication
+type: test
+area: engine
 issues: [990]
-user_visible: true
-docs: [crates/publication/src/lib.rs, crates/publication/src/privacy.rs, crates/publication/src/licence.rs, crates/publication/src/datasheet.rs, crates/publication/src/bundle.rs, crates/publication/src/compliance.rs, crates/publication/src/scan.rs, crates/engine/src/publication.rs]
-summary: Publication upload now runs privacy, licence and datasheet checks that block secrets and incompatible parts.
+user_visible: false
+docs: n/a: a story only and it changes no behaviour
+summary: A story runs the publication scan on a clean design and on one holding a secret, and checks that only the clean one may upload.
 ---
