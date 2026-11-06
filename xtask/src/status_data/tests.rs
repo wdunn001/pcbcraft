@@ -462,22 +462,36 @@ fn the_golden_snapshot_itself_is_clean() {
 
 #[test]
 fn warm_cache_sends_if_none_match() -> Result<(), String> {
-    // Create a temp directory with a cache file at the expected path
+    // A warm cache carries an ETag and a last-full timestamp. The generator
+    // uses the ETag for conditional requests (If-None-Match) and the timestamp
+    // as the since parameter for incremental updates. Verify the cache round-trips
+    // and exposes both values correctly.
     let tmp_dir = std::env::temp_dir().join("pcbcraft_test_etag_cache_dir");
     let _ = std::fs::remove_dir_all(&tmp_dir);
     let _ = std::fs::create_dir_all(&tmp_dir);
     let cache_path = tmp_dir.join("site/src/data/status-cache.json");
     let _ = std::fs::create_dir_all(cache_path.parent().ok_or("missing value")?);
 
-    let cache_content = serde_json::json!({
-        "issues_etag": "W/\"test-etag-123\"",
-        "last_full": "2026-10-29T23:00:00Z"
-    });
-    std::fs::write(&cache_path, cache_content.to_string()).map_err(|e| format!("{e:?}"))?;
+    let cache = EtagCache {
+        issues_etag: Some("W/\"test-etag-123\"".to_string()),
+        issue_timestamps: BTreeMap::new(),
+        last_full: Some("2026-10-29T23:00:00Z".to_string()),
+        last_incremental: None,
+    };
+    cache.save(&tmp_dir).map_err(|e| format!("{e:?}"))?;
 
-    // Load the cache and verify the ETag is present
-    let cache = EtagCache::load(&tmp_dir).map_err(|e| format!("{e:?}"))?;
-    assert_eq!(cache.issues_etag, Some("W/\"test-etag-123\"".to_string()));
+    // Reload and verify the ETag survived the round-trip.
+    let loaded = EtagCache::load(&tmp_dir).map_err(|e| format!("{e:?}"))?;
+    assert_eq!(loaded.issues_etag, Some("W/\"test-etag-123\"".to_string()));
+    // The since parameter comes from last_incremental, falling back to last_full.
+    assert_eq!(loaded.since(), Some("2026-10-29T23:00:00Z"));
+
+    // A subsequent incremental update would update last_incremental.
+    let mut updated = loaded;
+    updated.last_incremental = Some("2026-10-30T12:00:00Z".to_string());
+    updated.save(&tmp_dir).map_err(|e| format!("{e:?}"))?;
+    let reloaded = EtagCache::load(&tmp_dir).map_err(|e| format!("{e:?}"))?;
+    assert_eq!(reloaded.since(), Some("2026-10-30T12:00:00Z"));
 
     // Cleanup
     let _ = std::fs::remove_dir_all(&tmp_dir);
@@ -486,25 +500,25 @@ fn warm_cache_sends_if_none_match() -> Result<(), String> {
 
 #[test]
 fn failure_reuses_last_snapshot_and_marks_stale() -> Result<(), String> {
-    // Create a temp directory with a snapshot file
-    let tmp_dir = std::env::temp_dir().join("pcbcraft_test_stale_fallback");
-    let _ = std::fs::create_dir_all(&tmp_dir);
+    // When the API fails during a refresh, the generator reuses the last good
+    // snapshot and marks the output as stale. Verify that generate() with
+    // stale=true produces output with the stale flag set.
+    let snap = snapshot();
+    let doc = generate(
+        &snap,
+        &load("features.yaml"),
+        &load("ROADMAP.md"),
+        &scan_tests(&dir().join("repo")),
+        true,
+    )
+    .map_err(|e| format!("{e:?}"))?;
 
-    let snapshot_path = tmp_dir.join("snapshot.json");
-    let snapshot_content = serde_json::json!({
-        "api_requests": 9,
-        "fetched_at": "2026-10-29T23:00:00Z",
-        "issues": []
-    });
-    std::fs::write(&snapshot_path, snapshot_content.to_string()).map_err(|e| format!("{e:?}"))?;
-
-    // Verify the snapshot can be read and parsed
-    let text = std::fs::read_to_string(&snapshot_path).map_err(|e| format!("{e:?}"))?;
-    let snap: Value = serde_json::from_str(&text).map_err(|e| format!("{e:?}"))?;
-    assert_eq!(snap["fetched_at"], "2026-10-29T23:00:00Z");
-
-    // Cleanup
-    let _ = std::fs::remove_dir_all(&tmp_dir);
+    // The stale flag must appear in the output.
+    assert_eq!(doc["stale"], true);
+    // The rest of the document is still valid.
+    assert_eq!(doc["schema_version"], 1);
+    assert!(doc["features"].is_array());
+    assert!(doc["issues"].is_array());
     Ok(())
 }
 
