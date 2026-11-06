@@ -265,10 +265,11 @@ fn a_newcomer_reconnects_a_wire_end() -> Result<(), String> {
         .pin(&PinRef {
             component: fresh[2].id,
             pin: fresh[2].pins.first().as_ref().unwrap().number.clone(),
+            unit: None,
         })
         .and_then(|p| p.net);
     if let Some(net) = pin_c_net {
-        assert_eq!(wire_after.net, net, "the wire joined the net of pin C");
+        assert_eq!(*wire_after.net, net, "the wire joined the net of pin C");
     }
     // Undo restores the original connection to pin B.
     app.tool_call("undo", json!({}));
