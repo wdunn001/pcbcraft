@@ -311,7 +311,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         CommandSpec {
             id: "layout.rule_set",
             description: "Write a user-authored per-component placement rule: decoupling override, keep-near list, edge placement, or preferred orientation. One rule per part; a second call replaces the previous rule for that part",
-            input_schema: schema(json!({"component":{"type":"integer","minimum":1},"decoupling":{"type":"object","properties":{"max_distance_mm":{"type":"number","minimum":0.1,"maximum":50},"suggested_value":{"type":"string","maxLength":32}}},"keep_near":{"type":"array","items":{"type":"integer","minimum":1},"maxItems":32},"edge_placement":{"type":"boolean"},"orientation":{"type":"number","minimum":-360,"maximum":360},"source":{"type":"string","enum":["default","standard","datasheet","user"]}}}, &["component"]),
+            input_schema: schema(json!({"component":{"type":"integer","minimum":1},"decoupling":{"type":"object","properties":{"max_distance_mm":{"type":"number","minimum":0.1,"maximum":50},"suggested_value":{"type":"string","maxLength":32}}},"keep_near":{"type":"array","items":{"type":"integer","minimum":1},"maxItems":32},"edge_placement":{"type":"boolean"},"orientation":{"type":"number","minimum":-360,"maximum":360},"source":{"type":"string","enum":["default","standard","datasheet","user"]}}, &["component"]),
         },
         CommandSpec {
             id: "layout.rule_remove",
