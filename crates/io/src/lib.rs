@@ -4061,6 +4061,22 @@ fn gerber_files_core(
     for (name, text) in gerber_fidelity::mask_stack_gerber_files(p)? {
         files.insert(name, text);
     }
+    if p.board.conformal_coat_keepout.is_some() {
+        match drawn::conformal_coat_keepout_gerber(p) {
+            Ok(text) => {
+                let name = p
+                    .board
+                    .conformal_coat_keepout
+                    .as_ref()
+                    .map(|c| format!("pcb-{}.gbr", c.plot_name.trim()))
+                    .unwrap_or("pcb-Conformal-Coat.gbr");
+                files.insert(name, text);
+            }
+            Err(msg) => {
+                warnings.push(format!("conformal-coat keep-out export failed: {msg}"));
+            }
+        }
+    }
     if gerber_fidelity::board_needs_viafill(p) {
         files.insert(
             "pcb-Viafill.gbr".into(),
@@ -8972,6 +8988,56 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn conformal_coat_keepout_is_included_in_gerber_export_when_configured() -> Result<(), String> {
+        let mut p = Project::default();
+        p.board.width = 20.0;
+        p.board.height = 15.0;
+        // Add a drawn layer for the keep-out
+        let layer_id = 99;
+        p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+            side: Default::default(),
+            id: layer_id,
+            name: "CoatingKeepout".into(),
+            kind: pcbcraft_doc::ArtKind::Other,
+            dotted: false,
+            dot_pitch: 1.0,
+            dot_size: 0.5,
+            visible: true,
+            shapes: vec![pcbcraft_doc::ArtShape::Rect {
+                x: 5.0,
+                y: 5.0,
+                width: 10.0,
+                height: 10.0,
+                rotate: 0.0,
+            }],
+        });
+        // Configure the conformal coat keep-out
+        p.board.conformal_coat_keepout = Some(pcbcraft_doc::ConformalCoatKeepout {
+            layer: layer_id,
+            plot_name: "CoatingKeepout".into(),
+            side: "top".into(),
+            polarity: "positive".into(),
+        });
+        p.validate()?;
+        let stamp = "2024-06-01T12:00:00Z";
+        let files = gerber_files_at(&p, stamp)?;
+        // The conformal-coat keep-out file should be in the export
+        assert!(
+            files.contains_key("pcb-CoatingKeepout.gbr"),
+            "conformal-coat keep-out gerber file is in the export bundle"
+        );
+        let gerber = files
+            .get("pcb-CoatingKeepout.gbr")
+            .ok_or("missing gerber")?;
+        // Verify the gerber has the correct attributes
+        assert!(
+            gerber.contains("ConformalCoatingKeepout"),
+            "Gerber has the FileFunction attribute"
+        );
+        assert!(gerber.contains("Positive"), "Gerber declares the polarity");
+        Ok(())
+    }
     #[test]
     fn lib_fab_readme_text_matches_fab_export() -> Result<(), String> {
         let p = Project {
