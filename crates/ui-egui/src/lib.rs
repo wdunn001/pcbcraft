@@ -8008,9 +8008,6 @@ impl App {
                         if resp.clicked() {
                             self.route_scope = value;
                         }
-                        if selected {
-                            resp.style = resp.style.clone();
-                        }
                     }
                 });
 
@@ -8062,8 +8059,11 @@ impl App {
                     );
                     undo_btn.on_hover_text(t!("board.inspector.route_undo.tip"));
                     if undo_btn.clicked() {
-                        self.undo();
+                        if let Ok(mut s) = self.session.lock() {
+                            s.undo();
+                        }
                         self.route_applied = false;
+                        self.refresh();
                     }
                 });
 
