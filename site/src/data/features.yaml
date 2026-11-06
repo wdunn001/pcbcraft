@@ -44,6 +44,26 @@
   summary: Draw a Code 39 barcode of up to 48 characters as bar graphics.
   status: browser
   evidence: [command:barcode.place]
+- area: schematic
+  name: Power and ground ports that move with their net
+  summary: Drag a power or ground port and the wires that touch it follow, in one undo step; drop one on a pin and it connects.
+  status: available
+  evidence: [test:a_newcomer_moves_a_power_port_and_its_wire_follows, test:a_newcomer_drops_a_power_port_on_a_pin_and_it_connects]
+- area: schematic
+  name: Move a wire end
+  summary: Move one end of a wire to another pin or onto another wire, and the nets the move joins are merged.
+  status: browser
+  evidence: [command:wire.reconnect_end]
+- area: schematic
+  name: Page properties
+  summary: Each page has a Properties section with its title block fields and a list of its power symbols, net labels and buses.
+  status: available
+  evidence: [file:crates/ui-egui/src/pages.rs]
+- area: schematic
+  name: Preview before you place
+  summary: Add tools show a translucent preview of the item under the pointer on the schematic and the layout.
+  status: available
+  evidence: [test:a_newcomer_sees_a_shape_tool_under_the_pointer, test:a_newcomer_sees_a_library_part_painted_like_the_library_preview]
 
 # ---------- Board layout and routing ----------
 - area: layout
@@ -115,6 +135,26 @@
   summary: Describe a build that leaves parts off or swaps a package, and export its bill of materials.
   status: browser
   evidence: [command:variant.create, test:a_newcomer_describes_a_build_that_leaves_a_part_off]
+- area: layout
+  name: Free-form board shape
+  summary: The board outline is a free-form shape you edit point by point, with a read-only extent and no width and height fields.
+  status: browser
+  evidence: [command:board.set_outline, command:board.set_rectangle, test:a_newcomer_makes_an_l_shaped_board]
+- area: layout
+  name: Shape per copper layer
+  summary: Give a copper layer a shape of its own, edit the shape of the active layer in Layout, or let it follow the board.
+  status: browser
+  evidence: [command:board.layer_shape_set, test:a_newcomer_gives_the_top_layer_its_own_shape_and_edits_only_that]
+- area: layout
+  name: Files page and shape card
+  summary: The Files tab shows the project file tree and a Board shape card that draws the real outline and reads each layer shape.
+  status: available
+  evidence: [test:a_newcomer_sees_the_l_shaped_outline_drawn_with_six_corners, test:a_newcomer_reads_the_design_and_the_project_library_in_the_aside_tree]
+- area: layout
+  name: Auto-route
+  summary: Route nets by net, layer or whole board with rip-up and retry, a seed for repeatable results and one undo for the run. It is a command with no panel yet.
+  status: browser
+  evidence: [command:route.auto, test:route_auto_one_undo_reverses_whole_run]
 
 # ---------- Libraries and part search ----------
 - area: libraries
@@ -148,7 +188,7 @@
   evidence: [command:component.set_sourcing, command:component.set_supplier]
 - area: libraries
   name: Library tab
-  summary: Read a part's details, cached prices, 3D model and sources in one tab, compare parts side by side and edit their symbols, footprints and model alignment; also import symbols and footprints from files on disk into the project library.
+  summary: Read a part's details, cached prices, 3D model and sources in one tab with Sources, Parts and Machines pages, compare parts side by side and edit their symbols, footprints and model alignment; also import symbols and footprints from files on disk into the project library.
   status: available
   evidence: [test:a_newcomer_opens_the_library_tab_and_reads_a_parts_details, test:a_newcomer_compares_two_parts_and_sees_their_differences, command:library.import_symbol_file, command:library.import_footprint_file]
 - area: libraries
@@ -176,6 +216,16 @@
   summary: Decide whether a candidate part may replace one on the board from footprint, pinout, ratings, lifecycle and height.
   status: desktop
   evidence: [mcp:library.drop_in_check]
+- area: libraries
+  name: Library sources
+  summary: Turn library sources on or off, add a folder and see its part counts on the Sources page of the Library tab.
+  status: available
+  evidence: [test:a_newcomer_finds_the_sources_page_in_the_library_tab, test:a_newcomer_adds_a_folder_sees_its_counts_switches_it_and_removes_it]
+- area: libraries
+  name: Publish and install libraries
+  summary: The engine can publish a library as a hash-checked bundle with private lines removed, list publications and install one. There is no panel or MCP tool for it yet.
+  status: desktop
+  evidence: [test:publish_install_round_trip_verifies_hashes_and_strips_privacy]
 
 # ---------- Rules and checks ----------
 - area: rules
@@ -217,6 +267,11 @@
   summary: Count footprints, routed copper length, vias, zones and drilled holes.
   status: browser
   evidence: [command:board.statistics]
+- area: rules
+  name: Analyze tab
+  summary: A tab between Layout and Manufacture. Its Checks page re-runs the checks and its Net classes page lists the net classes of the design. The other pages say what is missing.
+  status: available
+  evidence: [test:a_newcomer_runs_the_checks_again_from_analyze, test:a_newcomer_reads_the_net_classes_of_the_design, test:a_newcomer_is_told_what_is_missing_on_the_pages_with_no_data_source]
 
 # ---------- 3D view ----------
 - area: view3d
@@ -292,7 +347,7 @@
 # ---------- CAM and machines ----------
 - area: machines
   name: Machine profiles
-  summary: Profiles for CNC mills, a galvo laser, a UV printer and a pick and place machine ship in the repository.
+  summary: Profiles for CNC mills, a galvo laser, a UV printer, a pick and place machine and a reflow oven ship in the repository.
   status: desktop
   key: true
   evidence: [command:machine.list, file:machine-profiles/SCHEMA.md]
@@ -319,6 +374,11 @@
   summary: Bring in DXF or SVG drawings as board graphics, or trace a PNG into outlines.
   status: desktop
   evidence: [command:dxf.import, command:svg.import, command:image.trace]
+- area: machines
+  name: Reflow oven profiles
+  summary: A reflow oven is a built-in machine type, and oven profiles can be added, listed and removed by command. There is no profile panel yet.
+  status: desktop
+  evidence: [command:reflow.profile_add, command:reflow.profile_list, command:reflow.profile_remove, test:reflow_oven_profiles_can_be_added_listed_and_removed]
 
 # ---------- Assistant and MCP ----------
 - area: assistant
