@@ -225,13 +225,13 @@ fn a_newcomer_reconnects_a_wire_end() -> Result<(), String> {
     let original_end = wire.points.last().cloned().ok_or("wire has no end")?;
     // Pick the end of the wire that is closer to pin B and drag it onto pin C.
     let (drag_from, drag_to, target) =
-        if (original_end - b_at).hypot() < (original_start - b_at).hypot() {
+        if original_end.distance(b_at) < original_start.distance(b_at) {
             (original_end, c_at, "the end")
         } else {
             (original_start, c_at, "the start")
         };
     let from = screen_of(&app, drag_from);
-    let to = screen_of(&app, target);
+    let to = screen_of(&app, c_at);
     assert!(
         app.canvas_rect.contains(from) && app.canvas_rect.contains(to),
         "the wire end and target pin are on screen"
@@ -254,7 +254,7 @@ fn a_newcomer_reconnects_a_wire_end() -> Result<(), String> {
         .cloned()
         .ok_or("reconnected wire has no end")?;
     // One end should now be at pin C's position (within snapping tolerance).
-    let snapped_to_c = (new_start - c_at).hypot() < 0.5 || (new_end - c_at).hypot() < 0.5;
+    let snapped_to_c = new_start.distance(c_at) < 0.5 || new_end.distance(c_at) < 0.5;
     assert!(
         snapped_to_c,
         "reconnecting the {target} moved the wire end onto pin C: {new_start:?} -> {new_end:?} (pin C at {c_at:?})"
@@ -264,7 +264,7 @@ fn a_newcomer_reconnects_a_wire_end() -> Result<(), String> {
         .project
         .pin(&PinRef {
             component: fresh[2].id,
-            name: fresh[2].pins.first().as_ref().unwrap().number.clone(),
+            pin: fresh[2].pins.first().as_ref().unwrap().number.clone(),
         })
         .and_then(|p| p.net);
     if let Some(net) = pin_c_net {
@@ -288,7 +288,7 @@ fn a_newcomer_reconnects_a_wire_end() -> Result<(), String> {
         .last()
         .cloned()
         .ok_or("restored wire has no end")?;
-    let back_at_b = (restored_start - b_at).hypot() < 0.5 || (restored_end - b_at).hypot() < 0.5;
+    let back_at_b = restored_start.distance(b_at) < 0.5 || restored_end.distance(b_at) < 0.5;
     assert!(
         back_at_b,
         "one Undo gives the wire back its original connection to pin B"
