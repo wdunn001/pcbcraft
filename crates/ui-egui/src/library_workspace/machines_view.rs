@@ -537,8 +537,8 @@ impl App {
                     },
                 );
                 let profiles = self.libws.machines.profiles.get(&id);
-                if let Some(profiles) = profiles {
-                    if !profiles.is_empty() {
+                if let Some(profiles) = profiles
+                    && !profiles.is_empty() {
                         section(
                             ui,
                             "machine-profiles",
@@ -564,7 +564,6 @@ impl App {
                             },
                         );
                     }
-                }
                 ui.add_space(theme::SPACE[2]);
                 egui::Frame::NONE
                     .inner_margin(egui::Margin::symmetric(theme::SPACE[2] as i8, 0))

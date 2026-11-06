@@ -1109,10 +1109,10 @@ impl MachineProfile {
                 if !stage.time_s.is_finite() || stage.time_s < 0.0 || stage.time_s > 3600.0 {
                     return Err("reflow stage time must be 0 to 3600 seconds".into());
                 }
-                if let Some(max) = o.max_temp_c {
-                    if stage.target_c > max {
-                        return Err("reflow stage exceeds the oven maximum temperature".into());
-                    }
+                if let Some(max) = o.max_temp_c
+                    && stage.target_c > max
+                {
+                    return Err("reflow stage exceeds the oven maximum temperature".into());
                 }
             }
         }
