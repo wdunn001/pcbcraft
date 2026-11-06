@@ -36,6 +36,26 @@ fn frame_sized(ctx: &egui::Context, app: &mut App, width: f32, height: f32) -> e
     out
 }
 
+/// Same as `clipped_text` but returns the strings for debugging.
+fn clipped_strings(out: &egui::FullOutput) -> Vec<String> {
+    let mut seen = std::collections::BTreeSet::new();
+    for clipped in &out.shapes {
+        if let egui::Shape::Text(t) = &clipped.shape {
+            let text = t.galley.rect.translate(t.pos.to_vec2());
+            let clip = clipped.clip_rect;
+            let spills = text.max.x > clip.max.x + 1.0 || text.min.x < clip.min.x - 1.0;
+            if spills
+                && !t.galley.elided
+                && !t.galley.text().trim().is_empty()
+                && clip.width() > 0.0
+            {
+                seen.insert(t.galley.text().to_owned());
+            }
+        }
+    }
+    seen.into_iter().collect()
+}
+
 /// Painted text cut off by its clip rectangle with no ellipsis, as screen/width problems.
 fn clipped_text(out: &egui::FullOutput) -> usize {
     let mut seen = std::collections::BTreeSet::new();
@@ -143,6 +163,19 @@ fn i18n_pseudo_locale_fits_every_screen_at_1280_and_320() -> Result<(), String> 
                 out
             };
             let clipped = clipped_text(&out);
+            if clipped > 0 && width == 1280.0 {
+                let mut f = std::fs::OpenOptions::new()
+                    .append(true)
+                    .create(true)
+                    .open("/tmp/clipped.txt")
+                    .ok();
+                if let Some(mut f) = f {
+                    use std::io::Write;
+                    for s in clipped_strings(&out) {
+                        let _ = writeln!(f, "CLIPPED [{name}] {s}");
+                    }
+                }
+            }
             let escaped = if name == "Start page" {
                 escaped_at(&egui::Context::default(), app, width)
             } else {
