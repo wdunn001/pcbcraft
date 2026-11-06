@@ -917,6 +917,9 @@ struct Preferences {
     /// `installed`, `online`).
     #[serde(default)]
     library_sources_off: Vec<String>,
+    /// Show vendor and marketplace features; off hides every such control.
+    #[serde(default)]
+    vendor_integrations_enabled: bool,
 }
 fn default_units() -> String {
     "mm".into()
@@ -994,6 +997,7 @@ impl Default for Preferences {
             board_grid_mm: default_board_grid_mm(),
             number_format: 0,
             library_sources_off: Vec::new(),
+            vendor_integrations_enabled: false,
         }
     }
 }
@@ -10273,3 +10277,14 @@ mod tests {
 
 #[cfg(test)]
 mod e2e;
+
+#[cfg(test)]
+mod vendor_integrations_tests {
+    use super::*;
+
+    #[test]
+    fn vendor_integrations_off_by_default() {
+        let prefs = Preferences::default();
+        assert!(!prefs.vendor_integrations_enabled);
+    }
+}
