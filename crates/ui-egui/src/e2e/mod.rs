@@ -10,6 +10,7 @@ mod aside_widths;
 mod assistant;
 mod assistant_browser;
 mod audit;
+mod auto_layout;
 mod board;
 mod board3d;
 mod board_shape;

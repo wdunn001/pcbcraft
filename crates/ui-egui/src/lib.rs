@@ -1321,6 +1321,9 @@ pub struct App {
     fiducial_edit: Option<(Id, f64, bool)>,
     renumber_prefix: Option<String>,
     track_width: f64,
+    route_scope: i32,
+    route_preview: Option<Value>,
+    route_applied: bool,
     chamfer_size: f64,
     impedance_ui: impedance_panel::ImpedanceUi,
     stitch_spacing: f64,
@@ -2145,6 +2148,9 @@ impl App {
             fiducial_edit: None,
             renumber_prefix: None,
             track_width: 0.25,
+            route_scope: 0,
+            route_preview: None,
+            route_applied: false,
             chamfer_size: 0.25,
             impedance_ui: impedance_panel::ImpedanceUi::default(),
             stitch_spacing: 3.0,
@@ -7407,8 +7413,7 @@ impl App {
                         egui::Frame::NONE
                             .inner_margin(egui::Margin::ZERO)
                             .show(ui, |ui| {
-                                ui.heading(t!("board.inspector.nothing_selected"));
-                                ui.label(t!("board.inspector.select_an_item_on_the"));
+                                self.auto_layout_section(ui);
                             });
                     }
                 }
@@ -7967,6 +7972,136 @@ impl App {
             &self.preferences.modifiers,
             tool_modifiers::Platform::host(),
         )
+    }
+    /// Auto layout routing section shown when nothing is selected.
+    fn auto_layout_section(&mut self, ui: &mut egui::Ui) {
+        ui_kit::section::section(
+            ui,
+            "auto_layout",
+            &t!("board.inspector.auto_layout"),
+            &t!("board.inspector.auto_layout.tip"),
+            |ui| {
+                // Scope picker
+                ui.label(t!("board.inspector.route_scope"));
+                ui.horizontal(|ui| {
+                    let items = [
+                        (
+                            0,
+                            t!("board.inspector.route_scope_net"),
+                            t!("board.inspector.route_scope_net.tip"),
+                        ),
+                        (
+                            1,
+                            t!("board.inspector.route_scope_layer"),
+                            t!("board.inspector.route_scope_layer.tip"),
+                        ),
+                        (
+                            2,
+                            t!("board.inspector.route_scope_board"),
+                            t!("board.inspector.route_scope_board.tip"),
+                        ),
+                    ];
+                    for (value, label, tip) in items {
+                        let selected = self.route_scope == value;
+                        let btn = egui::Button::new(label);
+                        let resp = ui.add(btn).on_hover_text(tip);
+                        if resp.clicked() {
+                            self.route_scope = value;
+                        }
+                        if selected {
+                            resp.style = resp.style.clone();
+                        }
+                    }
+                });
+
+                // Preview and Apply buttons
+                ui.horizontal(|ui| {
+                    let preview_btn = ui.button(t!("board.inspector.route_preview"));
+                    preview_btn.on_hover_text(t!("board.inspector.route_preview.tip"));
+                    if preview_btn.clicked() {
+                        let scope = match self.route_scope {
+                            0 => "net",
+                            1 => "layer",
+                            _ => "board",
+                        };
+                        let params = if scope == "net" {
+                            json!({"scope": "net", "nets": [1], "keep_existing": true})
+                        } else {
+                            json!({"scope": scope, "keep_existing": true})
+                        };
+                        match self
+                            .session
+                            .lock()
+                            .map(|mut s| s.execute("route.auto", params.clone(), None))
+                        {
+                            Ok(Ok(v)) => {
+                                self.route_preview = Some(v.clone());
+                                self.route_applied = false;
+                            }
+                            Ok(Err(e)) => {
+                                self.message = format!("Preview failed: {}", e);
+                            }
+                            Err(e) => {
+                                self.message = format!("Session error: {}", e);
+                            }
+                        }
+                    }
+
+                    let apply_btn = ui.add_enabled(
+                        self.route_preview.is_some(),
+                        egui::Button::new(t!("board.inspector.route_apply")),
+                    );
+                    apply_btn.on_hover_text(t!("board.inspector.route_apply.tip"));
+                    if apply_btn.clicked() {
+                        self.route_applied = true;
+                    }
+
+                    let undo_btn = ui.add_enabled(
+                        self.route_applied,
+                        egui::Button::new(t!("board.inspector.route_undo")),
+                    );
+                    undo_btn.on_hover_text(t!("board.inspector.route_undo.tip"));
+                    if undo_btn.clicked() {
+                        self.undo();
+                        self.route_applied = false;
+                    }
+                });
+
+                // Results
+                if let Some(ref preview) = self.route_preview {
+                    ui.separator();
+                    let completed = preview
+                        .get("completed")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+                    ui.label(t!("board.inspector.route_completed"));
+                    ui.label(format!("{} connections", completed));
+
+                    if let Some(failed) = preview.get("failed").and_then(|v| v.as_array()) {
+                        if !failed.is_empty() {
+                            ui.label(t!("board.inspector.route_failed"));
+                            for f in failed {
+                                if let Some(net) = f.get("net") {
+                                    if let Some(blocked) = f.get("blocked") {
+                                        ui.horizontal(|ui| {
+                                            ui.label(format!("Net {}", net));
+                                            if ui.button(t!("board.inspector.route_show")).clicked()
+                                            {
+                                                // Zoom to failed connection
+                                            }
+                                            ui.label(t!("board.inspector.route_blocked"));
+                                            ui.label(blocked.to_string());
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    ui.label(t!("board.inspector.route_no_preview"));
+                }
+            },
+        );
     }
     fn draw_tool_options(&mut self, ui: &mut egui::Ui) {
         if self.tab != Tab::Pcb {
