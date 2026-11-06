@@ -17,6 +17,7 @@ mod board3d;
 mod board_shape;
 mod board_side;
 mod bom_flavours;
+mod browser_limits;
 mod builds;
 mod checks;
 mod compare;
