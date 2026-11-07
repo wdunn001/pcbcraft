@@ -5,6 +5,10 @@
 //! Collapsed it is a 36 px tab strip; View > Checks and the status bar counts
 //! open it on Findings.
 //!
+//! Open, the sheet is resized by dragging its top edge. The height it was dragged to is
+//! kept for the session, once for the Parts tab and once for the other tabs, and the
+//! collapse chevron still folds it to the strip and reopens it at that height.
+//!
 //! Local rules: all words come from `crates/text/strings/en.txt`; every
 //! control carries a tooltip; findings are read from `App::checks` and
 //! changed only through engine commands (`rules.exclude`,
@@ -74,6 +78,10 @@ impl App {
     const SHEET_OPEN: f32 = 232.0;
     /// Height of the sheet when open on the Parts tab, which carries a tool row above the grid.
     const SHEET_PARTS: f32 = 330.0;
+    /// The shortest an open sheet can be dragged: the tab strip and a couple of rows.
+    const SHEET_SHORTEST: f32 = 120.0;
+    /// The share of the window height an open sheet can be dragged up to, so the canvas stays.
+    const SHEET_TALLEST_SHARE: f32 = 0.7;
 
     /// Opens the sheet on a tab.
     ///
@@ -97,16 +105,24 @@ impl App {
         let count = findings.counts();
         let open = self.region().bottom_open;
         let tab = SheetTab::from_id(&self.region().bottom_tab);
-        let height = if open && tab == SheetTab::Parts {
-            Self::SHEET_PARTS
-        } else if open {
-            Self::SHEET_OPEN
+        let panel = if open {
+            let (id, default) = if tab == SheetTab::Parts {
+                ("bottom-sheet-parts", Self::SHEET_PARTS)
+            } else {
+                ("bottom-sheet-open", Self::SHEET_OPEN)
+            };
+            let tallest = (ui.ctx().content_rect().height() * Self::SHEET_TALLEST_SHARE)
+                .max(Self::SHEET_SHORTEST + 1.0);
+            egui::Panel::bottom(id)
+                .resizable(true)
+                .default_size(default)
+                .size_range(Self::SHEET_SHORTEST..=tallest)
         } else {
-            Self::SHEET_STRIP
+            egui::Panel::bottom("bottom-sheet")
+                .exact_size(Self::SHEET_STRIP)
+                .resizable(false)
         };
-        egui::Panel::bottom("bottom-sheet")
-            .exact_size(height)
-            .resizable(false)
+        panel
             .frame(Self::dock_frame(ui.style()).inner_margin(egui::Margin::symmetric(12, 4)))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
