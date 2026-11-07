@@ -1044,7 +1044,26 @@ fn a_newcomer_browses_component_libraries_from_the_library_tab() -> Result<(), S
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.region().left_tab = "library".to_owned();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Browse component libraries \u{2192}")?;
+    assert!(
+        scrolled_to_left(&ctx, &mut app, "Browse component libraries")?,
+        "the browse link is at the end of the list, below the connector series"
+    );
+    // The link is the last thing in the scrolled list; click where its text is painted.
+    let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let at = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Text(text)
+                if text.galley.text().contains("Browse component libraries") =>
+            {
+                Some(text.pos + text.galley.size() / 2.0)
+            }
+            _ => None,
+        })
+        .next_back()
+        .ok_or("the browse link is not painted")?;
+    tap_at(&ctx, &mut app, at)?;
     assert_eq!(
         app.tab,
         Tab::Library,
