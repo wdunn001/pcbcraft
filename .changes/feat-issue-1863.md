@@ -2,7 +2,7 @@
 type: feature
 area: calc
 issues: [1863]
-user_visible: true
-docs: n/a: written by the worker harness, the issue text records the behaviour
-summary: RLGC and loss estimate from the stackup as a pure function.
+user_visible: false
+docs: n/a: the calculator carries its own formula and source text and has no screen yet
+summary: Add an RLGC and loss estimate for a microstrip trace as a calculator function with golden vectors checked against an independent reference.
 ---
