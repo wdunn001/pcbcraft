@@ -138,3 +138,74 @@ fn a_newcomer_downloads_a_bill_of_materials_in_the_browser() -> Result<(), Strin
     assert!(!bytes.is_empty(), "the file has rows: {}", app.message);
     Ok(())
 }
+
+/// A collection file as bytes: one symbol saved the way Save library writes it.
+fn collection_bytes() -> Result<Vec<u8>, String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    {
+        let mut s = shared.lock().map_err(|_| "session unavailable")?;
+        s.execute(
+            "library.symbol.upsert",
+            serde_json::json!({"definition": {
+                "name": "BrowserSymbol", "reference": "R", "value": "R", "description": "",
+                "keywords": "", "footprint": "",
+                "pins": [{"number": "1", "name": "~", "position": {"x": 0.0, "y": 0.0}, "angle": 0.0,
+                          "length": 2.54, "electrical_type": "passive", "unit": 1, "body_style": 1,
+                          "graphical_style": "line", "visible": true}],
+                "graphics": [], "raw_source": "", "unsupported": []
+            }}),
+            None,
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    let files = pcbcraft_mcp::write_tool_files(
+        &shared,
+        "library.save",
+        &serde_json::json!({"path": "browser.pcbcraft-lib"}),
+    )?;
+    files
+        .into_iter()
+        .next()
+        .map(|(_, bytes)| bytes)
+        .ok_or_else(|| "no collection bytes".to_owned())
+}
+
+#[test]
+fn a_newcomer_loads_and_saves_a_library_collection_in_the_browser() -> Result<(), String> {
+    let host = Shared::default();
+    host.staged
+        .borrow_mut()
+        .push(("browser.pcbcraft-lib".into(), collection_bytes()?));
+    let (ctx, mut app) = browser_app(&host);
+    app.open_library_collections();
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    tap_id(&ctx, &mut app, "button:Load library")?;
+    assert!(
+        !app.chooser_open(),
+        "the browser uses its own picker, not the chooser"
+    );
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    assert_eq!(
+        app.project.library.symbols.len(),
+        1,
+        "the picked collection loads: {:?}",
+        app.library.editor.notice
+    );
+    let said = app.library.editor.notice.clone().unwrap_or_default();
+    assert!(
+        said.contains("Loaded browser.pcbcraft-lib"),
+        "the page says so: {said}"
+    );
+    tap_id(&ctx, &mut app, "button:Save library")?;
+    let downloads = host.host.borrow().downloads.clone();
+    assert_eq!(
+        downloads.first().map(|(name, _)| name.as_str()),
+        Some("library.pcbcraft-lib"),
+        "Save library downloads the collection"
+    );
+    Ok(())
+}

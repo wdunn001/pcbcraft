@@ -34,6 +34,8 @@ pub(crate) struct State {
     requested: bool,
     /// Frame time after which the app stops polling for the picked file.
     until: Option<f64>,
+    /// The file being waited on is a library collection, not a design.
+    library: bool,
 }
 
 impl App {
@@ -69,6 +71,20 @@ impl App {
         true
     }
 
+    /// Ask the host for a library collection file; false when the host reads through paths.
+    ///
+    /// # Rules
+    /// - The file arrives on a later frame through `webfs_frame` and goes to `library_load_text`.
+    pub(crate) fn webfs_pick_library(&mut self) -> bool {
+        if !self.host.takes_bytes() {
+            return false;
+        }
+        self.host.request_open();
+        self.webfs.requested = true;
+        self.webfs.library = true;
+        true
+    }
+
     /// Per frame: collect a picked or dropped file from the host and open it.
     pub(crate) fn webfs_frame(&mut self, ctx: &egui::Context) {
         let now = ctx.input(|i| i.time);
@@ -77,7 +93,11 @@ impl App {
         }
         if let Some((name, bytes)) = self.host.pick_open() {
             self.webfs.until = None;
-            self.webfs_open_bytes(&name, &bytes, ctx);
+            if std::mem::take(&mut self.webfs.library) {
+                self.library_load_text(&name, &bytes);
+            } else {
+                self.webfs_open_bytes(&name, &bytes, ctx);
+            }
         }
         if self.webfs.until.is_some_and(|until| now < until) {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
