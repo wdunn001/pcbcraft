@@ -23,6 +23,7 @@ pub mod error;
 pub mod feed;
 pub mod moderation;
 pub mod policy;
+pub mod rate_limit;
 pub mod schema;
 pub mod storage;
 
