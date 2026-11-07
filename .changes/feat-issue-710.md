@@ -1,8 +1,8 @@
 ---
 type: test
-area: library
+area: ui
 issues: [710]
 user_visible: false
-docs: n/a: a test only and it changes no behaviour
-summary: A story checks that the library.compare tool lists the Package row as different for two parts with different packages.
+docs: n/a: written by the worker harness, the issue text records the behaviour
+summary: Engine command library.compare: diff rows for two to five parts (child of #699).
 ---
