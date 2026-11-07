@@ -207,3 +207,85 @@ fn a_newcomer_follows_a_tour_card_with_a_spotlight_and_leaves_it_with_skip() -> 
     assert_eq!(record.step, 1);
     Ok(())
 }
+
+#[test]
+fn a_newcomer_steps_through_a_tour_by_keyboard_only() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.change_tab(Tab::Schematic);
+    app.tours = data::Doc {
+        tour: vec![data::Tour {
+            id: "keyboard_probe".into(),
+            version: 1,
+            workspace: "schematic".into(),
+            trigger: "manual".into(),
+            steps: vec![
+                probe_step(
+                    "one",
+                    "shell.tab.schematic",
+                    "tour.card.first_launch.title",
+                    "tour.card.first_launch.body",
+                ),
+                probe_step(
+                    "two",
+                    "none",
+                    "tour.card.learn_more",
+                    "tour.card.first_launch.footer",
+                ),
+                probe_step("three", "none", "tour.card.not_now", "tour.chip.hint"),
+            ],
+        }],
+    };
+    app.tour = tour::Controller::new(vec![tour::state::TourMeta {
+        id: "keyboard_probe".into(),
+        version: 1,
+        trigger: tour::state::Trigger::Manual,
+        workspace: tour::WorkspaceId::Schematic,
+        step_count: 3,
+    }]);
+    app.tour.start_from_menu(
+        &mut app.preferences.tour_progress,
+        "keyboard_probe",
+        tour::state::MenuAction::Start,
+    );
+    let ctx = egui::Context::default();
+    // Step one appears
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "Step 1 of 3")?,
+        "step one counter"
+    );
+    // Advance with Right arrow
+    key(&ctx, &mut app, egui::Key::ArrowRight);
+    assert!(
+        paints_text(&ctx, &mut app, "Step 2 of 3")?,
+        "step two counter"
+    );
+    assert!(
+        !paints_text(&ctx, &mut app, "Step 1 of 3")?,
+        "step one is gone"
+    );
+    // Back with Left arrow
+    key(&ctx, &mut app, egui::Key::ArrowLeft);
+    assert!(
+        paints_text(&ctx, &mut app, "Step 1 of 3")?,
+        "step one counter again"
+    );
+    // Advance all the way with Right arrows
+    key(&ctx, &mut app, egui::Key::ArrowRight);
+    key(&ctx, &mut app, egui::Key::ArrowRight);
+    key(&ctx, &mut app, egui::Key::ArrowRight);
+    // Tour should be complete
+    assert!(
+        !paints_text(&ctx, &mut app, "Step 1 of 3")?,
+        "tour card is gone after completion"
+    );
+    let record = app
+        .preferences
+        .tour_progress
+        .get("keyboard_probe")
+        .ok_or("tour progress record should exist")?;
+    assert_eq!(record.state, tour::state::PersistedState::Done);
+    Ok(())
+}
