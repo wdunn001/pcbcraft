@@ -42,6 +42,7 @@ mod silk_line;
 mod stub;
 pub mod testpoint;
 pub mod toolpath_gap;
+mod track_pad_layer;
 mod track_radius;
 mod vscore_edge;
 mod width_advice;
@@ -103,6 +104,7 @@ pub const CHECK_CODES: &[(&str, &str)] = &[
     ("track_width", "error"),
     ("track_length", "error"),
     ("unrouted", "warning"),
+    ("track_off_pad_layer", "error"),
     ("missing_footprint", "warning"),
     ("unassigned_via", "warning"),
     ("diffpair_gap", "error"),
@@ -2238,6 +2240,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     result.extend(silk::silk_findings(project));
     result.extend(silk_line::silk_line_findings(project));
     result.extend(pad_kinds::pad_kind_findings(project));
+    result.extend(track_pad_layer::track_pad_layer_findings(project));
     result.extend(mask_dam::mask_dam_findings(project));
     result.extend(drill::drill_findings(project));
     result.extend(drill::drill_spacing_findings(project));

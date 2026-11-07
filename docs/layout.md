@@ -66,7 +66,7 @@ Arm Via and click anywhere inside the board outline to drop a via. The via takes
 
 The Layers tree is the one place to pick the layer. Click the row of a copper layer (Top, each inner layer by the name the stackup gives it, or Bottom) and it gets the Active tag; new tracks, routes and pours go there. The `]` and `[` keys step to the next and previous copper layer and wrap at the ends. Adding or removing an inner pair keeps you on the bottom if you were on the bottom.
 
-Commands that name a layer take `F.Cu`, `B.Cu` (always the last copper layer), `In1.Cu` and so on, or a stackup row name. The checks and the unrouted-connection list read every copper layer, and a plated through-hole pad joins a track on any of them.
+Commands that name a layer take `F.Cu`, `B.Cu` (always the last copper layer), `In1.Cu` and so on, or a stackup row name. The checks and the unrouted-connection list read every copper layer, and a plated through-hole pad joins a track on any of them. A surface pad has copper on its own side alone. A track that ends on one from the other side connects nothing. `track_off_pad_layer` names the track and both layers.
 
 ## Inner layer roles
 
