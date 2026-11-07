@@ -6,6 +6,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
 const SILK_PAD_CLEARANCE_MM: f64 = 0.2;
+/// Smallest ring of empty board a courtyard has to leave around the copper and
+/// artwork it encloses, in millimetres.
+///
+/// This is the least-density excess. A courtyard drawn at any density passes.
+/// The courtyard generator refuses a margin below this number, so a generated
+/// courtyard always satisfies `lib_courtyard_too_small`.
+pub const MIN_COURTYARD_EXCESS_MM: f64 = 0.10;
 const GRID_MM: f64 = 0.01;
 const MM_PER_INCH: f64 = 25.4;
 /// Layers a courtyard rectangle may be drawn on: the native one and the
@@ -368,7 +375,7 @@ fn required_courtyard_bounds(def: &FootprintDefinition) -> (Point, Point) {
             grow_point(p);
         }
     }
-    let excess = 0.25_f64;
+    let excess = MIN_COURTYARD_EXCESS_MM;
     (
         Point::new(min.x - excess, min.y - excess),
         Point::new(max.x + excess, max.y + excess),

@@ -36,7 +36,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.footprint.set_box_body","Set an explicit box body width, depth and height in millimetres on a project-library footprint for the 3D view and mechanical exports; placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"width":{"type":"number","exclusiveMinimum":0.05,"maximum":100,"description":"body extent in x, millimetres"},"depth":{"type":"number","exclusiveMinimum":0.05,"maximum":100,"description":"body extent in y, millimetres"},"height":{"type":"number","exclusiveMinimum":0.05,"maximum":100,"description":"body extent above the board, millimetres"}}),&["name","width","depth","height"])),
         ("library.footprint.clear_box_body","Remove the explicit box body from a project-library footprint so 3D and exports fall back to pad-derived defaults",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.footprint.renumber_pads","Renumber pads on a project-library footprint with an ordered old-to-new map; embedded copies, their placed pads and matching component pins follow, and a target number already held by an untouched pad is refused",schema(json!({"name":{"type":"string"},"renames":{"type":"array","maxItems":512,"items":{"type":"object","properties":{"old":{"type":"string","maxLength":32},"new":{"type":"string","maxLength":32}},"required":["old","new"],"additionalProperties":false}}}),&["name","renames"])),
-        ("library.footprint.generate_courtyard","Generate a courtyard rectangle on a project-library footprint: the outline of its pads and artwork grown by a margin, replacing any courtyard the footprint already carries",schema(json!({"name":{"type":"string"},"margin":{"type":"number","minimum":0,"maximum":5,"description":"ring beyond the outermost copper and artwork, millimetres"}}),&["name","margin"])),
+        ("library.footprint.generate_courtyard","Generate a courtyard rectangle on a project-library footprint: the outline of its pads, lines, rectangles, circles, arcs, polylines and text grown by a margin, replacing any courtyard the footprint already carries. Stroke width counts. Courtyard rectangles already present do not",schema(json!({"name":{"type":"string"},"margin":{"type":"number","minimum":0.1,"maximum":5,"description":"ring beyond the outermost copper and artwork, millimetres, at least 0.1 so the result passes the courtyard check"}}),&["name","margin"])),
         ("library.footprint.generate","Build an IPC-style land pattern from a bounded family name and package parameters, then create or replace that footprint in the project library",schema(json!({"family":{"type":"string","enum":["chip_2terminal","sot","soic","tssop","ssop","msop","qfp","qfn","dfn","bga","lga","dip","header_single","header_double","radial","axial","sod","to_single"]},"density":{"type":"string","enum":["A","B","C"],"default":"B"},"name":{"type":"string","minLength":1,"maxLength":128},"description":{"type":"string"},"keywords":{"type":"string"},"pitch":{"type":"number"},"pin_count":{"type":"integer","minimum":1,"maximum":256},"body_x":{"type":"number"},"body_y":{"type":"number"},"body_z":{"type":"number"},"rows":{"type":"integer","minimum":2,"maximum":50},"cols":{"type":"integer","minimum":2,"maximum":50},"row_spacing":{"type":"number"},"terminal_width":{"type":"number"},"thermal":{"type":"boolean"}}),&["family","name"])),
         ("library.footprint.check","Read-only library-quality check on a project-library footprint by name or on an inline definition; returns structured findings",schema(json!({"name":{"type":"string"},"definition":{"type":"object"}}),&[])),
         ("library.pinpad.validate","Validate symbol pins against footprint pads and return structured findings for the Verified badge; auto-fills the map from matching numbers",schema(json!({"symbol_name":{"type":"string"},"symbol_definition":{"type":"object"},"footprint_name":{"type":"string"},"footprint_definition":{"type":"object"}}),&[])),
@@ -1317,10 +1317,14 @@ pub(super) fn run(
         }
         "library.footprint.generate_courtyard" => {
             let a: CourtyardParams = parse(params)?;
-            if !a.margin.is_finite() || !(0.0..=5.0).contains(&a.margin) {
-                return Err(Error::Invalid(
-                    "the courtyard margin must be 0 to 5 millimetres".into(),
-                ));
+            let floor = pcbcraft_library::MIN_COURTYARD_EXCESS_MM;
+            if !a.margin.is_finite() || !(floor..=5.0).contains(&a.margin) {
+                // Below the floor the courtyard check rejects the very
+                // rectangle this command just drew. Refuse instead of
+                // handing back a footprint that fails on sight.
+                return Err(Error::Invalid(format!(
+                    "the courtyard margin must be {floor} to 5 millimetres"
+                )));
             }
             let def = p
                 .library
@@ -1381,7 +1385,11 @@ pub(super) fn run(
                     pcbcraft_library::Graphic::Polyline { points, width, .. } => {
                         (points.clone(), *width / 2.0)
                     }
-                    _ => (vec![], 0.0),
+                    // Text counts toward the extent. The courtyard check reads
+                    // a text graphic's position in required_courtyard_bounds,
+                    // so leaving it out here produced a courtyard that failed
+                    // lib_courtyard_too_small the moment it was generated.
+                    pcbcraft_library::Graphic::Text { position, .. } => (vec![*position], 0.0),
                 };
                 for at in points {
                     grow(&mut min, &mut max, at, radius);

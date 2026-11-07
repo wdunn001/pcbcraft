@@ -30904,6 +30904,7 @@ mod tests {
         for bad in [
             json!({"name": "nope", "margin": 0.2}),
             json!({"name": "R_0805_2012Metric", "margin": -0.1}),
+            json!({"name": "R_0805_2012Metric", "margin": 0.05}),
             json!({"name": "R_0805_2012Metric", "margin": 6.0}),
             json!({"name": "R_0805_2012Metric"}),
         ] {
@@ -30986,6 +30987,58 @@ mod tests {
                 .iter()
                 .any(|g| g["Rectangle"]["layer"].as_str() == Some("pcbcraft.courtyard")),
             "assigned copies carry the courtyard with them"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn generated_courtyard_surrounds_text_so_the_check_passes() -> Result<(), Error> {
+        // The courtyard check reads a text graphic's position. The generator
+        // used to skip text, so a footprint with a legend outside its body got
+        // a courtyard that failed lib_courtyard_too_small straight away.
+        let mut s = Session::default();
+        let definition = library::footprint(std::path::Path::new(&library_fixture(
+            "R_0805_2012Metric.kicad_mod",
+        )))?;
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": definition}),
+            None,
+        )?;
+        s.execute(
+            "library.footprint.graphic_add",
+            json!({
+                "name": "R_0805_2012Metric",
+                "graphic": {"Text": {
+                    "layer": "pcbcraft.silk.front",
+                    "text": "FAR",
+                    "position": {"x": 6.0, "y": 0.0},
+                    "size": {"x": 0.5, "y": 0.5},
+                    "angle": 0.0
+                }}
+            }),
+            None,
+        )?;
+        s.execute(
+            "library.footprint.generate_courtyard",
+            json!({"name": "R_0805_2012Metric", "margin": 0.25}),
+            None,
+        )?;
+        let findings = s.execute(
+            "library.footprint.check",
+            json!({"name": "R_0805_2012Metric"}),
+            None,
+        )?;
+        let codes: Vec<String> = findings["result"]["findings"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|f| f["code"].as_str().map(str::to_owned))
+            .collect();
+        assert!(
+            !codes.iter().any(|c| c == "lib_courtyard_too_small"),
+            "a freshly generated courtyard must satisfy its own check, got {codes:?}"
         );
         Ok(())
     }
