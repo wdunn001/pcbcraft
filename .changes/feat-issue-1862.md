@@ -2,7 +2,7 @@
 type: feature
 area: rules
 issues: [1862]
-user_visible: true
-docs: n/a: written by the worker harness, the issue text records the behaviour
-summary: Crosstalk and return path checks also scan inner copper layers.
+user_visible: false
+docs: n/a: the crosstalk check now also reads inner copper layers and states that no coupling number applies to stripline
+summary: The crosstalk check scans every copper layer and treats inner layers as stripline, and a test shows return path already covers them.
 ---

@@ -319,7 +319,7 @@ fn has_stitch_near(project: &Project, at: Point, ground: &BTreeSet<Id>, radius: 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pcbcraft_doc::{CopperZone, Net, NetClass, Track, Via};
+    use pcbcraft_doc::{CopperZone, LayerRecord, Net, NetClass, Track, Via};
 
     fn square(x0: f64, y0: f64, x1: f64, y1: f64) -> Vec<Point> {
         vec![
@@ -417,6 +417,84 @@ mod tests {
         assert!(
             !return_path_findings(&p).is_empty(),
             "a fast track over a reference slot should report"
+        );
+        p.board.tracks[0].start.y = 10.0;
+        p.board.tracks[0].end.y = 10.0;
+        p.validate()?;
+        assert!(
+            return_path_findings(&p).is_empty(),
+            "moving off the slot clears the finding"
+        );
+        Ok(())
+    }
+
+    /// F.Cu, In1.Cu, In2.Cu, B.Cu with a ground plane on In2.Cu: a signal on In1.Cu is stripline
+    /// and its reference plane is the next copper layer down.
+    fn four_layer_board_with_inner_ground_pour() -> Result<Project, String> {
+        let mut p = Project::default();
+        p.board.width = 40.0;
+        p.board.height = 40.0;
+        p.board.layer_records = ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"]
+            .iter()
+            .map(|name| LayerRecord {
+                name: (*name).into(),
+                kind: "copper".into(),
+                thickness: 0.035,
+                copper_role: (*name == "In2.Cu").then(|| "plane".to_string()),
+                ..LayerRecord::default()
+            })
+            .collect();
+        p.nets.push(Net {
+            id: 1,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        p.nets.push(Net {
+            id: 2,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        p.board.zones.push(CopperZone {
+            id: 10,
+            net: 1,
+            layer: Layer::from_index(2).map_err(|e| e.to_string())?,
+            outline: square(0.0, 0.0, 40.0, 40.0),
+            cutouts: vec![],
+            filled: true,
+            kind: None,
+            pour: None,
+            preserved: Default::default(),
+        });
+        fast_class(&mut p, 2);
+        Ok(p)
+    }
+
+    #[test]
+    fn an_inner_layer_track_over_its_inner_reference_slot_is_flagged() -> Result<(), String> {
+        let mut p = four_layer_board_with_inner_ground_pour()?;
+        let inner = Layer::from_index(1).map_err(|e| e.to_string())?;
+        assert_eq!(
+            reference_layer_for(&p, inner),
+            Layer::from_index(2).ok(),
+            "the plane on In2.Cu is the reference for a signal on In1.Cu"
+        );
+        p.board.zones[0]
+            .cutouts
+            .push(square(15.0, 18.0, 25.0, 22.0));
+        p.board.tracks.push(Track {
+            id: 20,
+            net: 2,
+            start: Point::new(10.0, 20.0),
+            end: Point::new(30.0, 20.0),
+            width: 0.25,
+            layer: inner,
+            arc: None,
+            preserved: Default::default(),
+        });
+        p.validate()?;
+        assert!(
+            !return_path_findings(&p).is_empty(),
+            "an inner layer track over a slot in its inner plane should report"
         );
         p.board.tracks[0].start.y = 10.0;
         p.board.tracks[0].end.y = 10.0;
