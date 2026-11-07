@@ -4578,7 +4578,7 @@ pub struct ProjectLibrary {
     pub part_substitutes: BTreeMap<String, pcbcraft_library::PartSubstitutes>,
     /// When true, model transforms for library footprints are editable in the project
     /// even if the footprint is not in the project's own library.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub allow_library_footprint_edits: bool,
 }
 impl ProjectLibrary {
