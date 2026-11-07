@@ -1378,6 +1378,7 @@ mod tests {
             grid_rows: 0,
             grid_cols: 0,
             thermal_size: 0.0,
+            aligned: false,
         }
     }
 

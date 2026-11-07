@@ -21,6 +21,7 @@ fn nominal_0603_pad_geometry_within_one_hundredth_mm() -> Result<(), String> {
         grid_rows: 0,
         grid_cols: 0,
         thermal_size: 0.0,
+        aligned: false,
     };
     let direct = generate_footprint("chip_2terminal", LandPatternDensity::Nominal, &p)?;
     let key = PackageKey {

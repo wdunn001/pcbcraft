@@ -25,6 +25,7 @@ fn qfn16_part() -> Result<
         grid_rows: 0,
         grid_cols: 0,
         thermal_size: 1.7,
+        aligned: false,
     };
     let footprint = generate_footprint("qfn", LandPatternDensity::Nominal, &p)?;
     let symbol = pcbcraft_library::SymbolDefinition {
@@ -97,6 +98,7 @@ fn soic8_verify_happy_path() -> Result<(), String> {
         grid_rows: 0,
         grid_cols: 0,
         thermal_size: 0.0,
+        aligned: false,
     };
     let footprint = generate_footprint("soic", LandPatternDensity::Nominal, &p)?;
     let symbol = pcbcraft_library::SymbolDefinition {
@@ -177,6 +179,7 @@ fn missing_pad_fails_symbol_match() -> Result<(), String> {
         grid_rows: 0,
         grid_cols: 0,
         thermal_size: 0.0,
+        aligned: false,
     };
     let mut footprint = generate_footprint("soic", LandPatternDensity::Nominal, &p)?;
     footprint.pads.retain(|pad| pad.number != "8");

@@ -44,6 +44,7 @@ fn build_soic8_part() -> Result<
         grid_rows: 0,
         grid_cols: 0,
         thermal_size: 0.0,
+        aligned: false,
     };
     let footprint = generate_footprint("soic", LandPatternDensity::Nominal, &p)?;
     let symbol = pcbcraft_library::SymbolDefinition {

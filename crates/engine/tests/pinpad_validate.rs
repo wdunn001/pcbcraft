@@ -38,6 +38,7 @@ fn symbol_and_footprint(pin_count: u32) -> Result<(SymbolDefinition, FootprintDe
         grid_rows: 0,
         grid_cols: 0,
         thermal_size: 0.0,
+        aligned: false,
     };
     let footprint = generate_footprint("qfn", LandPatternDensity::Nominal, &params)?;
     let symbol = SymbolDefinition {

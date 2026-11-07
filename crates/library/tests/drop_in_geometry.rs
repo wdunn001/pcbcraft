@@ -58,6 +58,7 @@ fn qfn16() -> Result<FootprintDefinition, String> {
         grid_rows: 0,
         grid_cols: 0,
         thermal_size: 1.5,
+        aligned: false,
     };
     generate_footprint("qfn", LandPatternDensity::Nominal, &p)
 }

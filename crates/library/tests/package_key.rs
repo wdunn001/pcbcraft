@@ -16,6 +16,7 @@ fn soic8_package_key_from_generated_footprint() -> Result<(), String> {
         grid_rows: 0,
         grid_cols: 0,
         thermal_size: 0.0,
+        aligned: false,
     };
     let fp = generate_footprint("soic", LandPatternDensity::Nominal, &p)?;
     let key = PackageKey::from_footprint(&fp)?;
@@ -40,6 +41,7 @@ fn qfn33_includes_exposed_pad_in_key() -> Result<(), String> {
         grid_rows: 0,
         grid_cols: 0,
         thermal_size: 2.5,
+        aligned: false,
     };
     let fp = generate_footprint("qfn", LandPatternDensity::Nominal, &p)?;
     let key = PackageKey::from_footprint(&fp)?;

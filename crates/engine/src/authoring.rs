@@ -37,7 +37,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.footprint.clear_box_body","Remove the explicit box body from a project-library footprint so 3D and exports fall back to pad-derived defaults",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.footprint.renumber_pads","Renumber pads on a project-library footprint with an ordered old-to-new map; embedded copies, their placed pads and matching component pins follow, and a target number already held by an untouched pad is refused",schema(json!({"name":{"type":"string"},"renames":{"type":"array","maxItems":512,"items":{"type":"object","properties":{"old":{"type":"string","maxLength":32},"new":{"type":"string","maxLength":32}},"required":["old","new"],"additionalProperties":false}}}),&["name","renames"])),
         ("library.footprint.generate_courtyard","Generate a courtyard rectangle on a project-library footprint: the outline of its pads and artwork grown by a margin, replacing any courtyard the footprint already carries",schema(json!({"name":{"type":"string"},"margin":{"type":"number","minimum":0,"maximum":5,"description":"ring beyond the outermost copper and artwork, millimetres"}}),&["name","margin"])),
-        ("library.footprint.generate","Build an IPC-style land pattern from a bounded family name and package parameters, then create or replace that footprint in the project library",schema(json!({"family":{"type":"string","enum":["chip_2terminal","sot","soic","tssop","ssop","msop","qfp","qfn","dfn","bga","lga","dip","header_single","header_double","radial","axial","sod","to_single"]},"density":{"type":"string","enum":["A","B","C"],"default":"B"},"name":{"type":"string","minLength":1,"maxLength":128},"description":{"type":"string"},"keywords":{"type":"string"},"pitch":{"type":"number"},"pin_count":{"type":"integer","minimum":1,"maximum":256},"body_x":{"type":"number"},"body_y":{"type":"number"},"body_z":{"type":"number"},"rows":{"type":"integer","minimum":2,"maximum":50},"cols":{"type":"integer","minimum":2,"maximum":50},"row_spacing":{"type":"number"},"terminal_width":{"type":"number"},"thermal":{"type":"boolean"}}),&["family","name"])),
+        ("library.footprint.generate","Build an IPC-style land pattern from a bounded family name and package parameters, then create or replace that footprint in the project library",schema(json!({"family":{"type":"string","enum":["chip_2terminal","sot","soic","tssop","ssop","msop","qfp","qfn","dfn","bga","lga","dip","header_single","header_double","radial","axial","sod","to_single"]},"density":{"type":"string","enum":["A","B","C"],"default":"B"},"name":{"type":"string","minLength":1,"maxLength":128},"description":{"type":"string"},"keywords":{"type":"string"},"pitch":{"type":"number"},"pin_count":{"type":"integer","minimum":1,"maximum":256},"body_x":{"type":"number"},"body_y":{"type":"number"},"body_z":{"type":"number"},"rows":{"type":"integer","minimum":2,"maximum":50},"cols":{"type":"integer","minimum":2,"maximum":50},"row_spacing":{"type":"number"},"terminal_width":{"type":"number"},"thermal":{"type":"boolean"},"aligned":{"type":"boolean","description":"dual-row headers only: place both rows at the same x positions and number odd pins along one row with even pins along the other"}}),&["family","name"])),
         ("library.footprint.check","Read-only library-quality check on a project-library footprint by name or on an inline definition; returns structured findings",schema(json!({"name":{"type":"string"},"definition":{"type":"object"}}),&[])),
         ("library.pinpad.validate","Validate symbol pins against footprint pads and return structured findings for the Verified badge; auto-fills the map from matching numbers",schema(json!({"symbol_name":{"type":"string"},"symbol_definition":{"type":"object"},"footprint_name":{"type":"string"},"footprint_definition":{"type":"object"}}),&[])),
 
@@ -223,6 +223,8 @@ struct GenerateFootprintCommandParams {
     terminal_width: f64,
     #[serde(default)]
     thermal: bool,
+    #[serde(default)]
+    aligned: bool,
 }
 
 fn default_density() -> String {
@@ -248,6 +250,7 @@ fn land_pattern_params_from_command(a: &GenerateFootprintCommandParams) -> LandP
         } else {
             0.0
         },
+        aligned: a.aligned,
     };
     if params.body_length <= 0.0 && a.body_z > 0.0 {
         params.body_length = a.body_z;

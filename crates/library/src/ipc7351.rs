@@ -35,6 +35,7 @@ pub fn generate_footprint_from_key(
         grid_rows: 0,
         grid_cols: 0,
         thermal_size: key.exposed_pad_mm,
+        aligned: false,
     };
     if key.family == PackageFamily::Bga {
         let side = (key.pin_count as f64).sqrt().round() as u32;

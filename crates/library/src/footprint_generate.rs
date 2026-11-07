@@ -94,6 +94,12 @@ pub struct LandPatternParams {
     pub grid_cols: u32,
     #[serde(default)]
     pub thermal_size: f64,
+    /// Dual-row headers only. False keeps the staggered rows that
+    /// `header_double` has always produced. True places both rows at the same
+    /// x positions and numbers odd pins along one row with even pins along the
+    /// other, which is the ordinary 0.1 inch dual-row header.
+    #[serde(default)]
+    pub aligned: bool,
 }
 
 /// Generate a footprint from an IPC-7351B land pattern family.
@@ -571,25 +577,47 @@ fn header_double(
         1.0
     };
     let mut pads = Vec::new();
-    for i in 0..per_row {
-        let x = -span / 2.0 + i as f64 * pitch;
-        pads.push(th_pad(
-            &(i + 1).to_string(),
-            x,
-            -row_spacing / 2.0,
-            pad,
-            drill,
-        ));
-    }
-    for i in 0..per_row {
-        let x = -span / 2.0 + i as f64 * pitch + pitch / 2.0;
-        pads.push(th_pad(
-            &(per_row + i + 1).to_string(),
-            x,
-            row_spacing / 2.0,
-            pad,
-            drill,
-        ));
+    if params.aligned {
+        // Rows share their x positions and the numbering alternates between
+        // them, so pads 1 and 2 face each other across the gap.
+        for i in 0..per_row {
+            let x = -span / 2.0 + i as f64 * pitch;
+            pads.push(th_pad(
+                &(2 * i + 1).to_string(),
+                x,
+                -row_spacing / 2.0,
+                pad,
+                drill,
+            ));
+            pads.push(th_pad(
+                &(2 * i + 2).to_string(),
+                x,
+                row_spacing / 2.0,
+                pad,
+                drill,
+            ));
+        }
+    } else {
+        for i in 0..per_row {
+            let x = -span / 2.0 + i as f64 * pitch;
+            pads.push(th_pad(
+                &(i + 1).to_string(),
+                x,
+                -row_spacing / 2.0,
+                pad,
+                drill,
+            ));
+        }
+        for i in 0..per_row {
+            let x = -span / 2.0 + i as f64 * pitch + pitch / 2.0;
+            pads.push(th_pad(
+                &(per_row + i + 1).to_string(),
+                x,
+                row_spacing / 2.0,
+                pad,
+                drill,
+            ));
+        }
     }
     let body_l = span + pitch;
     let body_w = row_spacing + pitch;

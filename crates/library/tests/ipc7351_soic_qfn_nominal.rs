@@ -21,6 +21,7 @@ fn nominal_soic8_pad_geometry_within_one_hundredth_mm() -> Result<(), String> {
         grid_rows: 0,
         grid_cols: 0,
         thermal_size: 0.0,
+        aligned: false,
     };
     let direct = generate_footprint("soic", LandPatternDensity::Nominal, &p)?;
     let key = PackageKey {
@@ -67,6 +68,7 @@ fn nominal_qfn16_ep_pad_geometry_within_one_hundredth_mm() -> Result<(), String>
         grid_rows: 0,
         grid_cols: 0,
         thermal_size: 1.7,
+        aligned: false,
     };
     let direct = generate_footprint("qfn", LandPatternDensity::Nominal, &p)?;
     let key = PackageKey {

@@ -21,6 +21,7 @@ fn nominal_params() -> LandPatternParams {
         grid_rows: 0,
         grid_cols: 0,
         thermal_size: 0.0,
+        aligned: false,
     }
 }
 
@@ -191,6 +192,55 @@ fn header_double_row_stagger() -> Result<(), String> {
     assert_eq!(top.len(), 5);
     assert_eq!(bottom.len(), 5);
     assert!(near(bottom[0].position.x - top[0].position.x, 2.54 / 2.0));
+    Ok(())
+}
+
+#[test]
+fn header_double_aligned_rows_and_interleaved_numbering() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.pitch = 2.54;
+    p.pin_count = 40;
+    p.row_spacing = 2.54;
+    p.aligned = true;
+    let def = generate_footprint("header_double", LandPatternDensity::Nominal, &p)?;
+    assert_eq!(def.pads.len(), 40);
+
+    let find = |number: &str| {
+        def.pads
+            .iter()
+            .find(|pad| pad.number == number)
+            .ok_or_else(|| format!("pad {number} missing"))
+    };
+
+    // Pads 1 and 2 face each other: same x, opposite rows.
+    let one = find("1")?;
+    let two = find("2")?;
+    assert!(near(one.position.x, two.position.x));
+    assert!(near(one.position.y, -two.position.y));
+    assert!(one.position.y < 0.0);
+
+    // Pad 3 is one pitch along from pad 1, on pad 1's row.
+    let three = find("3")?;
+    assert!(near(three.position.x - one.position.x, 2.54));
+    assert!(near(three.position.y, one.position.y));
+
+    // Both rows span the same width, so neither is offset from the other.
+    let row_span = |side: f64| {
+        let xs: Vec<f64> = def
+            .pads
+            .iter()
+            .filter(|pad| pad.position.y * side > 0.0)
+            .map(|pad| pad.position.x)
+            .collect();
+        let lo = xs.iter().cloned().fold(f64::INFINITY, f64::min);
+        let hi = xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        (lo, hi)
+    };
+    let (top_lo, top_hi) = row_span(-1.0);
+    let (bot_lo, bot_hi) = row_span(1.0);
+    assert!(near(top_lo, bot_lo));
+    assert!(near(top_hi, bot_hi));
+    assert!(near(top_hi - top_lo, 19.0 * 2.54));
     Ok(())
 }
 

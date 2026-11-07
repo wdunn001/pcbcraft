@@ -36,6 +36,7 @@ fn qfn_symbol_and_footprint() -> Result<(SymbolDefinition, FootprintDefinition),
         grid_rows: 0,
         grid_cols: 0,
         thermal_size: 2.5,
+        aligned: false,
     };
     let fp = generate_footprint("qfn", LandPatternDensity::Nominal, &p)?;
     let mut pins: Vec<SymbolPin> = (1..=32)
@@ -188,6 +189,7 @@ fn bga_alphanumeric_pad_numbers_map_by_symbol_pin() -> Result<(), String> {
         grid_rows: 4,
         grid_cols: 4,
         thermal_size: 0.0,
+        aligned: false,
     };
     let mut fp = generate_footprint("bga", LandPatternDensity::Nominal, &p)?;
     for (i, pad) in fp.pads.iter_mut().enumerate() {
