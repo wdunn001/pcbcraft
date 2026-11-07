@@ -225,6 +225,25 @@ pub fn validity(width: f64, height: f64) -> Option<String> {
     None
 }
 
+/// Uncertainty of the Hammerstad microstrip model, expressed as a percentage of the result.
+/// The model is accurate within +/-1% for the valid range: 0.01 <= W/H <= 10,
+/// 0.001 <= T/H <= 1, and 2 <= Er <= 15. Outside this range the error grows.
+/// The constant is used by `net.impedance` and `impedance.calc` to annotate
+/// their results so callers can display the confidence band.
+pub const MICROSTRIP_UNCERTAINTY_PCT: f64 = 1.0;
+/// Uncertainty of the Hammerstad coupled microstrip model as a percentage.
+/// The coupled model is accurate within +/-3% in the same validity region as
+/// the uncoupled model, but with tighter spacing constraints (S/H > 0.01).
+/// This constant is used by `net.impedance` and `impedance.calc` to annotate
+/// differential and coupled single-ended results.
+pub const COUPLED_MICROSTRIP_UNCERTAINTY_PCT: f64 = 3.0;
+/// Uncertainty of the zero-thickness stripline model as a percentage.
+/// The stripline model is accurate within +/-1% when 0.01 <= W/H <= 3,
+/// 0.1 <= Er <= 15, and the trace is sufficiently far from the board edges.
+/// This constant is used by `net.impedance` and `impedance.calc` to annotate
+/// their stripline results.
+pub const STRIPLINE_UNCERTAINTY_PCT: f64 = 1.0;
+
 #[cfg(test)]
 mod tests {
     use super::*;

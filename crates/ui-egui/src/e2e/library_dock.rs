@@ -237,12 +237,12 @@ fn settle(ctx: &egui::Context, app: &mut App) {
 const CONNECTOR_CHIP: &str = "button:Show only connectors and headers. Click again to clear.";
 
 #[test]
-fn a_newcomer_turns_on_connectors_and_sees_the_samtec_series() -> Result<(), String> {
+fn a_newcomer_sees_the_samtec_series_at_once_and_with_connectors_on() -> Result<(), String> {
     let (ctx, mut app) = library_open();
     settle(&ctx, &mut app);
     assert!(
-        !paints_text(&ctx, &mut app, "Samtec connector series")?,
-        "with no kind switch and no search the dock shows no series"
+        paints_text(&ctx, &mut app, "Samtec connector series")?,
+        "with no kind switch and no search the dock already lists the catalog series"
     );
     tap_id(&ctx, &mut app, CONNECTOR_CHIP)?;
     settle(&ctx, &mut app);
@@ -299,6 +299,124 @@ fn a_newcomer_who_turns_on_resistors_sees_no_connector_series() -> Result<(), St
     assert!(
         !paints_text(&ctx, &mut app, "Samtec connector series")?,
         "another kind switch keeps the connector series out"
+    );
+    Ok(())
+}
+
+/// Turn on Connectors, wait for the dock's read to finish so rows stop moving, then tap a series
+/// row by its accessible name and check that it opens.
+fn series_open(row_id: &str) -> Result<(egui::Context, App), String> {
+    let (ctx, mut app) = library_open();
+    settle(&ctx, &mut app);
+    tap_id(&ctx, &mut app, CONNECTOR_CHIP)?;
+    let steady = waits_until(&ctx, &mut app, |app| {
+        app.dock.requests_sent > 0 && app.dock.applied == app.dock.requests_sent
+    });
+    assert!(steady, "the dock finished reading connectors");
+    settle(&ctx, &mut app);
+    tap_id(&ctx, &mut app, row_id)?;
+    settle(&ctx, &mut app);
+    assert!(
+        app.dock.series.open_for_test().is_some(),
+        "tapping {row_id} opens its choices"
+    );
+    Ok((ctx, app))
+}
+
+#[test]
+fn a_newcomer_places_a_samtec_header_from_its_series_card() -> Result<(), String> {
+    let (ctx, mut app) = series_open("button:TSW series, Samtec")?;
+    assert!(
+        paints_text(&ctx, &mut app, "Positions per row")?,
+        "the series opens its choices"
+    );
+    tap_id(&ctx, &mut app, "button:# rows")?;
+    tap_id(&ctx, &mut app, "button:More")?;
+    settle(&ctx, &mut app);
+    assert!(
+        paints_text(&ctx, &mut app, "Makes TSW-005-07-G-D")?,
+        "two rows of five make the part number the series table gives"
+    );
+    let before = app.project.components.len();
+    tap_id(&ctx, &mut app, "button:Place on schematic")?;
+    settle(&ctx, &mut app);
+    assert_eq!(
+        app.project.components.len(),
+        before + 1,
+        "one part is placed: {}",
+        app.message
+    );
+    let placed = app.project.components.last().ok_or("a part was placed")?;
+    assert_eq!(
+        placed.value, "TSW-005-07-G-D",
+        "the part carries the generated number"
+    );
+    assert!(
+        app.project
+            .library
+            .footprints
+            .iter()
+            .any(|f| f.name.starts_with("TSW")),
+        "its footprint joined the project library"
+    );
+    assert_eq!(
+        app.project
+            .library
+            .footprints
+            .iter()
+            .find(|f| f.name.starts_with("TSW"))
+            .map(|f| f.pads.len()),
+        Some(10),
+        "two rows of five make ten pads"
+    );
+    app.session
+        .lock()
+        .map_err(|_| "session is busy".to_owned())?
+        .undo()
+        .map_err(|e| e.to_string())?;
+    app.refresh();
+    assert_eq!(
+        app.project.components.len(),
+        before,
+        "one undo takes the whole placement back"
+    );
+    assert!(
+        !app.project
+            .library
+            .footprints
+            .iter()
+            .any(|f| f.name.starts_with("TSW")),
+        "and the imported footprint goes with it"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_picks_a_stack_height_for_a_board_to_board_series() -> Result<(), String> {
+    let (ctx, mut app) = series_open("button:BTH series, Samtec")?;
+    assert!(
+        paints_text(&ctx, &mut app, "Stack height")?,
+        "a board to board series asks for a stack code"
+    );
+    assert!(
+        !paints_text(&ctx, &mut app, "Lead")?,
+        "and not for a lead code, which that series does not have"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_opens_the_socket_strip_series_and_chooses_a_lead_code() -> Result<(), String> {
+    let (ctx, mut app) = series_open("button:SSW series, Samtec")?;
+    assert!(
+        paints_text(&ctx, &mut app, "Lead")?,
+        "a socket strip series asks for a lead code"
+    );
+    tap_id(&ctx, &mut app, "button:More")?;
+    settle(&ctx, &mut app);
+    assert!(
+        paints_text(&ctx, &mut app, "Makes SSW-005-07-G-S")?,
+        "one more position than the starting four makes the part number the series table gives"
     );
     Ok(())
 }
