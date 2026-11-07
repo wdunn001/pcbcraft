@@ -2697,11 +2697,22 @@ impl App {
                             if pad.geometry.as_ref().is_some_and(|g| g.drill.is_some()) {
                                 // The drill hole fills the middle, so the
                                 // number sits beside the pad.
-                                let reach = pad
-                                    .outline_points()
-                                    .iter()
-                                    .fold(0.0f64, |m, q| m.max(q.x.abs()))
-                                    as f32
+                                // outline_points carries the pad offset, so
+                                // its own x extent measures from the part
+                                // origin rather than from this pad. Reading it
+                                // as a half width put every label a whole part
+                                // width away from the pad it names. The pad
+                                // offset comes back off here, and the part
+                                // rotation goes on, so the reach is the pad's
+                                // half width along the screen x axis.
+                                let reach = pad.outline_points().iter().fold(0.0f64, |m, q| {
+                                    m.max(
+                                        Point::new(q.x - pad.offset.x, q.y - pad.offset.y)
+                                            .rotate(-f.rotation)
+                                            .x
+                                            .abs(),
+                                    )
+                                }) as f32
                                     * camera.zoom;
                                 painter.text(
                                     center + Vec2::new(reach + 4.0, 0.0),
@@ -2895,6 +2906,124 @@ mod library_render_tests {
                 .any(|s| matches!(&s.shape,egui::Shape::Path(p) if p.fill==Color32::WHITE))
         );
     }
+    #[test]
+    fn every_pad_number_on_a_2x20_header_is_drawn_at_its_own_pad() -> Result<(), String> {
+        // A drilled pad puts its number beside itself, clear of the hole. The
+        // reach used to be measured from the part origin, so on a 48mm header
+        // the labels marched off to the right and the last ones left the
+        // board. Each label belongs within a pad width of its own pad.
+        let mut project = pcbcraft_doc::Project::default();
+        project.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
+            sheet: 0,
+            instance: None,
+            prototype: None,
+            id: 1,
+            reference: "J1".into(),
+            value: "2x20".into(),
+            kind: "connector".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            pins: vec![],
+            units: vec![],
+            library_symbol: None,
+            library_footprint: None,
+            fields: vec![],
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            part: None,
+        });
+        let pitch = 2.54;
+        let span = pitch * 19.0;
+        let mut pads = vec![];
+        for column in 0..20 {
+            for row in 0..2 {
+                let at = Point::new(
+                    -span / 2.0 + column as f64 * pitch,
+                    if row == 0 { -pitch / 2.0 } else { pitch / 2.0 },
+                );
+                pads.push(pcbcraft_doc::Pad {
+                    number: (column * 2 + row + 1).to_string(),
+                    offset: at,
+                    diameter: 1.7,
+                    net: None,
+                    castellated: None,
+                    geometry: Some(pcbcraft_library::FootprintPad {
+                        number: (column * 2 + row + 1).to_string(),
+                        pad_type: "thru_hole".into(),
+                        shape: "circle".into(),
+                        position: at,
+                        size: Point::new(1.7, 1.7),
+                        layers: vec!["*.Cu".into(), "*.Mask".into()],
+                        drill: Some(pcbcraft_library::Drill {
+                            size: Point::new(1.0, 1.0),
+                            offset: Point::default(),
+                        }),
+                        ..pcbcraft_library::FootprintPad::default()
+                    }),
+                });
+            }
+        }
+        project.board.footprints.push(pcbcraft_doc::Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
+            id: 2,
+            component: 1,
+            position: Point::default(),
+            rotation: 0.0,
+            locked: None,
+            side: None,
+            pads,
+        });
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let app = App::create(shared, Preferences::default(), None, None);
+        let camera = Camera {
+            mirror: false,
+            turns: 0,
+            up: false,
+            center: Point::default(),
+            zoom: 12.0,
+        };
+        let rect = Rect::from_min_max(Pos2::ZERO, Pos2::new(900.0, 900.0));
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |root_ui| {
+            egui::CentralPanel::default().show(root_ui, |ui| {
+                app.paint_board(ui.painter(), rect, camera, &project);
+            });
+        });
+        output.textures_delta.clear();
+        let drawn: Vec<(String, Pos2)> = output
+            .shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                egui::Shape::Text(t) => Some((t.galley.text().to_owned(), t.pos)),
+                _ => None,
+            })
+            .collect();
+        let footprint = project.board.footprints.first().ok_or("no footprint")?;
+        // A pad is 1.7mm across at zoom 12, so 21 screen pixels. The label is
+        // placed beside the pad, so two pad widths is generous and still far
+        // short of the 48mm part.
+        let slack = 1.7 * 2.0 * camera.zoom as f32 + 8.0;
+        let mut checked = 0;
+        for pad in &footprint.pads {
+            let want = camera.screen(footprint.pad_world_position(pad), rect);
+            let found = drawn
+                .iter()
+                .find(|(text, _)| *text == pad.number)
+                .ok_or_else(|| format!("pad {} has no label drawn", pad.number))?;
+            let drift = (found.1.x - want.x).abs();
+            assert!(
+                drift <= slack,
+                "label for pad {} is {drift:.1} pixels from its pad, slack is {slack:.1}",
+                pad.number
+            );
+            checked += 1;
+        }
+        assert_eq!(checked, 40, "every pad of the 2x20 was measured");
+        Ok(())
+    }
+
     #[test]
     fn pad_display_mode_switches_between_number_net_and_nothing() -> Result<(), String> {
         let mut project = pcbcraft_doc::Project::default();
