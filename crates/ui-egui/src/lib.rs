@@ -50,6 +50,7 @@ mod layout_totals;
 mod library;
 mod library_builtin;
 mod library_dock;
+mod library_dock_series;
 mod library_online;
 mod library_quality;
 mod library_rank;

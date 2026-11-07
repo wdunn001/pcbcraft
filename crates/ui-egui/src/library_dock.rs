@@ -601,6 +601,7 @@ impl App {
                 .color(self.muted()),
             );
         }
+        self.dock_series_section(ui, &query);
         let top = ui.cursor().min.y - ui.min_rect().min.y;
         let first =
             (((viewport.min.y - top) / ROW_HEIGHT).floor().max(0.0) as usize).min(cards.len());
@@ -676,7 +677,7 @@ impl App {
     }
 
     /// True when no kind toggle is on, or this listing category is in one.
-    fn kind_allows(&self, category: &str) -> bool {
+    pub(crate) fn kind_allows(&self, category: &str) -> bool {
         self.dock.kinds.is_empty()
             || KINDS
                 .iter()

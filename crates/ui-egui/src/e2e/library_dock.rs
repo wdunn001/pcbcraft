@@ -226,3 +226,79 @@ fn the_library_view_switch_fits_a_narrow_aside() -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Frames so the dock settles after a toggle or a typed word.
+fn settle(ctx: &egui::Context, app: &mut App) {
+    for _ in 0..6 {
+        frame(ctx, app, vec![], egui::Modifiers::NONE);
+    }
+}
+
+const CONNECTOR_CHIP: &str = "button:Show only connectors and headers. Click again to clear.";
+
+#[test]
+fn a_newcomer_turns_on_connectors_and_sees_the_samtec_series() -> Result<(), String> {
+    let (ctx, mut app) = library_open();
+    settle(&ctx, &mut app);
+    assert!(
+        !paints_text(&ctx, &mut app, "Samtec connector series")?,
+        "with no kind switch and no search the dock shows no series"
+    );
+    tap_id(&ctx, &mut app, CONNECTOR_CHIP)?;
+    settle(&ctx, &mut app);
+    assert!(
+        paints_text(&ctx, &mut app, "Samtec connector series")?,
+        "the heading names the maker once Connectors is on"
+    );
+    for series in [
+        "TSW series, Samtec",
+        "SSW series, Samtec",
+        "BTH series, Samtec",
+    ] {
+        assert!(
+            paints_text(&ctx, &mut app, series)?,
+            "the {series} row is listed from the catalog"
+        );
+    }
+    assert!(
+        paints_text(&ctx, &mut app, "1 to 80 positions")?,
+        "the range of positions comes from the series table"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_types_samtec_and_finds_the_series() -> Result<(), String> {
+    let (ctx, mut app) = library_open();
+    settle(&ctx, &mut app);
+    type_into(&ctx, &mut app, "textinput:Keyword or part number", "samtec")?;
+    settle(&ctx, &mut app);
+    for series in [
+        "TSW series, Samtec",
+        "SSW series, Samtec",
+        "BTH series, Samtec",
+    ] {
+        assert!(
+            paints_text(&ctx, &mut app, series)?,
+            "{series} matches the word samtec"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_who_turns_on_resistors_sees_no_connector_series() -> Result<(), String> {
+    let (ctx, mut app) = library_open();
+    settle(&ctx, &mut app);
+    tap_id(
+        &ctx,
+        &mut app,
+        "button:Show only resistors, capacitors, inductors, diodes and simil",
+    )?;
+    settle(&ctx, &mut app);
+    assert!(
+        !paints_text(&ctx, &mut app, "Samtec connector series")?,
+        "another kind switch keeps the connector series out"
+    );
+    Ok(())
+}
