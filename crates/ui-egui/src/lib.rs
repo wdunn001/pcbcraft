@@ -49,6 +49,7 @@ mod layers_tree;
 mod layout_totals;
 mod library;
 mod library_builtin;
+mod library_collection_file;
 mod library_dock;
 mod library_dock_series;
 mod library_online;
@@ -68,6 +69,7 @@ mod pages;
 mod palette;
 mod parts_table;
 mod parts_table_variant;
+mod path_chooser;
 mod placement_machine_ui;
 mod plot_viewer;
 mod pour_panel;
@@ -1463,6 +1465,7 @@ pub struct App {
     /// Where Open, Save and Export go: the native paths, the browser, or a test (see webfs.rs).
     host: Box<dyn pcbcraft_mcp::ProjectHost>,
     webfs: webfs::State,
+    chooser: path_chooser::State,
     value: String,
     x: f64,
     y: f64,
@@ -2317,6 +2320,7 @@ impl App {
             browser: cfg!(target_arch = "wasm32"),
             host: Box::new(pcbcraft_mcp::NativeHost),
             webfs: webfs::State::default(),
+            chooser: path_chooser::State::default(),
             value: String::new(),
             x: 0.0,
             y: 0.0,
@@ -7771,6 +7775,9 @@ impl App {
         brand::about_window(ui, &mut self.about_open, about_muted);
         self.array_window(ui.ctx());
         self.file_dialog_window(ui.ctx());
+        if let Some(pick) = self.chooser_window(ui.ctx()) {
+            self.chooser_done(ui.ctx(), pick);
+        }
         self.project_settings_window(ui.ctx());
         self.preferences_window(ui.ctx());
         self.store_library_source_prefs();

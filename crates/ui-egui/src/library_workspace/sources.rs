@@ -570,6 +570,31 @@ impl App {
                 ui.label(fonts::caption(t!("libws.sources.add.folder.caption")).color(t.muted));
                 ui.add_space(theme::SPACE[1]);
                 ui.horizontal(|ui| {
+                    if web {
+                        if secondary_button(
+                            ui,
+                            None,
+                            &t!("libws.sources.load_file"),
+                            &t!("libws.sources.load_file.tip"),
+                            Size::Small,
+                            true,
+                        )
+                        .clicked()
+                        {
+                            self.library_load_start(ui.ctx());
+                        }
+                    } else if secondary_button(
+                        ui,
+                        None,
+                        &t!("libws.sources.choose"),
+                        &t!("libws.sources.choose.tip"),
+                        Size::Small,
+                        self.library.pending.is_none(),
+                    )
+                    .clicked()
+                    {
+                        self.open_chooser(crate::path_chooser::Purpose::AddSource);
+                    }
                     let hint = t!("library.collection_browser.folder_to_add_as_a");
                     let field = ui
                         .add_enabled(

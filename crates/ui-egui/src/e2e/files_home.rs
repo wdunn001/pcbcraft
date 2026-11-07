@@ -269,9 +269,6 @@ fn a_newcomer_walks_every_button_of_the_files_page() -> Result<(), String> {
     for (control, page, in_tool_bar) in [
         ("button:Import", files_home::Page::Import, true),
         ("button:Open", files_home::Page::Open, true),
-        ("button:Open folder", files_home::Page::Open, false),
-        ("button:Add file", files_home::Page::Import, false),
-        ("button:Show folder", files_home::Page::Open, false),
         (
             "button:Replace from SVG or DXF",
             files_home::Page::Import,

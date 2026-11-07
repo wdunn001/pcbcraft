@@ -8,8 +8,9 @@
 //! Local rules: only fields the catalog holds are shown (series, maker, description, pitch and
 //! the range of positions). A series is a configurable family, not a part number, and no
 //! footprint exists until a pin count is chosen, so the row has no drawing.
-//! The section shows when a kind switch is on that allows connectors and the search is empty,
-//! or when the typed words match a series (its prefix, its maker or its description).
+//! The section shows by default, with an empty search and no filter, so a person who opens the
+//! Library sees real components at once. A kind switch that does not allow connectors, a picked tag,
+//! or typed words that match no series hide it.
 //!
 //! Picking a row opens its configuration under it: rows, positions per row, the lead or stack
 //! code and alignment posts. The part number and footprint are generated from the series table
@@ -26,7 +27,7 @@
 //!
 //! # Do not
 //! - Invent a series, a count or a drawing the catalog does not hold.
-//! - Show the section when no kind switch is on and the search is empty; the dock stays as it was.
+//! - Hide the section on an empty search with no filter; the owner wants real components in view.
 use crate::ui_kit::button::{self, Size};
 use crate::ui_kit::rows::list_row_high;
 use crate::{App, Tab, fonts, t};
@@ -148,9 +149,6 @@ impl App {
     /// The series rows the dock shows now, none when the section is not wanted.
     pub(crate) fn dock_series_wanted(&self, query: &str) -> Vec<SeriesRow> {
         if self.dock.tag.is_some() || !self.kind_allows("connector") {
-            return Vec::new();
-        }
-        if query.is_empty() && self.dock.kinds.is_empty() {
             return Vec::new();
         }
         series_rows(query)

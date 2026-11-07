@@ -413,11 +413,11 @@ impl App {
         }
     }
 
-    /// The Files tab of the left aside: filter, Add file, Show folder, then the tree.
+    /// The Files tab of the left aside: the filter, then the tree.
     ///
     /// # Rules
     /// - The design row says "Unsaved changes" while the project has changes not on disk.
-    /// - Add file opens Import; Show folder opens the folder browser.
+    /// - Adding a file and opening a folder live in the tool bar, not here.
     ///
     /// # Dependencies
     /// - crates/ui-egui/src/ui_kit/rows.rs, button.rs
@@ -426,7 +426,6 @@ impl App {
     /// - Show the Layers tree here.
     pub(crate) fn files_tree(&mut self, ui: &mut egui::Ui) {
         let tokens = theme::tokens(ui.ctx());
-        let (mut add, mut folder) = (false, false);
         egui::Frame::NONE
             .inner_margin(egui::Margin::symmetric(12, 0))
             .show(ui, |ui| {
@@ -441,29 +440,6 @@ impl App {
                     .named(&t!("files.tree.filter.name"))
                     .on_hover_text(t!("files.tree.filter.tip"));
                 drop(response);
-                ui.add_space(theme::SPACE[1]);
-                ui.horizontal(|ui| {
-                    add = button::ghost_button(
-                        ui,
-                        Some(icons::PLUS),
-                        &t!("files.files.add"),
-                        &t!("files.files.add.tip"),
-                        Size::Small,
-                        true,
-                    )
-                    .clicked();
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        folder = button::ghost_button(
-                            ui,
-                            Some(icons::FOLDER),
-                            &t!("files.tree.folder"),
-                            &t!("files.tree.folder.tip"),
-                            Size::Small,
-                            true,
-                        )
-                        .clicked();
-                    });
-                });
             });
         ui.add_space(theme::SPACE[1]);
         ui.painter().hline(
@@ -512,12 +488,6 @@ impl App {
                 self.tree_made_section(ui);
                 self.tree_history_section(ui);
             });
-        if add {
-            self.show_files(Page::Import);
-        }
-        if folder {
-            self.show_files(Page::Open);
-        }
     }
 
     /// The History tab of the left aside: what is recorded about earlier saves.

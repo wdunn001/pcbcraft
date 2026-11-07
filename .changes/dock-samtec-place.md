@@ -4,5 +4,5 @@ area: ui
 issues: [1558, 1560]
 user_visible: true
 docs: [docs/page-layouts.md]
-summary: Picking a connector series in the part browser now opens its rows, positions and codes, shows the part number it makes, and places it with its symbol and footprint in one undoable step.
+summary: Connector series from the built-in catalog now show in the part browser by default, and picking one opens its size choices and places it with its symbol and footprint in one undoable step.
 ---

@@ -237,12 +237,12 @@ fn settle(ctx: &egui::Context, app: &mut App) {
 const CONNECTOR_CHIP: &str = "button:Show only connectors and headers. Click again to clear.";
 
 #[test]
-fn a_newcomer_turns_on_connectors_and_sees_the_samtec_series() -> Result<(), String> {
+fn a_newcomer_sees_the_samtec_series_at_once_and_with_connectors_on() -> Result<(), String> {
     let (ctx, mut app) = library_open();
     settle(&ctx, &mut app);
     assert!(
-        !paints_text(&ctx, &mut app, "Samtec connector series")?,
-        "with no kind switch and no search the dock shows no series"
+        paints_text(&ctx, &mut app, "Samtec connector series")?,
+        "with no kind switch and no search the dock already lists the catalog series"
     );
     tap_id(&ctx, &mut app, CONNECTOR_CHIP)?;
     settle(&ctx, &mut app);

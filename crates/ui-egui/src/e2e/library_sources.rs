@@ -326,3 +326,53 @@ fn a_newcomer_with_an_old_saved_preference_lands_on_the_library_tab() -> Result<
     assert_eq!(out.viewport_output.len(), 1, "the page paints");
     Ok(())
 }
+
+#[test]
+fn a_newcomer_chooses_a_folder_to_add_and_sees_what_was_found() -> Result<(), String> {
+    let (_folder, _config, mut app, ctx) = sources_open("choose-folder")?;
+    let shelf = shelf()?;
+    tap_id(&ctx, &mut app, "button:Choose folder")?;
+    assert!(app.chooser_open(), "Choose folder opens the chooser");
+    type_into(&ctx, &mut app, "textinput:Folder path", &shelf)?;
+    tap_id(&ctx, &mut app, "button:Go")?;
+    tap_id(&ctx, &mut app, "button:Add this folder")?;
+    assert!(
+        !app.chooser_open(),
+        "the chooser closes once a folder is taken"
+    );
+    let said = waits_until(&ctx, &mut app, |app| {
+        app.library.pending.is_none() && app.library.notice.starts_with("Added")
+    });
+    assert!(
+        said,
+        "the card says what was added: {:?}",
+        app.library.notice
+    );
+    assert!(
+        app.library_source_rows()
+            .iter()
+            .any(|r| r.folder.as_deref().is_some_and(|f| f.starts_with(&shelf))),
+        "the folder is in the source list"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_who_types_a_wrong_folder_is_told_so() -> Result<(), String> {
+    let (_folder, _config, mut app, ctx) = sources_open("wrong-folder")?;
+    tap_id(&ctx, &mut app, "button:Choose folder")?;
+    type_into(
+        &ctx,
+        &mut app,
+        "textinput:Folder path",
+        "/no/such/folder/here",
+    )?;
+    tap_id(&ctx, &mut app, "button:Go")?;
+    assert!(
+        paints_text(&ctx, &mut app, "That is not a folder.")?,
+        "the chooser says a missing folder is not a folder"
+    );
+    tap_id(&ctx, &mut app, "button:Cancel")?;
+    assert!(!app.chooser_open());
+    Ok(())
+}
