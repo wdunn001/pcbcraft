@@ -189,7 +189,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
             json!({
                 "scope":{"type":"string","enum":["net","layer","board"],"description":"what to route: specific nets, one layer, or the whole board"},
                 "nets":{"type":"array","items":{"type":"integer","minimum":1},"minItems":1,"maxItems":1024,"description":"net ids when scope is net; required and non-empty then"},
-                "layer":{"type":"string","maxLength":64,"description":"copper layer name when scope is layer; defaults to the top copper layer"},
+                "layer":{"type":"string","maxLength":64,"description":"copper layer to route on; honoured for every scope, and defaults to the top copper layer"},
                 "mode":{"type":"string","enum":["orthogonal","octilinear","octilinear_shove"],"description":"how to route; octilinear walkaround with shove is the default"},
                 "max_ripups":{"type":"integer","minimum":1,"maximum":1000,"description":"how many times to rip up and retry a failing net; 50 by default"},
                 "seed":{"type":"integer","minimum":0,"description":"random seed for tie-breaking; 0 by default, same seed gives same result"},
@@ -216,27 +216,25 @@ pub(super) fn run(
 
     let mode = a.mode.unwrap_or(Mode::Octilinear);
 
-    let layer = match a.scope {
-        ScopeKind::Net => None,
-        ScopeKind::Layer => {
-            let resolved = match &a.layer {
-                Some(s) => match resolve_layer_param(p, s) {
-                    Ok(layer) => layer,
-                    Err(e) => return Some(Err(e)),
-                },
+    // A named layer is honoured whatever the scope. It used to be read only
+    // for layer scope and dropped in silence otherwise, so a caller asking to
+    // route a net list on the back got copper on the front and a success
+    // result.
+    let layer = match &a.layer {
+        Some(name) => match resolve_layer_param(p, name) {
+            Ok(layer) => Some(layer),
+            Err(e) => return Some(Err(e)),
+        },
+        None => match a.scope {
+            // Layer scope with no name still means the top copper layer.
+            ScopeKind::Layer => match p.copper_layers().into_iter().next() {
+                Some(top) => Some(top),
                 None => {
-                    let top = p.copper_layers().into_iter().next();
-                    match top {
-                        Some(top) => top,
-                        None => {
-                            return Some(Err(Error::Invalid("board has no copper layers".into())));
-                        }
-                    }
+                    return Some(Err(Error::Invalid("board has no copper layers".into())));
                 }
-            };
-            Some(resolved)
-        }
-        ScopeKind::Board => None,
+            },
+            ScopeKind::Net | ScopeKind::Board => None,
+        },
     };
 
     if a.scope == ScopeKind::Net && a.nets.is_empty() {
@@ -401,6 +399,26 @@ mod tests {
             None,
         );
         assert!(r.is_err(), "non-copper layer refused");
+        assert_eq!(s.inspect()["project"], before["project"]);
+
+        // A layer name is read under net scope too. It used to be dropped in
+        // silence there, so this call reported success while routing on the
+        // top layer. An unusable name now surfaces instead of being ignored.
+        let r = s.execute(
+            "route.auto",
+            json!({"scope":"net","nets":[1],"layer":"Nope.Cu"}),
+            None,
+        );
+        assert!(r.is_err(), "non-copper layer refused under net scope");
+        assert_eq!(s.inspect()["project"], before["project"]);
+
+        // The same holds for board scope.
+        let r = s.execute(
+            "route.auto",
+            json!({"scope":"board","layer":"Nope.Cu"}),
+            None,
+        );
+        assert!(r.is_err(), "non-copper layer refused under board scope");
         assert_eq!(s.inspect()["project"], before["project"]);
 
         // max_ripups 0 is refused
