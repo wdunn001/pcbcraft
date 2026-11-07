@@ -43,12 +43,14 @@ mod stub;
 pub mod testpoint;
 pub mod toolpath_gap;
 mod track_radius;
+mod via_current;
 mod vscore_edge;
 mod width_advice;
 
 pub use si_codes::{SIGNAL_INTEGRITY_CODES, is_signal_integrity};
 
 pub use companion::{companion_findings, companion_findings_for_rules};
+pub use via_current::{ViaCurrentAdvice, via_capacity};
 pub use width_advice::{WidthAdvice, width_advice, width_advice_on_layer};
 
 pub use compliance::{
@@ -1950,6 +1952,28 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                 objects: vec![via.id],
                 hint: Some("Select the via and pick its net in Properties.".into()),
             });
+        }
+        if via.net != 0
+            && !project.rule_disabled("via_current_advice")
+            && let Some(advice) = via_current::via_capacity(project, via)
+            && let Some(target) = project.effective_current(via.net)
+            && target + 1e-6 > advice.current
+        {
+            result.push(Finding {
+                    code: "via_current_advice",
+                    severity: project.rule_severity("via_current_advice", "warning"),
+                    message: format!(
+                        "{} via at {:.1}, {:.1} carries {:.2} A, capacity is {:.2} A for a {:.2} mm drill",
+                        project.net_name(via.net),
+                        via.position.x,
+                        via.position.y,
+                        target,
+                        advice.current,
+                        via.drill,
+                    ),
+                    objects: vec![via.id],
+                    hint: None,
+                });
         }
     }
     for wire in airwires_from(&items) {
