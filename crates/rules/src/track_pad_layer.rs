@@ -58,8 +58,11 @@ fn via_covers(project: &Project, net: pcbcraft_doc::Id, at: Point) -> bool {
 /// `track_off_pad_layer` findings.
 ///
 /// # Rules
-/// - Default severity is an error. The track connects nothing, so the board
-///   as drawn does not work.
+/// - Default severity is a warning, which is not what the defect deserves.
+///   `route_auto` refuses a whole call when routing raises any new error, so
+///   an error here would turn "route this net on B.Cu" into a refusal rather
+///   than a report. A design that wants it to block can re-level the code
+///   through its severity overrides.
 ///
 /// # Dependencies
 /// - crates/rules/src/lib.rs (`drc` calls this once)
@@ -81,7 +84,7 @@ pub(crate) fn track_pad_layer_findings(project: &Project) -> Vec<Finding> {
                     }
                     result.push(Finding {
                         code: "track_off_pad_layer",
-                        severity: project.rule_severity("track_off_pad_layer", "error"),
+                        severity: project.rule_severity("track_off_pad_layer", "warning"),
                         message: format!(
                             "{} track on {} ends on pad {}, which has copper only on {}; the two do not connect",
                             project.net_name(track.net),

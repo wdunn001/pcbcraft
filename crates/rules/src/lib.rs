@@ -104,7 +104,7 @@ pub const CHECK_CODES: &[(&str, &str)] = &[
     ("track_width", "error"),
     ("track_length", "error"),
     ("unrouted", "warning"),
-    ("track_off_pad_layer", "error"),
+    ("track_off_pad_layer", "warning"),
     ("missing_footprint", "warning"),
     ("unassigned_via", "warning"),
     ("diffpair_gap", "error"),
