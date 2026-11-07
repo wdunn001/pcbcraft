@@ -302,3 +302,104 @@ fn a_newcomer_who_turns_on_resistors_sees_no_connector_series() -> Result<(), St
     );
     Ok(())
 }
+
+/// Turn on Connectors, wait for the dock's read to finish so rows stop moving, then open a row.
+fn series_open(id: &str) -> Result<(egui::Context, App), String> {
+    let (ctx, mut app) = library_open();
+    settle(&ctx, &mut app);
+    tap_id(&ctx, &mut app, CONNECTOR_CHIP)?;
+    let steady = waits_until(&ctx, &mut app, |app| {
+        app.dock.requests_sent > 0 && app.dock.applied == app.dock.requests_sent
+    });
+    assert!(steady, "the dock finished reading connectors");
+    settle(&ctx, &mut app);
+    tap_id(&ctx, &mut app, &format!("button:{id} series, Samtec"))?;
+    settle(&ctx, &mut app);
+    assert!(
+        app.dock.series.open_for_test().is_some(),
+        "tapping the {id} row opens its choices"
+    );
+    Ok((ctx, app))
+}
+
+#[test]
+fn a_newcomer_places_a_samtec_header_from_its_series_card() -> Result<(), String> {
+    let (ctx, mut app) = series_open("TSW")?;
+    assert!(
+        paints_text(&ctx, &mut app, "Positions per row")?,
+        "the series opens its choices"
+    );
+    tap_id(&ctx, &mut app, "button:# rows")?;
+    tap_id(&ctx, &mut app, "button:More")?;
+    settle(&ctx, &mut app);
+    assert!(
+        paints_text(&ctx, &mut app, "Makes TSW-005-07-G-D")?,
+        "two rows of five make the part number the series table gives"
+    );
+    let before = app.project.components.len();
+    tap_id(&ctx, &mut app, "button:Place on schematic")?;
+    settle(&ctx, &mut app);
+    assert_eq!(
+        app.project.components.len(),
+        before + 1,
+        "one part is placed: {}",
+        app.message
+    );
+    let placed = app.project.components.last().ok_or("a part was placed")?;
+    assert_eq!(
+        placed.value, "TSW-005-07-G-D",
+        "the part carries the generated number"
+    );
+    assert!(
+        app.project
+            .library
+            .footprints
+            .iter()
+            .any(|f| f.name.starts_with("TSW")),
+        "its footprint joined the project library"
+    );
+    assert_eq!(
+        app.project
+            .library
+            .footprints
+            .iter()
+            .find(|f| f.name.starts_with("TSW"))
+            .map(|f| f.pads.len()),
+        Some(10),
+        "two rows of five make ten pads"
+    );
+    app.session
+        .lock()
+        .map_err(|_| "session is busy".to_owned())?
+        .undo()
+        .map_err(|e| e.to_string())?;
+    app.refresh();
+    assert_eq!(
+        app.project.components.len(),
+        before,
+        "one undo takes the whole placement back"
+    );
+    assert!(
+        !app.project
+            .library
+            .footprints
+            .iter()
+            .any(|f| f.name.starts_with("TSW")),
+        "and the imported footprint goes with it"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_picks_a_stack_height_for_a_board_to_board_series() -> Result<(), String> {
+    let (ctx, mut app) = series_open("BTH")?;
+    assert!(
+        paints_text(&ctx, &mut app, "Stack height")?,
+        "a board to board series asks for a stack code"
+    );
+    assert!(
+        !paints_text(&ctx, &mut app, "Lead")?,
+        "and not for a lead code, which that series does not have"
+    );
+    Ok(())
+}
