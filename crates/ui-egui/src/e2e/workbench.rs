@@ -1,7 +1,7 @@
 //! Stories for the left aside, the workspace layouts, the library dock, the datasheet action and the
 //! breathing room around every dock and tab body.
 use super::super::*;
-use super::support::{frame, paints_text, scrolled_to};
+use super::support::{frame, paints_text, paints_text_tall, scrolled_to};
 
 const SCREEN: Vec2 = Vec2::new(1440.0, 940.0);
 
@@ -295,20 +295,30 @@ fn a_newcomer_opens_a_part_and_reads_its_datasheet() -> Result<(), String> {
     scrolled_to(&ctx, &mut app, "View datasheet")?;
     let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let at = centre_of(&out, "View datasheet", f32::MAX).ok_or("datasheet action visible")?;
-    let click = egui::Event::PointerButton {
-        pos: at,
-        button: egui::PointerButton::Primary,
-        pressed: true,
-        modifiers: egui::Modifiers::NONE,
-    };
-    let _ = frame(&ctx, &mut app, vec![click], egui::Modifiers::NONE);
+    // A real click is a press and a release.
+    for pressed in [true, false] {
+        let event = egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let _ = frame(&ctx, &mut app, vec![event], egui::Modifiers::NONE);
+    }
+    // Wait for the datasheet to open.
     for _ in 0..32 {
-        let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        if out
-            .shapes
-            .iter()
-            .any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text().contains("of 1")))
-        {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        if app.datasheet.open {
+            break;
+        }
+    }
+    if !app.datasheet.open {
+        return Err("View datasheet should open the reader".into());
+    }
+    // Now wait for the page indicator.
+    for _ in 0..256 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        if paints_text_tall(&ctx, &mut app, "of 1")? {
             return Ok(());
         }
     }
