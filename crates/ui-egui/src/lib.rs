@@ -51,6 +51,7 @@ mod library;
 mod library_builtin;
 mod library_collection_file;
 mod library_dock;
+mod library_dock_series;
 mod library_online;
 mod library_quality;
 mod library_rank;
