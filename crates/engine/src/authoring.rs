@@ -1381,7 +1381,7 @@ pub(super) fn run(
                     pcbcraft_library::Graphic::Polyline { points, width, .. } => {
                         (points.clone(), *width / 2.0)
                     }
-                    _ => (vec![], 0.0),
+                    pcbcraft_library::Graphic::Text { position, .. } => (vec![*position], 0.0),
                 };
                 for at in points {
                     grow(&mut min, &mut max, at, radius);

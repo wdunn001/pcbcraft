@@ -31044,6 +31044,117 @@ mod tests {
     }
 
     #[test]
+    fn generated_courtyard_encloses_silk_text_outside_body() -> Result<(), Error> {
+        let mut s = Session::default();
+        let definition = pcbcraft_library::FootprintDefinition {
+            name: "CONN_FLEX_4".into(),
+            description: "flex connector with silk legend outside body".into(),
+            keywords: "flex connector".into(),
+            pads: vec![
+                pcbcraft_library::FootprintPad {
+                    number: "1".into(),
+                    pad_type: "smd".into(),
+                    shape: "rect".into(),
+                    position: pcbcraft_geom::Point::new(-3.0, -0.5),
+                    rotation: 0.0,
+                    size: pcbcraft_geom::Point::new(1.0, 1.0),
+                    layers: vec!["F.Cu".into(), "F.Paste".into(), "F.Mask".into()],
+                    drill: None,
+                    roundrect_ratio: None,
+                    chamfer: None,
+                    polygon: vec![],
+                    raw_source: String::new(),
+                },
+                pcbcraft_library::FootprintPad {
+                    number: "2".into(),
+                    pad_type: "smd".into(),
+                    shape: "rect".into(),
+                    position: pcbcraft_geom::Point::new(-1.0, -0.5),
+                    rotation: 0.0,
+                    size: pcbcraft_geom::Point::new(1.0, 1.0),
+                    layers: vec!["F.Cu".into(), "F.Paste".into(), "F.Mask".into()],
+                    drill: None,
+                    roundrect_ratio: None,
+                    chamfer: None,
+                    polygon: vec![],
+                    raw_source: String::new(),
+                },
+                pcbcraft_library::FootprintPad {
+                    number: "3".into(),
+                    pad_type: "smd".into(),
+                    shape: "rect".into(),
+                    position: pcbcraft_geom::Point::new(1.0, -0.5),
+                    rotation: 0.0,
+                    size: pcbcraft_geom::Point::new(1.0, 1.0),
+                    layers: vec!["F.Cu".into(), "F.Paste".into(), "F.Mask".into()],
+                    drill: None,
+                    roundrect_ratio: None,
+                    chamfer: None,
+                    polygon: vec![],
+                    raw_source: String::new(),
+                },
+                pcbcraft_library::FootprintPad {
+                    number: "4".into(),
+                    pad_type: "smd".into(),
+                    shape: "rect".into(),
+                    position: pcbcraft_geom::Point::new(3.0, -0.5),
+                    rotation: 0.0,
+                    size: pcbcraft_geom::Point::new(1.0, 1.0),
+                    layers: vec!["F.Cu".into(), "F.Paste".into(), "F.Mask".into()],
+                    drill: None,
+                    roundrect_ratio: None,
+                    chamfer: None,
+                    polygon: vec![],
+                    raw_source: String::new(),
+                },
+            ],
+            graphics: vec![
+                pcbcraft_library::Graphic::Rectangle {
+                    start: pcbcraft_geom::Point::new(-4.0, -1.0),
+                    end: pcbcraft_geom::Point::new(4.0, 0.0),
+                    width: 0.1,
+                    fill: String::new(),
+                    layer: "F.Fab".into(),
+                },
+                pcbcraft_library::Graphic::Text {
+                    position: pcbcraft_geom::Point::new(0.0, 1.5),
+                    angle: 0.0,
+                    text: "J1".into(),
+                    size: pcbcraft_geom::Point::new(1.0, 1.0),
+                    layer: "F.SilkS".into(),
+                },
+            ],
+            ..Default::default()
+        };
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": definition}),
+            None,
+        )?;
+        s.execute(
+            "library.footprint.generate_courtyard",
+            json!({"name": "CONN_FLEX_4", "margin": 0.25}),
+            None,
+        )?;
+        let def = s
+            .project
+            .library
+            .footprints
+            .first()
+            .ok_or_else(missing)?
+            .clone();
+        let findings: Vec<String> = pcbcraft_library::check_footprint(&def)
+            .into_iter()
+            .map(|f| f.code)
+            .collect();
+        assert!(
+            !findings.iter().any(|c| c.starts_with("lib_courtyard")),
+            "generated courtyard encloses silk text outside the body: {findings:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn footprint_generate_upserts_valid_definition() -> Result<(), Error> {
         let mut s = Session::default();
         assert_eq!(s.project.library.footprints.len(), 0);
