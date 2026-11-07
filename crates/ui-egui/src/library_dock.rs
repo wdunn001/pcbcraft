@@ -139,6 +139,8 @@ pub(crate) struct Dock {
     pub(crate) kinds: BTreeSet<String>,
     /// Keyword chip switched on.
     pub(crate) tag: Option<String>,
+    /// The connector series being configured, if any.
+    pub(crate) series: crate::library_dock_series::SeriesState,
     /// Folders to read instead of the user's installed ones (tests).
     pub(crate) roots: Option<Vec<std::path::PathBuf>>,
     sent: String,
@@ -190,7 +192,7 @@ enum Intent {
 }
 
 /// Add the schematic page a part is placed on to the parameters of a placement.
-fn with_sheet(mut params: Value, sheet: Option<Id>) -> Value {
+pub(crate) fn with_sheet(mut params: Value, sheet: Option<Id>) -> Value {
     if let Some(sheet) = sheet {
         params["sheet"] = json!(sheet);
     }
@@ -224,6 +226,7 @@ impl Default for Dock {
             favourites_only: false,
             kinds: BTreeSet::new(),
             tag: None,
+            series: Default::default(),
             roots: None,
             sent: String::new(),
             wanted: String::new(),
@@ -2202,7 +2205,7 @@ impl App {
     ///
     /// # Dependencies
     /// - crates/ui-egui/src/pages.rs (`on_current_page`, the one rule for the target page)
-    fn dock_sheet(&self, target: &str) -> Option<Id> {
+    pub(crate) fn dock_sheet(&self, target: &str) -> Option<Id> {
         if target != "schematic" {
             return None;
         }
@@ -2213,7 +2216,7 @@ impl App {
 
     /// After a board placement the selection is the new footprint, so the
     /// inspector shows it.
-    fn dock_after_place(&mut self, target: &str) {
+    pub(crate) fn dock_after_place(&mut self, target: &str) {
         if target != "board" {
             return;
         }
