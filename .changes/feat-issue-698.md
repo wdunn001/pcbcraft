@@ -1,8 +1,8 @@
 ---
 type: feature
-area: library
+area: doc
 issues: [698]
 user_visible: true
-docs: n/a: the Library tab preview pane shows the 3D model transform panel inline
-summary: Footprints with 3D models show an inline model transform panel in the Library tab preview, with offset, scale, and rotation controls.
+docs: n/a: written by the worker harness, the issue text records the behaviour
+summary: Component 3D models: view, edit, generate.
 ---

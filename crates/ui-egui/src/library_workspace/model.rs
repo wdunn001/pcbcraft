@@ -7,9 +7,10 @@
 //! through `library.footprint.set_model`, one undo step each. A top view with the pads drawn
 //! over the model's outline shows whether the two line up.
 //!
-//! Local rules: only a footprint that is in this project's library can be edited here; any
-//! other shows the model read-only and says how to make it editable. A part with no model file
-//! shows the generated body. Nothing is read from the network.
+//! Local rules: a footprint that is in this project's library can be edited here. A footprint
+//! from a read-only library shows read-only, but the project can override that with a toggle
+//! to allow editing model transforms for library footprints. A part with no model file shows
+//! the generated body. Nothing is read from the network.
 //!
 //! # Dependencies
 //! - crates/ui-egui/src/board3d.rs (`viewport`, `View3d`)
@@ -190,7 +191,7 @@ impl App {
             .find(|f| f.name == def.name)
         {
             Some(own) => Some((own.clone(), true)),
-            None => Some((def, false)),
+            None => Some((def, self.project.library.allow_library_footprint_edits)),
         }
     }
 
@@ -380,6 +381,16 @@ impl App {
                 });
                 if !editable {
                     ui.label(fonts::caption(t!("libws.model.read_only")).color(t.muted));
+                    let mut allow = self.project.library.allow_library_footprint_edits;
+                    if ui
+                        .checkbox(&mut allow, t!("libws.model.allow_library_edits"))
+                        .changed()
+                    {
+                        self.project.library.allow_library_footprint_edits = allow;
+                    }
+                    ui.label(
+                        fonts::caption(t!("libws.model.allow_library_edits_tip")).color(t.muted),
+                    );
                 }
             },
         );
