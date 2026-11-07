@@ -89,7 +89,8 @@ fn divider_and_convert_return_meta() -> Result<(), Error> {
 fn calc_list_exposes_every_calculator() -> Result<(), Error> {
     let mut s = Session::default();
     let out = s.execute("calc.list", json!({}), None)?;
-    assert_eq!(out["result"]["count"].as_u64(), Some(32));
+    let listed = u64::try_from(pcbcraft_calc::meta::CALCULATORS.len()).ok();
+    assert_eq!(out["result"]["count"].as_u64(), listed);
     assert!(
         out["result"]["calculators"]
             .as_array()
