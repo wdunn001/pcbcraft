@@ -189,7 +189,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
             json!({
                 "scope":{"type":"string","enum":["net","layer","board"],"description":"what to route: specific nets, one layer, or the whole board"},
                 "nets":{"type":"array","items":{"type":"integer","minimum":1},"minItems":1,"maxItems":1024,"description":"net ids when scope is net; required and non-empty then"},
-                "layer":{"type":"string","maxLength":64,"description":"copper layer name when scope is layer; defaults to the top copper layer"},
+                "layer":{"type":"string","maxLength":64,"description":"copper layer name for scope layer or for net scope to constrain routing to a single layer; defaults to the top copper layer"},
                 "mode":{"type":"string","enum":["orthogonal","octilinear","octilinear_shove"],"description":"how to route; octilinear walkaround with shove is the default"},
                 "max_ripups":{"type":"integer","minimum":1,"maximum":1000,"description":"how many times to rip up and retry a failing net; 50 by default"},
                 "seed":{"type":"integer","minimum":0,"description":"random seed for tie-breaking; 0 by default, same seed gives same result"},
@@ -217,7 +217,13 @@ pub(super) fn run(
     let mode = a.mode.unwrap_or(Mode::Octilinear);
 
     let layer = match a.scope {
-        ScopeKind::Net => None,
+        ScopeKind::Net => match &a.layer {
+            Some(s) => match resolve_layer_param(p, s) {
+                Ok(layer) => Some(layer),
+                Err(e) => return Some(Err(e)),
+            },
+            None => None,
+        },
         ScopeKind::Layer => {
             let resolved = match &a.layer {
                 Some(s) => match resolve_layer_param(p, s) {
@@ -564,6 +570,80 @@ mod tests {
             !s.project.board.tracks.is_empty(),
             "tracks were created by routing"
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn route_auto_net_scope_honours_layer_parameter() -> Result<(), Error> {
+        // Build a board and verify that route.auto with scope "net" and a
+        // specific layer routes on that layer.
+        let mut s = Session::default();
+        s.project.auto_sync = false;
+        s.execute("board.resize", json!({"width":40,"height":30}), None)?;
+
+        // Create a net and two components with pads.
+        let r = s.execute("net.create", json!({"name":"N1"}), None)?;
+        let n1 = r["result"]["id"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("n1 id not found".into()))?;
+
+        let r = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","position":{"x":10,"y":10}}),
+            None,
+        )?;
+        let p1 = r["result"]["id"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("p1 id not found".into()))?;
+
+        let r = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R2","position":{"x":30,"y":10}}),
+            None,
+        )?;
+        let p2 = r["result"]["id"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("p2 id not found".into()))?;
+
+        s.execute(
+            "net.connect",
+            json!({"net":n1,"pins":[{"component":p1,"pin":"1"},{"component":p2,"pin":"1"}]}),
+            None,
+        )?;
+
+        s.execute("board.sync", json!({}), None)?;
+        move_footprints_inward(&mut s)?;
+
+        // Route with scope "net" and layer "B.Cu".
+        let r = s.execute(
+            "route.auto",
+            json!({"scope":"net","nets":[n1],"layer":"B.Cu"}),
+            None,
+        )?;
+        let result = &r["result"];
+        assert_eq!(result["completed"], json!(1), "one connection routed");
+
+        // Verify the track is on the back layer (B.Cu).
+        let back_tracks = s
+            .project
+            .board
+            .tracks
+            .iter()
+            .filter(|t| t.layer == Layer::Back)
+            .count();
+        assert!(
+            back_tracks > 0,
+            "track was placed on back layer as requested"
+        );
+
+        // Verify an invalid layer name is refused.
+        let r = s.execute(
+            "route.auto",
+            json!({"scope":"net","nets":[n1],"layer":"Nope.Cu"}),
+            None,
+        );
+        assert!(r.is_err(), "unknown layer name refused");
 
         Ok(())
     }
