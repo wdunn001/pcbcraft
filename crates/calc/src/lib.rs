@@ -23,6 +23,7 @@ pub mod copper;
 pub mod glossary;
 pub mod impedance;
 pub mod meta;
+pub mod prbs;
 pub mod spacing;
 pub mod utilities;
 
