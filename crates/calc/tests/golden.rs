@@ -445,6 +445,24 @@ fn check_one(id: &str, i: &Table, e: &Table, t: f64) -> Result<(), String> {
             ck_opt(e, "delay", out.delay, t)?;
             ck_opt(e, "width_for_target", out.width_for_target, t)
         }
+        "rlgc" => {
+            let out = impedance::rlgc(impedance::Rlgc {
+                width: need(i, "width")?,
+                height: need(i, "height")?,
+                er: need(i, "er")?,
+                df: need(i, "df")?,
+                copper_weight: need(i, "copper_weight")?,
+                frequency: need(i, "frequency")?,
+            })
+            .map_err(|err| err.to_string())?;
+            ck(e, "z0", out.z0, t)?;
+            ck(e, "c_per_m", out.c_per_m, t)?;
+            ck(e, "l_per_m", out.l_per_m, t)?;
+            ck(e, "g_per_m", out.g_per_m, t)?;
+            ck(e, "r_per_m", out.r_per_m, t)?;
+            ck(e, "loss_db_per_m", out.loss_db_per_m, t)?;
+            ck(e, "loss_db_per_inch", out.loss_db_per_inch, t)
+        }
         "embedded_microstrip" => {
             let out = impedance::embedded_microstrip(impedance::EmbeddedMicrostrip {
                 width: need(i, "width")?,
@@ -747,6 +765,7 @@ golden_test!(via_current_resistance_vectors, "via_current_resistance");
 golden_test!(trace_resistance_drop_vectors, "trace_resistance_drop");
 golden_test!(microstrip_vectors, "microstrip");
 golden_test!(embedded_microstrip_vectors, "embedded_microstrip");
+golden_test!(rlgc_vectors, "rlgc");
 golden_test!(stripline_vectors, "stripline");
 golden_test!(coplanar_waveguide_vectors, "coplanar_waveguide");
 golden_test!(differential_pair_vectors, "differential_pair");
@@ -777,8 +796,8 @@ golden_test!(thermal_via_count_vectors, "thermal_via_count");
 fn data_file_has_every_vector_replayed() -> Result<(), String> {
     let d = doc()?;
     let total: usize = d.calculator.iter().map(|c| c.vector.len()).sum();
-    if total != 119 {
-        return Err(format!("data file carries {total} vectors, expected 119"));
+    if total != 122 {
+        return Err(format!("data file carries {total} vectors, expected 122"));
     }
     if d.calculator.len() != meta::CALCULATORS.len() {
         return Err(format!(

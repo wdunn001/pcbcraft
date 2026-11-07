@@ -7,7 +7,7 @@
 //! at w = h (see research-283-length-impedance.md). Models are labelled
 //! exact, model or estimate in the metadata; the UI must show that label.
 
-use crate::consts::{C0, ZF0};
+use crate::consts::{C0, OZ_UM, RHO_CU, ZF0};
 use crate::{Error, finite, num, opt_num};
 
 /// Hammerstad-Jensen zero-thickness transmission line function ZL1(u).
@@ -523,4 +523,194 @@ pub fn crosstalk(a: Crosstalk) -> Result<CrosstalkOut, Error> {
         three_w_gap: 2.0 * w,
         spacing_for_minus_20db: 3.0 * h,
     })
+}
+
+/// Input for [`rlgc`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Rlgc {
+    /// Trace width in millimetres, 0.01 to 100.
+    pub width: f64,
+    /// Dielectric height in millimetres, 0.01 to 10.
+    pub height: f64,
+    /// Relative permittivity, 1 to 20.
+    pub er: f64,
+    /// Dissipation factor (loss tangent), 0 to 0.5.
+    pub df: f64,
+    /// Copper weight in oz per square foot, 0.25 to 6.
+    pub copper_weight: f64,
+    /// Signal frequency in hertz, 1 to 1e12.
+    pub frequency: f64,
+}
+
+/// Per-unit-length parameters and loss from [`rlgc`].
+#[derive(Debug, Clone, Copy)]
+pub struct RlgcOut {
+    /// Resistance per metre, ohms per metre.
+    pub r_per_m: f64,
+    /// Inductance per metre, henries per metre.
+    pub l_per_m: f64,
+    /// Conductance per metre, siemens per metre.
+    pub g_per_m: f64,
+    /// Capacitance per metre, farads per metre.
+    pub c_per_m: f64,
+    /// Characteristic impedance in ohms.
+    pub z0: f64,
+    /// Attenuation in decibels per metre.
+    pub loss_db_per_m: f64,
+    /// Attenuation in decibels per inch.
+    pub loss_db_per_inch: f64,
+}
+
+/// Per-unit-length RLGC parameters and signal loss at a frequency.
+///
+/// # Rules
+/// - Inputs are millimetres, ounces of copper per square foot and hertz. Width,
+///   height and copper thickness become metres before any arithmetic, and the
+///   rest is SI, so no length in millimetres meets a length in metres.
+/// - Z0 and eeff come from the Hammerstad-Jensen microstrip model with its
+///   thickness correction (`hj`). C = sqrt(eeff)/(C0*Z0), L = Z0*sqrt(eeff)/C0
+///   and G = 2*pi*f*C*df.
+/// - R is the DC resistance rho/(w*t) while the skin depth
+///   delta = sqrt(rho/(pi*f*mu0)) is at least half the copper thickness, and
+///   rho/(w*t) * t/(2*delta) above that (current on both faces of the strip).
+///   The two branches meet at t = 2*delta, so R never jumps.
+/// - Loss alpha = R/(2*Z0) + G*Z0/2 in nepers per metre; dB per metre is
+///   8.686 times that and dB per inch is 0.0254 times dB per metre.
+/// - Dielectric loss uses the full quasi-TEM capacitance, as if the dielectric
+///   filled the whole field. For FR4 microstrip that is about 15 to 20 percent
+///   above the filling-factor form.
+/// - Surface roughness, dispersion and radiation are not modelled, so loss is
+///   optimistic for rough copper and approximate above a few GHz.
+///
+/// # Dependencies
+/// - `crates/calc/src/lib.rs` for `crate::num` and `crate::finite`.
+/// - `crates/calc/src/consts.rs` for `C0`, `RHO_CU` and `OZ_UM`.
+///
+/// # Do not
+/// - Mix millimetres with metres inside this function.
+/// - Trust the result above about 10 GHz; the model is quasi-TEM.
+pub fn rlgc(a: Rlgc) -> Result<RlgcOut, Error> {
+    let w_mm = num("width", a.width, 0.01, 100.0)?;
+    let h_mm = num("height", a.height, 0.01, 10.0)?;
+    let er = num("er", a.er, 1.0, 20.0)?;
+    let df = num("df", a.df, 0.0, 0.5)?;
+    let oz = num("copper_weight", a.copper_weight, 0.25, 6.0)?;
+    let f = num("frequency", a.frequency, 1.0, 1.0e12)?;
+    let pi = std::f64::consts::PI;
+    let mu0 = 4.0e-7 * pi;
+    // Everything below is SI: metres, ohms, hertz.
+    let w = w_mm * 1.0e-3;
+    let h = h_mm * 1.0e-3;
+    let t = oz * OZ_UM * 1.0e-6;
+    let (z0, eeff) = hj(w, h, er, t);
+    let c_per_m = finite("c_per_m", eeff.sqrt() / (C0 * z0))?;
+    let l_per_m = finite("l_per_m", z0 * eeff.sqrt() / C0)?;
+    let g_per_m = 2.0 * pi * f * c_per_m * df;
+    let r_dc = RHO_CU / (w * t);
+    let delta = finite("delta", (RHO_CU / (pi * f * mu0)).sqrt())?;
+    let r_per_m = if t > 2.0 * delta {
+        finite("r_per_m", r_dc * t / (2.0 * delta))?
+    } else {
+        r_dc
+    };
+    let alpha = r_per_m / (2.0 * z0) + g_per_m * z0 / 2.0;
+    let loss_db_per_m = finite("loss_db_per_m", 8.686 * alpha)?;
+    Ok(RlgcOut {
+        r_per_m,
+        l_per_m,
+        g_per_m,
+        c_per_m,
+        z0,
+        loss_db_per_m,
+        loss_db_per_inch: loss_db_per_m * 0.0254,
+    })
+}
+
+#[cfg(test)]
+mod rlgc_tests {
+    use super::*;
+
+    fn trace(frequency: f64) -> Rlgc {
+        Rlgc {
+            width: 1.0,
+            height: 1.6,
+            er: 4.5,
+            df: 0.02,
+            copper_weight: 1.0,
+            frequency,
+        }
+    }
+
+    #[test]
+    fn low_frequency_resistance_is_the_dc_value() -> Result<(), Error> {
+        let out = rlgc(trace(1.0e3))?;
+        let dc = RHO_CU / (1.0e-3 * OZ_UM * 1.0e-6);
+        assert!((out.r_per_m - dc).abs() <= 1.0e-12 * dc);
+        Ok(())
+    }
+
+    #[test]
+    fn resistance_grows_with_the_square_root_of_frequency_in_the_skin_regime() -> Result<(), Error>
+    {
+        let lo = rlgc(trace(1.0e9))?;
+        let hi = rlgc(trace(4.0e9))?;
+        let ratio = hi.r_per_m / lo.r_per_m;
+        assert!((ratio - 2.0).abs() < 1.0e-9, "ratio {ratio}");
+        Ok(())
+    }
+
+    #[test]
+    fn resistance_is_continuous_where_the_skin_depth_reaches_half_the_copper() -> Result<(), Error>
+    {
+        let mu0 = 4.0e-7 * std::f64::consts::PI;
+        let t = OZ_UM * 1.0e-6;
+        let delta = t / 2.0;
+        let f = RHO_CU / (std::f64::consts::PI * mu0 * delta * delta);
+        let below = rlgc(trace(f * 0.999_999))?;
+        let above = rlgc(trace(f * 1.000_001))?;
+        let rel = (above.r_per_m - below.r_per_m).abs() / below.r_per_m;
+        assert!(rel < 1.0e-5, "jump {rel}");
+        Ok(())
+    }
+
+    #[test]
+    fn one_ounce_trace_at_one_gigahertz_has_about_four_ohms_per_metre() -> Result<(), Error> {
+        let out = rlgc(trace(1.0e9))?;
+        assert!((out.r_per_m - 4.120_160).abs() < 1.0e-3, "{}", out.r_per_m);
+        Ok(())
+    }
+
+    #[test]
+    fn loss_per_inch_is_the_per_metre_loss_times_the_inch_in_metres() -> Result<(), Error> {
+        let out = rlgc(trace(2.0e9))?;
+        assert!((out.loss_db_per_inch - out.loss_db_per_m * 0.0254).abs() < 1.0e-12);
+        Ok(())
+    }
+
+    #[test]
+    fn loss_and_reactive_parts_follow_the_stated_relations() -> Result<(), Error> {
+        let out = rlgc(trace(1.0e9))?;
+        let alpha = out.r_per_m / (2.0 * out.z0) + out.g_per_m * out.z0 / 2.0;
+        assert!((out.loss_db_per_m - 8.686 * alpha).abs() < 1.0e-9);
+        // Z0 = sqrt(L/C) for a lossless line.
+        let z = (out.l_per_m / out.c_per_m).sqrt();
+        assert!((z - out.z0).abs() < 1.0e-6 * out.z0);
+        Ok(())
+    }
+
+    #[test]
+    fn out_of_range_inputs_are_refused_with_the_interval() {
+        let mut bad = trace(1.0e9);
+        bad.width = 0.0;
+        let msg = rlgc(bad).err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(msg.contains("width") && msg.contains("0.01"), "{msg}");
+        let mut bad = trace(1.0e9);
+        bad.frequency = 0.0;
+        let msg = rlgc(bad).err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(msg.contains("frequency"), "{msg}");
+        let mut bad = trace(1.0e9);
+        bad.df = f64::NAN;
+        let msg = rlgc(bad).err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(msg.contains("df"), "{msg}");
+    }
 }
