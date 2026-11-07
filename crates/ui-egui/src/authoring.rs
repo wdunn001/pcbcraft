@@ -68,7 +68,6 @@ enum LibraryPick {
 pub(super) struct Editor {
     pub mode: u8,
     pub draft: Option<Draft>,
-    pub path: String,
     pub notice: Option<String>,
     pub wizard: super::footprint_wizard::Wizard,
     pub tool: LibraryTool,
@@ -92,7 +91,6 @@ impl Default for Editor {
         Self {
             mode: 0,
             draft: None,
-            path: "parts.pcbcraft-lib".into(),
             export_symbol_path: "symbols.kicad_sym".into(),
             export_footprint_dir: "exported_footprints".into(),
             selected_symbols: BTreeSet::new(),
@@ -1534,23 +1532,19 @@ impl App {
             ui.colored_label(Color32::LIGHT_YELLOW, notice);
         }
         ui.horizontal(|ui| {
-            ui.label(t!("library.project_library.collection_file"));
-            ui.add(crate::targets::text_field(&mut self.library.editor.path))
-                .on_hover_text(t!("library.project_library.collection_file.tip"))
-                .named(&t!("library.project_library.collection_file"));
-            if ui
-                .button(t!("library.project_library.save_library"))
-                .on_hover_text(t!("library.project_library.save_library.tip"))
-                .clicked()
-            {
-                self.tool_call("library.save", json!({"path":self.library.editor.path}));
-            }
             if ui
                 .button(t!("library.project_library.load_library"))
                 .on_hover_text(t!("library.project_library.load_library.tip"))
                 .clicked()
             {
-                self.run("library.load", json!({"path":self.library.editor.path}));
+                self.library_load_start(ui.ctx());
+            }
+            if ui
+                .button(t!("library.project_library.save_library"))
+                .on_hover_text(t!("library.project_library.save_library.tip"))
+                .clicked()
+            {
+                self.library_save_start();
             }
         });
         ui.separator();
@@ -2515,52 +2509,6 @@ pub(crate) mod tests {
         );
         Ok(())
     }
-    #[test]
-    fn saving_a_library_file_and_loading_it_back_restores_the_whole_collection()
-    -> Result<(), String> {
-        let file = std::env::temp_dir().join(format!(
-            "pcbcraft-lib-roundtrip-{}.pcbcraft-lib",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_file(&file);
-        let (shared, mut app, ctx) = editor("symbol-editor")?;
-        tap(&ctx, &mut app, "Save symbol to project library")?;
-        tap(&ctx, &mut app, "Collections")?;
-        app.library.editor.path = file.to_string_lossy().into_owned();
-        tap(&ctx, &mut app, "Save library")?;
-        assert!(
-            file.is_file(),
-            "the collection file lands on disk; the app said {:?}",
-            app.message
-        );
-        app.run("library.symbol.remove", json!({"name": "NewSymbol"}));
-        {
-            let session = shared.lock().map_err(|_| "session unavailable")?;
-            assert!(session.project.library.symbols.is_empty());
-        }
-        let mut app2 = App::create(
-            shared.clone(),
-            Preferences::default(),
-            None,
-            Some("symbol-editor"),
-        );
-        app2.refresh();
-        let ctx2 = egui::Context::default();
-        app2.open_library_collections();
-        app2.library.editor.path = file.to_string_lossy().into_owned();
-        tap(&ctx2, &mut app2, "Load library")?;
-
-        let session = shared.lock().map_err(|_| "session unavailable")?;
-        assert_eq!(
-            session.project.library.symbols.len(),
-            1,
-            "the saved collection comes back whole"
-        );
-        drop(session);
-        let _ = std::fs::remove_file(&file);
-        Ok(())
-    }
-
     /// Click at a world coordinate on the library editor canvas.
     ///
     /// Converts the world coordinate to screen space and simulates a mouse

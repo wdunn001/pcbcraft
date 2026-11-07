@@ -10,7 +10,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.footprint.upsert","Create or replace a project-library footprint",schema(json!({"definition":{"type":"object"},"notice":{"type":"string"}}),&["definition"])),
         ("library.symbol.remove","Remove a project-library symbol; placed instances retain their embedded definition",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.footprint.remove","Remove a project-library footprint; placed instances retain their embedded definition",schema(json!({"name":{"type":"string"}}),&["name"])),
-        ("library.load","Load and validate a .pcbcraft-lib collection into the project as one undoable transaction",schema(json!({"path":{"type":"string"}}),&["path"])),
+        ("library.load","Load and validate a .pcbcraft-lib collection into the project as one undoable transaction; give a file path, or the file text when there is no disk",schema(json!({"path":{"type":"string"},"text":{"type":"string"}}),&[])),
         ("library.export","Write project-library symbols to one symbol library file or footprints to a folder or single footprint file on disk without changing the design",schema(json!({"kind":{"type":"string","enum":["symbol","footprint"]},"path":{"type":"string","minLength":1,"maxLength":1024},"names":{"type":"array","minItems":1,"maxItems":64,"items":{"type":"string","minLength":1,"maxLength":128}}}),&["kind","path","names"])),
         ("library.import_footprint_file","Read one footprint from a footprint library text file on disk and add or replace it in the project library as one undoable transaction",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}),&["path"])),
         ("library.import_symbol_file","Read the symbols from a symbol library text file on disk and add or replace them in the project library as one undoable transaction",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}),&["path"])),
@@ -1562,8 +1562,29 @@ pub(super) fn run(
             .map_err(Error::Invalid)
         }
         "library.load" => {
-            let a: PathParams = parse(params)?;
-            let text = pcbcraft_io::read_text(std::path::Path::new(&a.path))?;
+            #[derive(Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct LoadParams {
+                #[serde(default)]
+                path: Option<String>,
+                #[serde(default)]
+                text: Option<String>,
+            }
+            let a: LoadParams = parse(params)?;
+            let text = match (a.text, a.path) {
+                (Some(text), _) => {
+                    if text.len() as u64 > pcbcraft_io::MAX_FILE_BYTES {
+                        return Err(Error::Invalid("library collection exceeds 8 MiB".into()));
+                    }
+                    text
+                }
+                (None, Some(path)) => pcbcraft_io::read_text(std::path::Path::new(&path))?,
+                (None, None) => {
+                    return Err(Error::Invalid(
+                        "give the path of a collection file, or its text".into(),
+                    ));
+                }
+            };
             let file: LibraryFile =
                 serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
             if file.format != "pcbcraft-library" || file.version != 1 {

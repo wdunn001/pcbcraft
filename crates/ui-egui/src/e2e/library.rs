@@ -1321,13 +1321,28 @@ fn a_newcomer_narrows_the_shown_library_entries_and_clears_the_filter() -> Resul
     Ok(())
 }
 
+/// A new empty folder under the temp folder, for a story that saves and picks files.
+fn story_folder(name: &str) -> Result<std::path::PathBuf, String> {
+    let folder = std::env::temp_dir().join(format!("pcbcraft-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+    Ok(folder)
+}
+
+/// The chooser window shows `folder`: type it into the path box and press Go.
+fn chooser_goes_to(
+    ctx: &egui::Context,
+    app: &mut App,
+    folder: &std::path::Path,
+) -> Result<(), String> {
+    type_into(ctx, app, "textinput:Folder path", &folder.to_string_lossy())?;
+    tap_id(ctx, app, "button:Go")
+}
+
 #[test]
 fn a_newcomer_saves_a_collection_file_and_loads_it_back() -> Result<(), String> {
-    let file = std::env::temp_dir().join(format!(
-        "pcbcraft-newcomer-collection-{}.pcbcraft-lib",
-        std::process::id()
-    ));
-    let _ = std::fs::remove_file(&file);
+    let folder = story_folder("collection")?;
+    let file = folder.join("library.pcbcraft-lib");
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(
         shared.clone(),
@@ -1340,34 +1355,83 @@ fn a_newcomer_saves_a_collection_file_and_loads_it_back() -> Result<(), String> 
     authoring::tests::tap(&ctx, &mut app, "Save symbol to project library")?;
     tap_id(&ctx, &mut app, "tab:Collections")?;
     waits_for_collections(&ctx, &mut app)?;
-    type_into(
-        &ctx,
-        &mut app,
-        "textinput:Collection file",
-        &file.to_string_lossy(),
-    )?;
-    assert_eq!(
-        app.library.editor.path,
-        file.to_string_lossy(),
-        "the path is the one typed"
-    );
     tap_id(&ctx, &mut app, "button:Save library")?;
+    assert!(app.chooser_open(), "Save library opens the chooser");
+    chooser_goes_to(&ctx, &mut app, &folder)?;
+    tap_id(&ctx, &mut app, "button:Save here")?;
+    assert!(!app.chooser_open(), "the chooser closes after Save here");
     assert!(
         file.is_file(),
         "the collection file lands on disk: {}",
         app.message
     );
+    let said = app.library.editor.notice.clone().unwrap_or_default();
+    assert!(
+        said.contains("Saved the project library"),
+        "the page says so: {said}"
+    );
     app.run("library.symbol.remove", json!({"name": "NewSymbol"}));
     tap_id(&ctx, &mut app, "button:Load library")?;
+    assert!(app.chooser_open(), "Load library opens the chooser");
+    chooser_goes_to(&ctx, &mut app, &folder)?;
+    tap_id(&ctx, &mut app, "button:library.pcbcraft-lib")?;
+    tap_id(&ctx, &mut app, "button:Load this file")?;
+    let said = app.library.editor.notice.clone().unwrap_or_default();
     let session = shared.lock().map_err(|_| "session unavailable")?;
     assert_eq!(
         session.project.library.symbols.len(),
         1,
-        "Load library brings the saved collection back: {}",
-        app.message
+        "Load library brings the saved collection back: {said}"
     );
     drop(session);
-    let _ = std::fs::remove_file(&file);
+    assert!(
+        said.contains("Loaded library.pcbcraft-lib"),
+        "the page says what loaded: {said}"
+    );
+    let _ = std::fs::remove_dir_all(&folder);
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_is_told_why_a_collection_file_would_not_load() -> Result<(), String> {
+    let folder = story_folder("badcollection")?;
+    std::fs::write(folder.join("broken.pcbcraft-lib"), "not a collection")
+        .map_err(|e| e.to_string())?;
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, Some("symbol-editor"));
+    app.refresh();
+    let ctx = egui::Context::default();
+    tap_id(&ctx, &mut app, "tab:Collections")?;
+    waits_for_collections(&ctx, &mut app)?;
+    tap_id(&ctx, &mut app, "button:Load library")?;
+    chooser_goes_to(&ctx, &mut app, &folder)?;
+    tap_id(&ctx, &mut app, "button:broken.pcbcraft-lib")?;
+    tap_id(&ctx, &mut app, "button:Load this file")?;
+    let said = app.library.editor.notice.clone().unwrap_or_default();
+    assert!(
+        said.contains("Could not load broken.pcbcraft-lib"),
+        "a file that is not a collection gets a plain reason on the page: {said}"
+    );
+    let _ = std::fs::remove_dir_all(&folder);
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_cancels_the_chooser_and_nothing_changes() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, Some("symbol-editor"));
+    app.refresh();
+    let ctx = egui::Context::default();
+    tap_id(&ctx, &mut app, "tab:Collections")?;
+    waits_for_collections(&ctx, &mut app)?;
+    tap_id(&ctx, &mut app, "button:Load library")?;
+    assert!(app.chooser_open());
+    tap_id(&ctx, &mut app, "button:Cancel")?;
+    assert!(!app.chooser_open(), "Cancel closes the chooser");
+    assert!(
+        app.library.editor.notice.is_none(),
+        "Cancel says nothing and loads nothing"
+    );
     Ok(())
 }
 
