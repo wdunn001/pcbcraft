@@ -777,8 +777,8 @@ golden_test!(thermal_via_count_vectors, "thermal_via_count");
 fn data_file_has_every_vector_replayed() -> Result<(), String> {
     let d = doc()?;
     let total: usize = d.calculator.iter().map(|c| c.vector.len()).sum();
-    if total != 119 {
-        return Err(format!("data file carries {total} vectors, expected 119"));
+    if total != 120 {
+        return Err(format!("data file carries {total} vectors, expected 120"));
     }
     if d.calculator.len() != meta::CALCULATORS.len() {
         return Err(format!(

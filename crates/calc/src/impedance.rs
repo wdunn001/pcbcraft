@@ -7,7 +7,7 @@
 //! at w = h (see research-283-length-impedance.md). Models are labelled
 //! exact, model or estimate in the metadata; the UI must show that label.
 
-use crate::consts::{C0, ZF0};
+use crate::consts::{C0, RHO_CU, ZF0};
 use crate::{Error, finite, num, opt_num};
 
 /// Hammerstad-Jensen zero-thickness transmission line function ZL1(u).
@@ -522,5 +522,89 @@ pub fn crosstalk(a: Crosstalk) -> Result<CrosstalkOut, Error> {
         coupling_db: finite("coupling_db", 20.0 * coupling.log10())?,
         three_w_gap: 2.0 * w,
         spacing_for_minus_20db: 3.0 * h,
+    })
+}
+
+/// Input for [`rlgc`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Rlgc {
+    /// Trace width in millimetres, 0.01 to 100.
+    pub width: f64,
+    /// Dielectric height in millimetres, 0.01 to 10.
+    pub height: f64,
+    /// Relative permittivity, 1 to 20.
+    pub er: f64,
+    /// Dissipation factor (loss tangent), 0 to 0.5.
+    pub df: f64,
+    /// Copper weight in oz per square foot, 0.25 to 6.
+    pub copper_weight: f64,
+    /// Signal frequency in hertz, 1 to 1e12.
+    pub frequency: f64,
+}
+
+/// Per-unit-length parameters and loss from [`rlgc`].
+#[derive(Debug, Clone, Copy)]
+pub struct RlgcOut {
+    /// Resistance per metre, ohms per metre.
+    pub r_per_m: f64,
+    /// Inductance per metre, henries per metre.
+    pub l_per_m: f64,
+    /// Conductance per metre, siemens per metre.
+    pub g_per_m: f64,
+    /// Capacitance per metre, farads per metre.
+    pub c_per_m: f64,
+    /// Characteristic impedance in ohms.
+    pub z0: f64,
+    /// Attenuation in decibels per metre.
+    pub loss_db_per_m: f64,
+    /// Attenuation in decibels per inch.
+    pub loss_db_per_inch: f64,
+}
+
+/// Per-unit-length RLGC parameters and signal loss at a frequency.
+///
+/// # Rules
+/// - Z0 and eeff from Hammerstad-Jensen microstrip; C = sqrt(eeff)/(C0*Z0),
+///   L = Z0*sqrt(eeff)/C0, G = 2*pi*f*C*df.
+/// - R is DC resistance plus skin effect: delta = sqrt(2*RHO/(pi*f*mu0)),
+///   R_ac = R_dc*(t/(2*delta)) for t > 2*delta, else R_dc.
+/// - Loss uses the low-loss approximation: alpha = (R/(2*Z0) + G*Z0/2).
+/// # Dependencies
+/// - `crates/calc/src/lib.rs` for `crate::consts` (C0, RHO_CU), `crate::num`, `crate::finite`.
+/// # Do not
+/// - Trust above 50 GHz; dispersion and higher modes break the quasi-TEM model.
+pub fn rlgc(a: Rlgc) -> Result<RlgcOut, Error> {
+    let w = num("width", a.width, 0.01, 100.0)?;
+    let h = num("height", a.height, 0.01, 10.0)?;
+    let er = num("er", a.er, 1.0, 20.0)?;
+    let df = num("df", a.df, 0.0, 0.5)?;
+    let oz = num("copper_weight", a.copper_weight, 0.25, 6.0)?;
+    let f = num("frequency", a.frequency, 1.0, 1.0e12)?;
+    let mu0 = 4.0 * std::f64::consts::PI * 1.0e-7;
+    let t = oz * crate::consts::OZ_UM / 1000.0;
+    let (z0, eeff) = hj(w, h, er, t);
+    let c_per_m = finite("c_per_m", eeff.sqrt() / (C0 * z0))?;
+    let l_per_m = finite("l_per_m", z0 * eeff.sqrt() / C0)?;
+    let g_per_m = 2.0 * std::f64::consts::PI * f * c_per_m * df;
+    let r_dc = RHO_CU / (w * t * 1.0e-6);
+    let delta = finite(
+        "delta",
+        (2.0 * RHO_CU / (std::f64::consts::PI * f * mu0)).sqrt(),
+    )?;
+    let r_per_m = if t > 2.0 * delta {
+        finite("r_per_m", r_dc * (t / (2.0 * delta)))?
+    } else {
+        r_dc
+    };
+    let alpha = r_per_m / (2.0 * z0) + g_per_m * z0 / 2.0;
+    let loss_db_per_m = finite("loss_db_per_m", 8.686 * alpha)?;
+    Ok(RlgcOut {
+        r_per_m,
+        l_per_m,
+        g_per_m,
+        c_per_m,
+        z0,
+        loss_db_per_m,
+        loss_db_per_inch: loss_db_per_m * 0.0254,
     })
 }

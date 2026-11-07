@@ -100,7 +100,7 @@ pub struct CalculatorMeta {
 }
 
 /// Every calculator, in data file order.
-pub static CALCULATORS: [CalculatorMeta; 32] = [
+pub static CALCULATORS: [CalculatorMeta; 33] = [
     CalculatorMeta {
         id: "ohms_law",
         name: "Ohm's law and power",
@@ -615,6 +615,24 @@ pub static CALCULATORS: [CalculatorMeta; 32] = [
             InputMeta::num("length", "mm", 0.1, 5.0),
             InputMeta::num("target_rth", "K/W", 0.1, 100.0),
             InputMeta::choice("filled", &["true", "false"]),
+        ],
+    },
+    CalculatorMeta {
+        id: "rlgc",
+        name: "RLGC per unit length and loss",
+        group: "impedance",
+        summary: "Resistance, inductance, conductance and capacitance per unit length of a microstrip trace, plus signal loss at a frequency.",
+        formula: "Z0 and eeff from Hammerstad-Jensen microstrip; C = sqrt(eeff)/(C0*Z0); L = Z0*sqrt(eeff)/C0; G = 2*pi*f*C*df. R = R_dc + skin effect: delta = sqrt(2*RHO/(pi*f*mu0)); R_ac = R_dc*(t/(2*delta)) for t > 2*delta else R_dc. Loss alpha = (R/(2*Z0) + G*Z0/2) in Np/m, converted to dB/m by *8.686.",
+        source: "Pozar, Microwave Engineering, 4th ed., ch. 4; Hammerstad and Jensen, IEEE Trans. MTT 32(9), 1984; IPC-2141 trace impedance calculators and formulas. Skin effect: Grover, Inductance Calculations, ch. 10.",
+        validity: "Quasi-TEM microstrip model. Reliable up to about 10 GHz; dispersion and higher modes limit the model at higher frequencies. Assumes lossless dielectric at DC and a flat copper surface.",
+        accuracy: "model",
+        inputs: &[
+            InputMeta::num("width", "mm", 0.01, 100.0),
+            InputMeta::num("height", "mm", 0.01, 10.0),
+            InputMeta::num("er", "", 1.0, 20.0),
+            InputMeta::num("df", "", 0.0, 0.5),
+            InputMeta::num("copper_weight", "oz/ft2", 0.25, 6.0),
+            InputMeta::num("frequency", "Hz", 1.0, 1.0e12),
         ],
     },
 ];
