@@ -553,7 +553,6 @@ library.library_editor.delete_pad.tip = Dieses Pad aus dem Footprint entfernen, 
 library.library_editor.graphic_v0 = Grafik {v0}
 library.project_library.this_project_s_definitions = Definitionen dieses Projekts
 library.project_library.saved_here_live_with_the = Hier gespeichert, leben mit dem Design; alles oben sind geteilte Sammlungen. Platzierte Bauteile behalten ihre eingebetteten Kopien.
-library.project_library.collection_file = Sammlungsdatei
 library.project_library.save_library = Bibliothek speichern
 library.project_library.save_library.tip = Die erstellten Sammlungen als wiederverwendbare Bibliotheksdatei schreiben.
 library.project_library.load_library = Bibliothek laden

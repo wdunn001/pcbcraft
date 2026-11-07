@@ -248,6 +248,31 @@ impl App {
             });
         }
         ui.horizontal(|ui| {
+            if self.host.takes_bytes() {
+                if secondary_button(
+                    ui,
+                    None,
+                    &t!("libws.sources.load_file"),
+                    &t!("libws.sources.load_file.tip"),
+                    Size::Small,
+                    true,
+                )
+                .clicked()
+                {
+                    self.library_load_start(ui.ctx());
+                }
+            } else if secondary_button(
+                ui,
+                None,
+                &t!("libws.sources.choose"),
+                &t!("libws.sources.choose.tip"),
+                Size::Small,
+                self.library.pending.is_none(),
+            )
+            .clicked()
+            {
+                self.open_chooser(crate::path_chooser::Purpose::AddSource);
+            }
             ui.add(
                 crate::targets::text_field(&mut self.library.new_source)
                     .hint_text(t!("library.collection_browser.folder_to_add_as_a"))
