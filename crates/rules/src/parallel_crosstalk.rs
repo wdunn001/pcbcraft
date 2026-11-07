@@ -113,7 +113,11 @@ pub(crate) fn parallel_crosstalk_findings(project: &Project) -> Vec<Finding> {
     let mut reported: std::collections::BTreeSet<(Id, Id, Id, Id)> =
         std::collections::BTreeSet::new();
 
-    for layer in [Layer::Front, Layer::Back] {
+    for i in 0..project.copper_layer_count() {
+        let layer = match Layer::from_index(i) {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
         let layer_tracks: Vec<&Track> = tracks.iter().filter(|t| t.layer == layer).collect();
         for i in 0..layer_tracks.len() {
             for j in (i + 1)..layer_tracks.len() {
@@ -231,7 +235,7 @@ pub(crate) fn parallel_crosstalk_findings(project: &Project) -> Vec<Finding> {
 mod tests {
     use super::*;
     use crate::drc;
-    use pcbcraft_doc::{Net, NetClass, Project, Track};
+    use pcbcraft_doc::{LayerRecord, Net, NetClass, Project, Track};
 
     /// Two 40 mm runs: a 1 ns edge is about 170 mm long on this stackup, so a
     /// parallel run must exceed about 29 mm (a sixth of that) to be reported.
@@ -384,6 +388,108 @@ mod tests {
             parallel_findings(&quiet).is_empty(),
             "no parallel finding at three trace widths"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn inner_layer_parallel_run_is_flagged() -> Result<(), String> {
+        let mut p = Project::default();
+        // 4-layer board: F.Cu, In1.Cu, In2.Cu, B.Cu
+        p.board.layer_records = vec![
+            LayerRecord {
+                name: "F.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.035,
+                ..LayerRecord::default()
+            },
+            LayerRecord {
+                name: "In1.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.035,
+                ..LayerRecord::default()
+            },
+            LayerRecord {
+                name: "In2.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.035,
+                ..LayerRecord::default()
+            },
+            LayerRecord {
+                name: "B.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.035,
+                ..LayerRecord::default()
+            },
+        ];
+        p.nets.push(Net {
+            id: 1,
+            name: "CLK".into(),
+            ..Default::default()
+        });
+        p.nets.push(Net {
+            id: 2,
+            name: "DATA".into(),
+            ..Default::default()
+        });
+        let width = 0.2;
+        let inner_layer = Layer::from_index(1).map_err(|e| e.to_string())?;
+        p.board.tracks.push(Track {
+            id: 10,
+            net: 1,
+            start: Point::new(0.0, 0.0),
+            end: Point::new(40.0, 0.0),
+            width,
+            layer: inner_layer,
+            arc: None,
+            preserved: Default::default(),
+        });
+        p.board.tracks.push(Track {
+            id: 11,
+            net: 2,
+            start: Point::new(0.0, width + 0.2),
+            end: Point::new(40.0, width + 0.2),
+            width,
+            layer: inner_layer,
+            arc: None,
+            preserved: Default::default(),
+        });
+        p.net_classes.push(NetClass {
+            id: 50,
+            name: "CLK".into(),
+            clearance: 0.2,
+            width,
+            min_width: None,
+            max_width: None,
+            target_length: None,
+            length_tolerance: None,
+            max_stub: None,
+            via_diameter: None,
+            via_drill: None,
+            pair_width: None,
+            pair_gap: None,
+            rise_time: Some(1e-9),
+            nets: vec![1, 2],
+            profile: None,
+            backdrill: Default::default(),
+            corner_radius: Default::default(),
+            current: Default::default(),
+            fast: Default::default(),
+            impedance_target: Default::default(),
+            impedance_tolerance_pct: Default::default(),
+            insulation: Default::default(),
+            line_structure: Default::default(),
+            max_vias: Default::default(),
+            min_radius: Default::default(),
+            reference_layers: Default::default(),
+            return_path_rule: Default::default(),
+            target_impedance: Default::default(),
+            temperature_rise: Default::default(),
+            working_voltage: Default::default(),
+            max_length: Default::default(),
+        });
+        p.validate()?;
+        assert_eq!(parallel_findings(&p).len(), 1);
+        assert!(parallel_findings(&p)[0].message.contains("estimate"));
         Ok(())
     }
 }
