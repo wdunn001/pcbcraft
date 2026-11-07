@@ -252,18 +252,32 @@ fn max_passes_default() -> usize {
 }
 
 pub(super) fn commands() -> Vec<CommandSpec> {
-    vec![CommandSpec {
-        id: "placement.legalize",
-        description: "Move overlapping parts to remove courtyard overlaps and edge violations with the smallest moves; locked parts never move; snap to a grid; deterministic with the same input giving the same result",
-        input_schema: schema(
-            json!({
-                "scope": scope::schema(),
-                "grid": {"type":"number","description":"grid step in millimetres to snap moved parts to; optional, default none"},
-                "max_passes": {"type":"integer","minimum":1,"maximum":200,"default":32,"description":"most passes to try before giving up"}
-            }),
-            &["scope"],
-        ),
-    }]
+    vec![
+        CommandSpec {
+            id: "placement.legalize",
+            description: "Move overlapping parts to remove courtyard overlaps and edge violations with the smallest moves; locked parts never move; snap to a grid; deterministic with the same input giving the same result",
+            input_schema: schema(
+                json!({
+                    "scope": scope::schema(),
+                    "grid": {"type":"number","description":"grid step in millimetres to snap moved parts to; optional, default none"},
+                    "max_passes": {"type":"integer","minimum":1,"maximum":200,"default":32,"description":"most passes to try before giving up"}
+                }),
+                &["scope"],
+            ),
+        },
+        CommandSpec {
+            id: "layout.legalize.plan",
+            description: "Return the plan of moves the legalizer would make without applying them; the result lists parts to move and their target positions plus any pairs that cannot be cleared",
+            input_schema: schema(
+                json!({
+                    "scope": scope::schema(),
+                    "grid": {"type":"number","description":"grid step in millimetres to snap moved parts to; optional, default none"},
+                    "max_passes": {"type":"integer","minimum":1,"maximum":200,"default":32,"description":"most passes to try before giving up"}
+                }),
+                &["scope"],
+            ),
+        },
+    ]
 }
 
 pub(super) fn run(
@@ -274,6 +288,7 @@ pub(super) fn run(
 ) -> Option<Result<Value, Error>> {
     match command {
         "placement.legalize" => Some(legalize(p, params)),
+        "layout.legalize.plan" => Some(legalize_plan(p, params)),
         _ => None,
     }
 }
@@ -309,6 +324,28 @@ fn legalize(p: &mut Project, params: &Value) -> Result<Value, Error> {
         .map(|(a, b)| json!({"a": a, "b": b}))
         .collect::<Vec<_>>();
     Ok(json!({"moved": moved, "unresolved": unresolved, "passes": plan.passes}))
+}
+
+fn legalize_plan(p: &Project, params: &Value) -> Result<Value, Error> {
+    let a: LegalizeParams = super::parse(params)?;
+    let scope = Scope::from_value(p, &a.scope)?;
+    if a.grid.is_some_and(|g| !g.is_finite() || g <= 0.0) {
+        return Err(Error::Invalid(
+            "grid must be a positive finite number".into(),
+        ));
+    }
+    let plan = plan_moves(p, &scope, a.max_passes, a.grid);
+    let moves: Vec<Value> = plan
+        .moves
+        .into_iter()
+        .map(|(id, pos)| json!({"id": id, "x": pos.x, "y": pos.y}))
+        .collect();
+    let unresolved: Vec<Value> = plan
+        .unresolved
+        .into_iter()
+        .map(|(a, b)| json!({"a": a, "b": b}))
+        .collect();
+    Ok(json!({"moves": moves, "unresolved": unresolved, "passes": plan.passes}))
 }
 
 /// Compute the bounding box of a footprint in world coordinates.
