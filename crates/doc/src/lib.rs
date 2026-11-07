@@ -4576,6 +4576,10 @@ pub struct ProjectLibrary {
     /// Second sources and alternates keyed by project-library symbol name.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub part_substitutes: BTreeMap<String, pcbcraft_library::PartSubstitutes>,
+    /// When true, model transforms for library footprints are editable in the project
+    /// even if the footprint is not in the project's own library.
+    #[serde(default)]
+    pub allow_library_footprint_edits: bool,
 }
 impl ProjectLibrary {
     pub fn validate(&self) -> Result<(), String> {
