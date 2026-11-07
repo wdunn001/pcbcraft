@@ -341,6 +341,8 @@ fn net_impedance(p: &Project, params: &Value) -> Result<Value, Error> {
             "delay_ps_per_mm": r3(imp::delay_ps(1.0, m.eeff)),
             "copper_mm": copper,
             "copper_source": source,
+            "method": "hammerstad-microstrip",
+            "uncertainty_pct": pcbcraft_geom::impedance::MICROSTRIP_UNCERTAINTY_PCT,
             "dielectric_mm": height,
             "er": er,
         });
@@ -372,7 +374,8 @@ fn net_impedance(p: &Project, params: &Value) -> Result<Value, Error> {
                 "z_diff_ohm": r2(c.z_diff()),
                 "z_odd_ohm": r2(c.z_odd),
                 "z_even_ohm": r2(c.z_even),
-                "model": "edge-coupled microstrip, zero thickness",
+                "method": "hammerstad-coupled",
+                "uncertainty_pct": pcbcraft_geom::impedance::COUPLED_MICROSTRIP_UNCERTAINTY_PCT,
             });
             if let Some(note) = coupled_validity(width, pair.gap, height) {
                 diff["validity"] = json!(note);
@@ -424,7 +427,7 @@ fn calc(p: &Project, params: &Value) -> Result<Value, Error> {
     match a.geometry.as_str() {
         "microstrip" => {
             let m = single(a.width, height, t, er)?;
-            let mut out = json!({"geometry":"microstrip","impedance_ohm":r2(m.ohms),"eeff":r3(m.eeff),"delay_ps_per_mm":r3(imp::delay_ps(1.0, m.eeff))});
+            let mut out = json!({"geometry":"microstrip","method":"hammerstad-microstrip","uncertainty_pct":pcbcraft_geom::impedance::MICROSTRIP_UNCERTAINTY_PCT,"impedance_ohm":r2(m.ohms),"eeff":r3(m.eeff),"delay_ps_per_mm":r3(imp::delay_ps(1.0, m.eeff))});
             if let Some(note) = imp::validity(a.width, height) {
                 out["validity"] = json!(note);
             }
@@ -438,7 +441,7 @@ fn calc(p: &Project, params: &Value) -> Result<Value, Error> {
             let gap = a.gap.ok_or_else(|| refuse("a coupled pair needs a gap"))?;
             let c = imp::coupled_microstrip(a.width, gap, height, er)
                 .ok_or_else(|| refuse("the coupled model refused those dimensions"))?;
-            let mut out = json!({"geometry":"coupled","z_diff_ohm":r2(c.z_diff()),"z_odd_ohm":r2(c.z_odd),"z_even_ohm":r2(c.z_even),"z_common_ohm":r2(c.z_common()),"ee_odd":r3(c.ee_odd),"ee_even":r3(c.ee_even)});
+            let mut out = json!({"geometry":"coupled","method":"hammerstad-coupled","uncertainty_pct":pcbcraft_geom::impedance::COUPLED_MICROSTRIP_UNCERTAINTY_PCT,"z_diff_ohm":r2(c.z_diff()),"z_odd_ohm":r2(c.z_odd),"z_even_ohm":r2(c.z_even),"z_common_ohm":r2(c.z_common()),"ee_odd":r3(c.ee_odd),"ee_even":r3(c.ee_even)});
             if let Some(note) = coupled_validity(a.width, gap, height) {
                 out["validity"] = json!(note);
             }
@@ -453,7 +456,7 @@ fn calc(p: &Project, params: &Value) -> Result<Value, Error> {
         "stripline" => {
             let z = imp::stripline(a.width, height, t, er)
                 .ok_or_else(|| refuse("the stripline model refused those dimensions"))?;
-            let mut out = json!({"geometry":"stripline","impedance_ohm":r2(z),"delay_ps_per_mm":r3(imp::delay_ps(1.0, er))});
+            let mut out = json!({"geometry":"stripline","method":"zero-thickness-stripline","uncertainty_pct":pcbcraft_geom::impedance::STRIPLINE_UNCERTAINTY_PCT,"impedance_ohm":r2(z),"delay_ps_per_mm":r3(imp::delay_ps(1.0, er))});
             if let Some(target) = a.target {
                 let solved = imp::width_for_ohms(target, |w| imp::stripline(w, height, t, er));
                 out["recommended_width"] = solved.map_or(Value::Null, |w| json!(r3(w)));
@@ -1677,6 +1680,35 @@ mod tests {
                 "{bad}"
             );
         }
+        Ok(())
+    }
+    #[test]
+    fn impedance_results_state_method_and_uncertainty() -> T {
+        let (mut s, _, _) = fixture(30.0)?;
+        let m = s.execute(
+            "impedance.calc",
+            json!({"geometry":"microstrip","width":1.6,"height":1.6,"er":4.5}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(m["method"].as_str(), Some("hammerstad-microstrip"));
+        assert_eq!(m["uncertainty_pct"].as_f64(), Some(1.0));
+        let c = s.execute(
+            "impedance.calc",
+            json!({"geometry":"coupled","width":0.8,"gap":0.8,"height":1.6,"er":4.5}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(c["method"].as_str(), Some("hammerstad-coupled"));
+        assert_eq!(c["uncertainty_pct"].as_f64(), Some(3.0));
+        let l = s.execute(
+            "impedance.calc",
+            json!({"geometry":"stripline","width":0.28,"height":1.68,"er":4.5}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(l["method"].as_str(), Some("zero-thickness-stripline"));
+        assert_eq!(l["uncertainty_pct"].as_f64(), Some(1.0));
         Ok(())
     }
 }
