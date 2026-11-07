@@ -4,7 +4,7 @@
 //! Context: the Files tab is a workspace (`workspace.rs`, the Workspace contract). The
 //! approved mockup `files` has a tool bar (New, Open, Save, Import, Export, Open sample
 //! project) and the project files tree in the left aside. The centre shows the open project's
-//! name with Save and Open folder, four cards (Parts, Nets, Board shape, Checks), the Shape of
+//! name and its saved state, four cards (Parts, Nets, Board shape, Checks), the Shape of
 //! each layer row, Next and Recent projects. The right aside holds Properties: name, units,
 //! author, notes, the read only shape, layers and Project settings. There is no board width
 //! or height to edit here. `home.rs`, `shape_cards.rs`, `tree.rs` and `props.rs` draw all of

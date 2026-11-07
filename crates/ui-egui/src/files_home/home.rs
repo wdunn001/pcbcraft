@@ -25,8 +25,6 @@ use crate::ui_kit::rows::list_row_high;
 const RECENT_ROW: f32 = crate::ui_kit::rows::FINDING_ROW_HEIGHT;
 /// Narrowest tool bar that still shows a label beside each icon.
 const LABELS_FROM: f32 = 720.0;
-/// Narrowest centre that still puts the project name beside Save and Open folder.
-const HEADER_ROW_FROM: f32 = 560.0;
 /// Space reserved at the right of a recent row for its Open button.
 const OPEN_BUTTON: f32 = 64.0;
 
@@ -139,7 +137,7 @@ impl App {
         }
     }
 
-    /// The project name at display size, its state, and Save and Open folder.
+    /// The project name at display size and its state. Saving and opening live in the tool bar.
     pub(super) fn files_header(&mut self, ui: &mut egui::Ui) {
         let tokens = theme::tokens(ui.ctx());
         let name = self.footer_project_name();
@@ -154,29 +152,6 @@ impl App {
                 },
                 _ => t!("files.home.new"),
             }
-        };
-        let (mut save, mut folder) = (false, false);
-        let side_by_side = ui.available_width() >= HEADER_ROW_FROM;
-        let buttons = |ui: &mut egui::Ui| -> (bool, bool) {
-            let folder = button::secondary_button(
-                ui,
-                Some(icons::FOLDER),
-                &t!("files.home.folder"),
-                &t!("files.home.folder.tip"),
-                Size::Normal,
-                true,
-            )
-            .clicked();
-            let save = button::primary_button(
-                ui,
-                Some(icons::SAVE),
-                &t!("files.tool.save"),
-                &t!("files.tool.save.tip"),
-                Size::Normal,
-                true,
-            )
-            .clicked();
-            (save, folder)
         };
         ui.horizontal_top(|ui| {
             ui.vertical(|ui| {
@@ -194,23 +169,7 @@ impl App {
                     .truncate(),
                 );
             });
-            if side_by_side {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-                    (save, folder) = buttons(ui);
-                });
-            }
         });
-        if !side_by_side {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-                (save, folder) = buttons(ui);
-            });
-        }
-        if save {
-            self.save_or_ask();
-        }
-        if folder {
-            self.show_files(Page::Open);
-        }
     }
 
     /// The Recent projects card: one row per project with its Open button.
