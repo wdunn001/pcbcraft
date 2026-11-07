@@ -3004,7 +3004,7 @@ mod library_render_tests {
         // A pad is 1.7mm across at zoom 12, so 21 screen pixels. The label is
         // placed beside the pad, so two pad widths is generous and still far
         // short of the 48mm part.
-        let slack = 1.7 * 2.0 * camera.zoom as f32 + 8.0;
+        let slack = 1.7 * 2.0 * camera.zoom + 8.0;
         let mut checked = 0;
         for pad in &footprint.pads {
             let want = camera.screen(footprint.pad_world_position(pad), rect);
