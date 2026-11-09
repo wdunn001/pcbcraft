@@ -1154,7 +1154,8 @@ enum Tool {
     SchematicLabel(wire_canvas::SchematicLabelKind),
     Bus,
     BusEntry,
-    Route(Option<(Id, String)>),
+    /// The end already picked, which is a pad or a via.
+    Route(Option<route_drag::RouteEnd>),
     Move,
     Cutout,
     Hole,
@@ -9528,7 +9529,10 @@ mod tests {
                 "second pin",
             ),
             (Tool::Route(None), "first pad"),
-            (Tool::Route(Some((1, "1".into()))), "second pad"),
+            (
+                Tool::Route(Some(route_drag::RouteEnd::Pad(1, "1".into()))),
+                "second pad",
+            ),
             (Tool::Move, "drop"),
             (Tool::Cutout, "cutout"),
             (Tool::Hole, "mounting hole"),
@@ -9597,7 +9601,8 @@ mod tests {
         let before = app.project.board.tracks.len();
         app.canvas_click(from, 1.0);
         assert!(
-            matches!(&app.tool, Tool::Route(Some((id, pad))) if *id == 10 && pad == "1"),
+            matches!(&app.tool,
+                Tool::Route(Some(route_drag::RouteEnd::Pad(id, pad))) if *id == 10 && pad == "1"),
             "clicking a pad starts a track: {:?}",
             app.tool
         );
@@ -9613,6 +9618,46 @@ mod tests {
             matches!(app.tool, Tool::Select),
             "finishing a track hands the mouse straight back: {:?}",
             app.tool
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn clicking_a_via_starts_a_track_from_it() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.tab = Tab::Pcb;
+        // The sample board has no vias. Two on one net stand in for the escape
+        // vias a real board grows, which is where this came up: the pad is on
+        // one side and the run has to leave from the via beside it.
+        for x in [20.0, 26.0] {
+            app.tool_call(
+                "via.place",
+                json!({"net":4,"position":{"x":x,"y":30.0},"diameter":0.8,"drill":0.4}),
+            );
+        }
+        if app.project.board.vias.len() != 2 {
+            return Err(format!("both vias should be placed: {}", app.message));
+        }
+        let from = app.project.board.vias[0].position;
+        let to = app.project.board.vias[1].position;
+        let before = app.project.board.tracks.len();
+        app.canvas_click(from, 1.0);
+        assert!(
+            matches!(&app.tool, Tool::Route(Some(route_drag::RouteEnd::Via(at, net)))
+                if *net == 4 && *at == from),
+            "clicking a via starts a track from it: {:?}",
+            app.tool
+        );
+        app.canvas_click(to, 1.0);
+        assert!(
+            app.project.board.tracks.len() > before,
+            "the two vias are joined by a track: {} -> {} · {}",
+            before,
+            app.project.board.tracks.len(),
+            app.message
         );
         Ok(())
     }

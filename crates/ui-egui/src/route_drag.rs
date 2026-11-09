@@ -23,11 +23,59 @@ impl End {
     }
 }
 
+/// One end of a route the pointer has hold of.
+///
+/// A pad is named by its footprint and pad number. A via has no such name,
+/// so it travels as the point it sits at and the net it carries, which is
+/// the other form `track.route` accepts.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum RouteEnd {
+    Pad(Id, String),
+    Via(Point, Id),
+}
+
+impl RouteEnd {
+    /// This end as `track.route` wants it.
+    fn as_param(&self) -> Value {
+        match self {
+            RouteEnd::Pad(id, pad) => json!({"footprint": id, "pad": pad}),
+            RouteEnd::Via(at, _) => json!({"x": at.x, "y": at.y}),
+        }
+    }
+
+    /// The net a point-form end carries, which the command needs told.
+    fn net(&self) -> Option<Id> {
+        match self {
+            RouteEnd::Pad(..) => None,
+            RouteEnd::Via(_, net) => Some(*net),
+        }
+    }
+
+    /// The pad this end names, when it names one.
+    fn pad(&self) -> Option<(Id, &str)> {
+        match self {
+            RouteEnd::Pad(id, pad) => Some((*id, pad.as_str())),
+            RouteEnd::Via(..) => None,
+        }
+    }
+
+    /// Where this end sits on the board, for drawing the line to the pointer.
+    ///
+    /// A pad has to be looked up, since the footprint may have moved since the
+    /// end was picked. A via already travels as its point.
+    pub(crate) fn position(&self, project: &Project) -> Option<Point> {
+        match self {
+            RouteEnd::Pad(id, pad) => project.footprint(*id).and_then(|f| f.pad_position(pad)),
+            RouteEnd::Via(at, _) => Some(*at),
+        }
+    }
+}
+
 /// What the pointer is dragging right now, if anything.
 #[derive(Default)]
 pub(crate) struct State {
-    /// The pad a route drag started on.
-    route: Option<(Id, String)>,
+    /// The pad or via a route drag started on.
+    route: Option<RouteEnd>,
     /// The track end being dragged.
     end: Option<(Id, End)>,
 }
@@ -82,26 +130,62 @@ impl App {
     ///
     /// # Do not
     /// - Pick the mode here from anything but `route_mode`.
-    pub(super) fn finish_route(&mut self, from: Id, from_pad: &str, id: Id, pad: &str) {
+    /// Pick whichever end of a route the press at `pos` lands on.
+    ///
+    /// # Rules
+    /// - A pad wins over a via when both are under the pointer, because a pad
+    ///   is the more specific thing to have aimed at.
+    /// - A via carries its net, since `track.route` needs telling for a
+    ///   point-form end.
+    ///
+    /// # Dependencies
+    /// - crates/ui-egui/src/canvas.rs (`pick_pad`, `pick_via`)
+    pub(super) fn pick_route_end(&self, pos: Point, zoom: f32) -> Option<RouteEnd> {
+        if let Some((id, pad)) = self.pick_pad(pos, zoom) {
+            return Some(RouteEnd::Pad(id, pad));
+        }
+        let id = self.pick_via(pos, zoom)?;
+        let via = self.project.board.vias.iter().find(|v| v.id == id)?;
+        Some(RouteEnd::Via(via.position, via.net))
+    }
+
+    pub(super) fn finish_route(&mut self, from: &RouteEnd, to: &RouteEnd) {
         let mode = self.route_mode();
-        if let Some((mate_from, mate_to)) = self.pair_mates(from, from_pad, id, pad) {
+        // A differential pair is named by its two pads, so pair routing stays
+        // a pad to pad affair. A via end falls through to the single route.
+        if let (Some((from_id, from_pad)), Some((to_id, to_pad))) = (from.pad(), to.pad())
+            && let Some((mate_from, mate_to)) =
+                self.pair_mates(from_id, from_pad, to_id, to_pad)
+        {
             self.run(
                 "track.route_pair",
                 json!({
-                    "from_p":{"footprint":from,"pad":from_pad},
-                    "from_n":{"footprint":from,"pad":mate_from},
-                    "to_p":{"footprint":id,"pad":pad},
-                    "to_n":{"footprint":id,"pad":mate_to},
+                    "from_p":{"footprint":from_id,"pad":from_pad},
+                    "from_n":{"footprint":from_id,"pad":mate_from},
+                    "to_p":{"footprint":to_id,"pad":to_pad},
+                    "to_n":{"footprint":to_id,"pad":mate_to},
                     "layer":self.route_layer_param(),
                     "mode":mode,
                 }),
             );
-        } else {
-            self.run(
-                "track.route",
-                json!({"from":{"footprint":from,"pad":from_pad},"to":{"footprint":id,"pad":pad},"layer":self.route_layer_param(),"mode":mode}),
-            );
+            self.tool = Tool::Select;
+            return;
         }
+        let mut args = json!({
+            "from": from.as_param(),
+            "to": to.as_param(),
+            "layer": self.route_layer_param(),
+            "mode": mode,
+        });
+        // Two points need the net spelled out. One of them being a pad is
+        // enough to name it, so only say it when neither does.
+        if let Some(net) = from.net().or_else(|| to.net())
+            && from.pad().is_none()
+            && to.pad().is_none()
+        {
+            args["net"] = json!(net);
+        }
+        self.run("track.route", args);
         self.tool = Tool::Select;
     }
 
@@ -119,9 +203,9 @@ impl App {
             return false;
         }
         if matches!(self.tool, Tool::Route(_))
-            && let Some(pad) = self.pick_pad(pos, zoom)
+            && let Some(end) = self.pick_route_end(pos, zoom)
         {
-            self.route_drag.route = Some(pad);
+            self.route_drag.route = Some(end);
             self.message = mode_label(route_mode(&self.preferences));
             return true;
         }
@@ -144,11 +228,9 @@ impl App {
     /// # Do not
     /// - Move the track end with `track.set_end`; it skips clearance.
     pub(super) fn end_route_drag(&mut self, pos: Point, zoom: f32) {
-        if let Some((from, from_pad)) = self.route_drag.route.take() {
-            match self.pick_pad(pos, zoom) {
-                Some((id, pad)) if (id, &pad) != (from, &from_pad) => {
-                    self.finish_route(from, &from_pad, id, &pad);
-                }
+        if let Some(from) = self.route_drag.route.take() {
+            match self.pick_route_end(pos, zoom) {
+                Some(to) if to != from => self.finish_route(&from, &to),
                 _ => self.message = t!("board.canvas.route_drag_cancelled"),
             }
         }
