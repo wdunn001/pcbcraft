@@ -1879,3 +1879,110 @@ fn a_newcomer_sees_rulers_counting_up_from_zero() -> Result<(), String> {
     );
     Ok(())
 }
+
+/// A selection box used to stop at the edge of the canvas, so a run reaching
+/// past the viewport could not be caught in one box. Holding the drag against
+/// the margin now scrolls the view and the box grows into what it reveals.
+#[test]
+fn a_newcomer_drags_a_selection_box_into_the_margin_and_the_view_follows() -> Result<(), String> {
+    let (mut app, ctx) = sample_on(Tab::Pcb);
+    let rect = app.canvas_rect;
+    if rect.width() < 200.0 {
+        return Err(format!("the canvas should have a size: {rect:?}"));
+    }
+    // Zoom in so there is board outside the viewport to scroll to.
+    app.pcb.zoom *= 5.0;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let camera_before = app.pcb.center;
+    // The right-hand limit of what is on screen now. Board past this point is
+    // what the scroll has to reach.
+    let edge_world_before = app
+        .pcb
+        .world(egui::Pos2::new(rect.right(), rect.center().y), rect);
+
+    // The press has to land on nothing at all, since only an empty target
+    // starts a box select. Hunt for such a spot down the left of the canvas.
+    let start = (1..20)
+        .flat_map(|col| (1..14).map(move |row| (col, row)))
+        .map(|(col, row)| {
+            egui::Pos2::new(
+                rect.left() + rect.width() * 0.02 * col as f32,
+                rect.top() + rect.height() * 0.07 * row as f32,
+            )
+        })
+        .find(|at| {
+            matches!(
+                app.hit_at(app.pcb.world(*at, rect), app.pcb.zoom),
+                crate::canvas::gestures::Hit::Empty
+            )
+        })
+        .ok_or("the zoomed board should still show a patch of nothing")?;
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::PointerMoved(start)],
+        egui::Modifiers::NONE,
+    );
+    frame(
+        &ctx,
+        &mut app,
+        vec![
+            egui::Event::PointerMoved(start),
+            egui::Event::PointerButton {
+                pos: start,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ],
+        egui::Modifiers::NONE,
+    );
+
+    // Drag to the right margin and hold there, as a hand does.
+    let edge = egui::Pos2::new(rect.right() - 2.0, rect.center().y);
+    for _ in 0..90 {
+        frame(
+            &ctx,
+            &mut app,
+            vec![egui::Event::PointerMoved(edge)],
+            egui::Modifiers::NONE,
+        );
+    }
+    let box_to = app
+        .edit
+        .box_to
+        .ok_or_else(|| format!("the press should have started a box: {}", app.message))?;
+
+    assert!(
+        app.pcb.center.x > camera_before.x,
+        "holding the box against the edge scrolls the view: {camera_before:?} then {:?}",
+        app.pcb.center
+    );
+    assert!(
+        box_to.x > edge_world_before.x,
+        "the box grew into board that was off screen: {} past {}",
+        box_to.x,
+        edge_world_before.x
+    );
+
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::PointerButton {
+            pos: edge,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+        egui::Modifiers::NONE,
+    );
+    let settled = app.pcb.center;
+    for _ in 0..5 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    assert_eq!(
+        app.pcb.center, settled,
+        "the view stops scrolling once the button is released"
+    );
+    Ok(())
+}
