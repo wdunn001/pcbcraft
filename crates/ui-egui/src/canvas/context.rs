@@ -446,7 +446,7 @@ impl App {
             }
             (CanvasAct::Properties, _) => self.load_properties(),
             (CanvasAct::StartRoute, CanvasMenuKind::Pad(id, pad)) => {
-                self.tool = Tool::Route(Some((*id, pad.clone())));
+                self.tool = Tool::Route(Some(route_drag::RouteEnd::Pad(*id, pad.clone())));
             }
             (CanvasAct::AddPad, _) => {
                 if let (Some(id), Some(at)) = (id, self.edit.menu_at) {
