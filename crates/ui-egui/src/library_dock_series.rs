@@ -54,6 +54,11 @@ impl SeriesState {
         self.open.as_deref()
     }
 
+    #[cfg(test)]
+    pub(crate) fn positions_for_test(&self) -> u32 {
+        self.positions
+    }
+
     /// Open a series with the smallest useful choices from its table.
     fn start(&mut self, id: &str) {
         let Ok(spec) = series_spec(id) else {
@@ -143,6 +148,27 @@ pub(crate) fn series_rows(query: &str) -> Vec<SeriesRow> {
         });
     }
     rows
+}
+
+/// The plain line that says why a position count cannot go further, when it sits at a limit.
+pub(crate) fn limit_line(
+    spec: &pcbcraft_library::ConnectorSeriesSpec,
+    positions: u32,
+) -> Option<String> {
+    let limits = &spec.limits;
+    if positions >= limits.positions_per_row_max {
+        Some(t!(
+            "library.dock.series.limit.max",
+            max = limits.positions_per_row_max
+        ))
+    } else if positions <= limits.positions_per_row_min {
+        Some(t!(
+            "library.dock.series.limit.min",
+            min = limits.positions_per_row_min
+        ))
+    } else {
+        None
+    }
 }
 
 impl App {
@@ -275,6 +301,9 @@ impl App {
                     state.positions += 1;
                 }
             });
+            if let Some(line) = limit_line(&spec, state.positions) {
+                ui.label(fonts::caption(line).color(muted));
+            }
             if !spec.lead_codes.is_empty() {
                 ui.horizontal_wrapped(|ui| {
                     ui.label(fonts::caption(t!("library.dock.series.lead")).color(muted));
