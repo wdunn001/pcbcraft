@@ -32,6 +32,16 @@ Generated parts carry the verify note from the catalog and link to the public
 series page on samtec.com. No vendor file is committed, bundled, or fetched in
 bulk.
 
+## In the Library dock
+
+The Library dock lists one card for each catalog series under a Samtec heading,
+with an empty search and with the Connectors switch on. Typing `samtec` shows
+the same cards. A card opens a form with the rows, the positions per row, the
+lead or stack code and the alignment posts the series allows. The form shows the
+part number it builds. When the position count sits at a series limit, a plain
+line says what the limit is. Place adds the generated symbol and footprint to the
+project in one undo step.
+
 ## Owner decision
 
 Written permission from Samtec for automated fetch or redistribution has not
