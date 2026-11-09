@@ -59,6 +59,20 @@ impl RouteEnd {
         }
     }
 
+    /// The net this end sits on, for finding the pads worth landing on.
+    ///
+    /// A via carries its net. A pad has to be looked up, since the net lives on
+    /// the pad rather than on the end that names it.
+    pub(crate) fn net_on(&self, project: &Project) -> Option<Id> {
+        match self {
+            RouteEnd::Pad(id, pad) => project
+                .footprint(*id)
+                .and_then(|f| f.pads.iter().find(|p| &p.number == pad))
+                .and_then(|p| p.net),
+            RouteEnd::Via(_, net) => Some(*net),
+        }
+    }
+
     /// Where this end sits on the board, for drawing the line to the pointer.
     ///
     /// A pad has to be looked up, since the footprint may have moved since the
@@ -303,13 +317,13 @@ impl App {
                 6.0,
                 4.0,
             ));
-            let net = f.pads.iter().find(|p| &p.number == pad).and_then(|p| p.net);
+            let net = from.net_on(&self.project);
             if let Some((other, number)) = self.pick_pad(to, camera.zoom)
                 && let Some(of) = self.project.footprint(other)
                 && let Some(op) = of.pads.iter().find(|p| p.number == number)
                 && net.is_some()
                 && op.net == net
-                && (other, &number) != (*id, pad)
+                && *from != RouteEnd::Pad(other, number.clone())
                 && let Some(centre) = of.pad_position(&number)
             {
                 painter.circle_stroke(
