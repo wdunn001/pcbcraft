@@ -162,3 +162,25 @@ fn digikey_token_is_refreshed_before_it_expires() -> Result<(), SourceError> {
     );
     Ok(())
 }
+
+#[test]
+fn a_rejected_sign_in_gives_the_plain_unapproved_key_message() -> Result<(), SourceError> {
+    let http = Arc::new(RecordedHttp::new(vec![(
+        token_req(),
+        HttpResponse {
+            status: 401,
+            headers: Default::default(),
+            body: Vec::new(),
+        },
+    )]));
+    let source = DigiKeySource::new(http, keys().map_err(source_err)?);
+    let err = source
+        .search("RC0603FR-0710KL")
+        .err()
+        .ok_or_else(|| SourceError::Invalid("a 401 sign in was accepted".into()))?;
+    assert_eq!(
+        err,
+        SourceError::Unavailable(pcbcraft_library::source_errors::UNAPPROVED_KEY_MESSAGE.into())
+    );
+    Ok(())
+}

@@ -28,6 +28,7 @@ mod context_menus;
 mod copper_layers;
 mod cutout_holes;
 mod datasheet;
+mod digikey;
 mod drill_table;
 mod editing;
 mod export;

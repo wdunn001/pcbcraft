@@ -1,3 +1,4 @@
+mod distributor_http;
 mod host;
 // The transport behind the Library tab's Online source. Its background read and
 // cache purge helpers are for the settings page and are not called yet.
@@ -141,6 +142,10 @@ fn main() -> eframe::Result {
     let offline = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
         args.iter().any(|a| a == "--offline"),
     ));
+    let distributors_offline = offline.clone();
+    let keys_file = pcbcraft_engine::user_config::UserConfig::from_environment()
+        .file("part-source-keys.json")
+        .ok();
     let options = eframe::NativeOptions {
         viewport: egui_viewport(option("--size").as_deref()),
         wgpu_options: wgpu_options(),
@@ -150,30 +155,38 @@ fn main() -> eframe::Result {
         "PCBCraft",
         options,
         Box::new(move |cc| {
-            Ok(Box::new(
-                pcbcraft_ui_egui::App::new(cc, shared, capture, tab.as_deref(), light)
-                    .with_project_path(project_path)
-                    .with_capture_select(select)
-                    .with_left_tab(left)
-                    .with_capture_view(context_menu)
-                    .with_capture_menu(menu_tag)
-                    .with_capture_sheet(sheet)
-                    .with_capture_show(show)
-                    .with_capture_target(target)
-                    .with_capture_tool(add_tool)
-                    .with_capture_search(search)
-                    .with_capture_view3d(view3d)
-                    .with_capture_place(place_first)
-                    .with_capture_assistant(assistant)
-                    .with_online_fetcher(
-                        Box::new(online_http::HttpFetcher::new(
-                            online_http::Policy::default(),
-                            offline.clone(),
-                        )),
-                        offline,
-                    )
-                    .with_host(host::host()),
-            ))
+            let app = pcbcraft_ui_egui::App::new(cc, shared, capture, tab.as_deref(), light)
+                .with_project_path(project_path)
+                .with_capture_select(select)
+                .with_left_tab(left)
+                .with_capture_view(context_menu)
+                .with_capture_menu(menu_tag)
+                .with_capture_sheet(sheet)
+                .with_capture_show(show)
+                .with_capture_target(target)
+                .with_capture_tool(add_tool)
+                .with_capture_search(search)
+                .with_capture_view3d(view3d)
+                .with_capture_place(place_first)
+                .with_capture_assistant(assistant)
+                .with_online_fetcher(
+                    Box::new(online_http::HttpFetcher::new(
+                        online_http::Policy::default(),
+                        offline.clone(),
+                    )),
+                    offline,
+                );
+            // Distributor sources need a place to keep the person's key; with none, the dock shows no card.
+            let app = match distributor_http::key_store(keys_file.clone()) {
+                Some(store) => app.with_distributors(
+                    std::sync::Arc::new(distributor_http::DistributorHttp::new(
+                        distributors_offline.clone(),
+                    )),
+                    store,
+                ),
+                None => app,
+            };
+            Ok(Box::new(app.with_host(host::host())))
         }),
     )
 }

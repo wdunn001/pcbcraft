@@ -142,6 +142,12 @@ impl App {
     /// - In the browser build the transport never blocks: a search that left requests waiting is dropped and
     ///   asked again next frame, and a refused host shows its explanation.
     pub(super) fn online_parts(&mut self, ui: &mut egui::Ui) -> Vec<(PartResult, String)> {
+        let mut parts = self.distributor_parts(ui);
+        parts.extend(self.open_parts(ui));
+        parts
+    }
+    /// The open library's share of [`App::online_parts`].
+    fn open_parts(&mut self, ui: &mut egui::Ui) -> Vec<(PartResult, String)> {
         let muted = self.muted();
         let note = |ui: &mut egui::Ui, text: &str| {
             ui.label(egui::RichText::new(text).small().color(muted));
