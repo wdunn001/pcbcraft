@@ -1675,7 +1675,8 @@ impl App {
     ///   past the board.
     ///
     /// # Dependencies
-    /// - `edge_push` for the ramp, `Camera::pan_screen` for the orientation.
+    /// - crates/ui-egui/src/canvas.rs (`edge_push`, `view_bounds`)
+    /// - crates/ui-egui/src/lib.rs (`Camera::pan_screen` for the orientation)
     ///
     /// # Do not
     /// - Call this for a hover. Only a held drag scrolls.
