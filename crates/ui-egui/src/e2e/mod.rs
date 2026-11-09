@@ -71,6 +71,7 @@ mod project_settings;
 mod route_drag;
 mod rules;
 mod rules_dialog;
+mod samtec_cards;
 mod samtec_manufacturer;
 mod schematic_add;
 mod schematic_label_edit;
