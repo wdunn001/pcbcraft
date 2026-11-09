@@ -28,6 +28,7 @@ mod context_menus;
 mod copper_layers;
 mod cutout_holes;
 mod datasheet;
+#[cfg(not(target_arch = "wasm32"))]
 mod digikey;
 mod drill_table;
 mod editing;
@@ -72,6 +73,7 @@ mod project_settings;
 mod route_drag;
 mod rules;
 mod rules_dialog;
+mod samtec_cards;
 mod samtec_manufacturer;
 mod schematic_add;
 mod schematic_label_edit;

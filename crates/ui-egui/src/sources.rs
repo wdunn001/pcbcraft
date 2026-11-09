@@ -150,6 +150,12 @@ impl App {
         parts.extend(self.open_parts(ui));
         parts
     }
+    /// The browser build has no distributor sources: the person's key cannot be held there and the
+    /// distributor cannot be called directly, so nothing is drawn or listed.
+    #[cfg(target_arch = "wasm32")]
+    fn distributor_parts(&mut self, _ui: &mut egui::Ui) -> Vec<(PartResult, String)> {
+        Vec::new()
+    }
     /// The open library's share of [`App::online_parts`].
     fn open_parts(&mut self, ui: &mut egui::Ui) -> Vec<(PartResult, String)> {
         let muted = self.muted();
