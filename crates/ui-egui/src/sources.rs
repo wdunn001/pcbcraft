@@ -71,6 +71,7 @@ pub(super) struct PartSources {
 
 impl PartSources {
     /// The Offline switch, when the host gave one.
+    #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn offline_flag(&self) -> Option<Arc<AtomicBool>> {
         self.offline.clone()
     }
