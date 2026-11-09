@@ -70,6 +70,10 @@ pub(super) struct PartSources {
 }
 
 impl PartSources {
+    /// The Offline switch, when the host gave one.
+    pub(super) fn offline_flag(&self) -> Option<Arc<AtomicBool>> {
+        self.offline.clone()
+    }
     /// The open source, when it is switched on.
     pub(super) fn open(&self) -> Option<Arc<OpenLibrarySource>> {
         self.source.clone()

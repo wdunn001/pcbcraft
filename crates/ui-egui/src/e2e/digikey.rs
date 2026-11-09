@@ -1,4 +1,4 @@
-//! Stories for the Digi-Key setup card in the Library dock.
+//! Stories for the Digi-Key setup card and the Digi-Key results in the Library dock.
 //! Every answer comes from the recordings next to the library crate's tests, and the
 //! keys are fake placeholders held in memory; no story reaches a host.
 use super::super::*;
@@ -6,7 +6,8 @@ use super::support::*;
 use pcbcraft_library::credentials::{KeyStore, MemoryKeyStore, keys};
 use pcbcraft_library::http_client::{HttpClient, HttpError, HttpRequest, HttpResponse};
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 const FIXTURES: &str = "../library/tests/fixtures/sources";
 const FAKE_ID: &str = "fake-client-id-0001";
@@ -26,6 +27,9 @@ struct Recorded {
     search: Vec<u8>,
     token_status: u16,
     search_status: u16,
+    retry_after: Option<String>,
+    calls: AtomicUsize,
+    searches: Mutex<Vec<String>>,
 }
 
 impl Recorded {
@@ -35,22 +39,33 @@ impl Recorded {
             search: recorded("digikey_search.json")?,
             token_status: 200,
             search_status: 200,
+            retry_after: None,
+            calls: AtomicUsize::new(0),
+            searches: Mutex::new(Vec::new()),
         })
     }
 }
 
 impl HttpClient for Recorded {
     fn call(&self, request: &HttpRequest) -> Result<HttpResponse, HttpError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
         let (status, body) = if request.url.ends_with("/oauth2/token") {
             (self.token_status, self.token.clone())
         } else if request.url.ends_with("/search/keyword") {
+            if let Ok(mut v) = self.searches.lock() {
+                v.push(String::from_utf8_lossy(&request.body).into_owned());
+            }
             (self.search_status, self.search.clone())
         } else {
             return Err(HttpError::Failed(format!("not recorded: {}", request.url)));
         };
+        let mut headers = BTreeMap::new();
+        if let Some(wait) = &self.retry_after {
+            headers.insert("Retry-After".to_owned(), wait.clone());
+        }
         Ok(HttpResponse {
             status,
-            headers: BTreeMap::new(),
+            headers,
             body,
         })
     }
@@ -197,5 +212,114 @@ fn a_newcomer_enters_a_wrong_key_and_reads_why_it_failed() -> Result<(), String>
         app.distributors_state()
     );
     assert!(!stored(&store), "a rejected test stores nothing");
+    Ok(())
+}
+
+fn search_for(ctx: &egui::Context, app: &mut App, words: &str) -> Result<(), String> {
+    app.part_search = words.into();
+    waits_until(ctx, app, |app| app.distributors_settled());
+    Ok(())
+}
+
+#[test]
+fn with_no_key_the_dock_builds_no_digikey_source_and_shows_no_error() -> Result<(), String> {
+    let http = Arc::new(Recorded::good()?);
+    let (ctx, mut app) = dock(http.clone(), Arc::new(MemoryKeyStore::default()));
+    search_for(&ctx, &mut app, "RC0603FR-0710KL")?;
+    for _ in 0..8 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    assert_eq!(
+        http.calls.load(Ordering::SeqCst),
+        0,
+        "no request without a key"
+    );
+    assert!(!paints_text(&ctx, &mut app, "Digi-Key:")?, "no error line");
+    assert!(!paints_text(&ctx, &mut app, "Searching Digi-Key")?);
+    Ok(())
+}
+
+fn keyed_store() -> Result<Arc<MemoryKeyStore>, String> {
+    let store = Arc::new(MemoryKeyStore::default());
+    store
+        .set(keys::DIGIKEY_CLIENT_ID, FAKE_ID)
+        .and_then(|()| store.set(keys::DIGIKEY_CLIENT_SECRET, FAKE_SECRET))
+        .map_err(|e| e.to_string())?;
+    Ok(store)
+}
+
+#[test]
+fn a_newcomer_searches_a_part_number_and_sees_a_digikey_result() -> Result<(), String> {
+    let http = Arc::new(Recorded::good()?);
+    let (ctx, mut app) = dock(http.clone(), keyed_store()?);
+    search_for(&ctx, &mut app, "RC0603FR-0710KL")?;
+    assert!(
+        waits_for_text(&ctx, &mut app, "RC0603FR-0710KL")?,
+        "the Digi-Key card is listed: {}",
+        app.distributors_state()
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Digi-Key")?,
+        "the card names its source"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "450000 in stock")?,
+        "the card shows stock from the answer"
+    );
+    let asked = http.searches.lock().map_err(|e| e.to_string())?.len();
+    assert_eq!(asked, 1, "one search was sent");
+    // The same words again come from the kept answer, not a second request.
+    app.part_search = "RC0603FR-0710KL ".into();
+    for _ in 0..8 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let again = http.searches.lock().map_err(|e| e.to_string())?.len();
+    assert_eq!(
+        again, 1,
+        "a repeated search does not ask the distributor again"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_whose_search_is_paced_reads_the_wait() -> Result<(), String> {
+    let mut http = Recorded::good()?;
+    http.search_status = 429;
+    http.retry_after = Some("30".into());
+    let (ctx, mut app) = dock(Arc::new(http), keyed_store()?);
+    search_for(&ctx, &mut app, "RC0603FR-0710KL")?;
+    assert!(
+        waits_for_text(&ctx, &mut app, "pause of 30 seconds")?,
+        "the pause the distributor asked for is shown: {}",
+        app.distributors_state()
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_turns_offline_on_and_digikey_stops_answering() -> Result<(), String> {
+    let http = Arc::new(Recorded::good()?);
+    let (ctx, mut app) = dock(http.clone(), keyed_store()?);
+    let flag = Arc::new(AtomicBool::new(true));
+    app.part_sources_offline_for_test(flag.clone());
+    search_for(&ctx, &mut app, "RC0603FR-0710KL")?;
+    for _ in 0..8 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    assert_eq!(
+        http.calls.load(Ordering::SeqCst),
+        0,
+        "offline sends nothing"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Offline: Digi-Key is not asked.")?,
+        "the dock says why there are no Digi-Key cards"
+    );
+    flag.store(false, Ordering::SeqCst);
+    assert!(
+        waits_for_text(&ctx, &mut app, "450000 in stock")?,
+        "back online the card returns: {}",
+        app.distributors_state()
+    );
     Ok(())
 }
