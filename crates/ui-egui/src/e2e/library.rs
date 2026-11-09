@@ -1,0 +1,1577 @@
+use super::super::*;
+use super::support::*;
+use crate::authoring::Draft;
+use pcbcraft_library::Graphic;
+
+#[test]
+fn a_newcomer_searches_for_a_part_and_it_is_ready_to_place() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.region().left_tab = "library".to_owned();
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.change_tab(Tab::Schematic);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "Keyword or part number")?,
+        "the part search opens with a box that says what to type"
+    );
+    tap_id(
+        &ctx,
+        &mut app,
+        "button:#-pin connector, Built in \u{b7} MIT OR Apache-#.#",
+    )?;
+    assert!(
+        matches!(&app.tool, Tool::Place(kind) if kind.contains("connector")),
+        "a connector can be armed straight from the list, got {:?}",
+        app.tool
+    );
+    authoring::tests::tap(&ctx, &mut app, "Capacitor")?;
+    assert!(
+        matches!(&app.tool, Tool::Place(kind) if kind == "capacitor"),
+        "a capacitor can be armed from the list, got {:?}",
+        app.tool
+    );
+    app.change_tab(Tab::Schematic);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    tap_id(&ctx, &mut app, "textinput:Keyword or part number")?;
+    for letter in "resistor".chars() {
+        frame(
+            &ctx,
+            &mut app,
+            vec![egui::Event::Text(letter.into())],
+            egui::Modifiers::NONE,
+        );
+    }
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert_eq!(
+        app.part_search, "resistor",
+        "typing in the search box arrives letter by letter"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Resistor")?,
+        "the matching part stays in the list"
+    );
+    let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        !out.shapes.iter().any(|s| matches!(
+            &s.shape,
+            egui::Shape::Text(t) if t.galley.text() == "Capacitor"
+        )),
+        "parts that do not match the search disappear from the list"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Resistor")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        matches!(&app.tool, Tool::Place(kind) if kind == "resistor"),
+        "picking the part arms the schematic to place it, got {:?}",
+        app.tool
+    );
+    assert_eq!(
+        app.tab,
+        Tab::Schematic,
+        "the sheet comes forward to receive it"
+    );
+    Ok(())
+}
+#[test]
+fn a_newcomer_sees_what_each_part_is_and_hides_a_whole_set() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.region().left_tab = "library".to_owned();
+    app.tool_call("sample_design", json!({}));
+    let r1 = app
+        .project
+        .components
+        .iter()
+        .find(|c| c.reference == "R1")
+        .map(|c| c.id)
+        .ok_or("the practice board should have a resistor")?;
+    app.tool_call(
+        "component.field",
+        json!({"id": r1, "key": "Description", "value": "blinky red"}),
+    );
+    app.tool_call(
+        "library.symbol.upsert",
+        json!({"definition": {
+            "name": "SetR",
+            "reference": "R",
+            "value": "10k",
+            "description": "thin film",
+            "keywords": "resistor trim",
+            "footprint": "",
+            "set": "Power bits",
+            "pins": [{"number": "1", "name": "", "position": {"x": -5.0, "y": 0.0},
+                "angle": 0.0, "length": 2.5, "electrical_type": "passive",
+                "unit": 1, "body_style": 0}],
+            "graphics": [],
+            "extends": null,
+            "raw_source": "",
+            "unsupported": []
+        }}),
+    );
+    let ctx = egui::Context::default();
+    app.change_tab(Tab::Schematic);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    // The component list no longer shows a description or source line per row.
+    assert!(
+        paints_text(&ctx, &mut app, "Power bits (1 part)")?,
+        "library parts are grouped under their set name: {}",
+        app.message
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "thin film")?,
+        "each library part is a card that says what it is: {}",
+        app.message
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "SetR")?,
+        "the part itself is offered under its set: {}",
+        app.message
+    );
+    authoring::tests::tap(&ctx, &mut app, "Power bits (1 part)")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        !paints_text(&ctx, &mut app, "SetR")?,
+        "unticking the set hides every part inside it: {}",
+        app.message
+    );
+    authoring::tests::tap(&ctx, &mut app, "Power bits (1 part)")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "SetR")?,
+        "ticking it again brings the group back: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_turns_a_pad_into_an_unplated_locating_peg() -> Result<(), String> {
+    let mut pad = authoring::new_pad("3", 2.0);
+    pad.pad_type = "unplated".into();
+    authoring::apply_unplated_defaults(&mut pad);
+    if !pad.number.is_empty() || !pad.layers.is_empty() {
+        return Err("an unplated peg must have no number and no copper layers".into());
+    }
+    let drill = pad.drill.as_ref().ok_or("the peg lost its drill")?;
+    if drill.size.x <= 0.0 || pad.size.x > 0.0 {
+        return Err("the drill must be positive and the peg must carry no copper".into());
+    }
+    let definition = pcbcraft_library::FootprintDefinition {
+        name: "Peg".into(),
+        description: String::new(),
+        keywords: String::new(),
+        pads: vec![authoring::new_pad("1", 0.0), pad],
+        graphics: vec![],
+        model: None,
+        rules: None,
+        box_body: None,
+        raw_source: String::new(),
+        unsupported: vec![],
+        retained: vec![],
+    };
+    pcbcraft_doc::validate_footprint_support(&definition)?;
+
+    Ok(())
+}
+
+fn peg_connector_project() -> Result<pcbcraft_doc::Project, String> {
+    use pcbcraft_doc::{Footprint, Layer, Net, Pad, Track};
+    use pcbcraft_geom::Point;
+    use pcbcraft_library::{Drill, FootprintDefinition, FootprintPad};
+    let pad = |number: &str, kind: &str, x: f64, y: f64, size: f64, drill: f64| FootprintPad {
+        number: number.into(),
+        pad_type: kind.into(),
+        shape: "circle".into(),
+        position: Point::new(x, y),
+        rotation: 0.0,
+        size: Point::new(size, size),
+        layers: if kind == "unplated" {
+            vec![]
+        } else {
+            vec!["*.Cu".into(), "*.Mask".into()]
+        },
+        drill: Some(Drill {
+            size: Point::new(drill, drill),
+            offset: Point::default(),
+        }),
+        roundrect_ratio: None,
+        chamfer: None,
+        polygon: vec![],
+        raw_source: String::new(),
+    };
+    let pads = vec![
+        pad("1", "thru_hole", -2.54, 0.0, 1.6, 0.8),
+        pad("2", "thru_hole", 2.54, 0.0, 1.6, 0.8),
+        pad("", "unplated", 0.0, 0.0, 0.0, 3.0),
+    ];
+    let definition = FootprintDefinition {
+        name: "PegConn".into(),
+        description: String::new(),
+        keywords: String::new(),
+        pads: pads.clone(),
+        graphics: vec![],
+        model: None,
+        rules: None,
+        box_body: None,
+        raw_source: String::new(),
+        unsupported: vec![],
+        retained: vec![],
+    };
+    let mut p = pcbcraft_doc::Project::default();
+    p.nets.push(Net {
+        id: 1,
+        name: "SIG".into(),
+        ..Default::default()
+    });
+    let mut part = pcbcraft_doc::component_template("resistor", 2, "J1".into(), Point::default())
+        .ok_or("no template")?;
+    part.library_footprint = Some(pcbcraft_doc::LibraryFootprint {
+        library: "test".into(),
+        definition,
+    });
+    p.components.push(part);
+    p.board.footprints.push(Footprint {
+        preserved: pcbcraft_doc::PreservedSource::default(),
+        id: 4,
+        component: 2,
+        position: Point::new(30.0, 20.0),
+        rotation: 0.0,
+        locked: None,
+        side: None,
+        pads: pads
+            .into_iter()
+            .map(|g| Pad {
+                number: g.number.clone(),
+                offset: g.position,
+                diameter: g.size.x,
+                net: None,
+                castellated: None,
+                geometry: Some(g),
+            })
+            .collect(),
+    });
+    p.board.tracks.push(Track {
+        preserved: pcbcraft_doc::PreservedSource::default(),
+        id: 5,
+        net: 1,
+        start: Point::new(20.0, 20.0),
+        end: Point::new(40.0, 20.0),
+        width: 0.2,
+        layer: Layer::Front,
+        arc: None,
+    });
+    p.validate()?;
+    Ok(p)
+}
+
+#[test]
+fn a_newcomer_places_a_connector_with_locating_pegs() -> Result<(), String> {
+    let project = peg_connector_project()?;
+    let mut session = pcbcraft_engine::Session::default();
+    session.project = project.clone();
+    let shared = pcbcraft_mcp::shared(session);
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    // A route across the connector touches the peg drill, so the checks
+    // must say so even though the peg has no copper and no net.
+    let findings = pcbcraft_rules::drc(&project);
+    if !findings
+        .iter()
+        .any(|f| f.objects.contains(&4) && f.objects.contains(&5))
+    {
+        return Err(format!(
+            "no finding for the track through the peg: {findings:?}"
+        ));
+    }
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_sees_pegs_drawn_as_holes_and_not_as_copper() -> Result<(), String> {
+    let project = peg_connector_project()?;
+    let footprint = project.board.footprints.first().ok_or("no footprint")?;
+    let mut mechanical = 0;
+    for pad in &footprint.pads {
+        if canvas::is_mechanical_pad(pad) {
+            mechanical += 1;
+            let at = footprint.pad_world_position(pad);
+            if (at.x - 30.0).abs() > 1e-9 || (at.y - 20.0).abs() > 1e-9 {
+                return Err(format!("peg drawn at {at:?}, not at its offset"));
+            }
+            if pad.drill_outline_points().is_empty() {
+                return Err("a peg needs a drill outline to draw".into());
+            }
+        }
+    }
+    if mechanical != 1 {
+        return Err(format!("expected one peg, found {mechanical}"));
+    }
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_finds_a_real_part_by_number_and_places_it() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared.clone(), Preferences::default(), None, None);
+    app.refresh();
+    app.region().left_tab = "library".to_owned();
+    let ctx = egui::Context::default();
+    let none = egui::Modifiers::NONE;
+    frame(&ctx, &mut app, vec![], none);
+    app.change_tab(Tab::Schematic);
+    frame(&ctx, &mut app, vec![], none);
+    authoring::tests::tap(&ctx, &mut app, "Keyword or part number")?;
+    for letter in "resistor".chars() {
+        frame(&ctx, &mut app, vec![egui::Event::Text(letter.into())], none);
+    }
+    assert!(
+        paints_text(&ctx, &mut app, "Part sources are off")?,
+        "with no source the list says sources are off"
+    );
+    assert!(
+        !paints_text(&ctx, &mut app, "R_Small")?,
+        "no remote parts appear while sources are off"
+    );
+    // The open library answers from its recordings: no network in a story.
+    tap_id(&ctx, &mut app, "button:Turn on Open library")?;
+    use_recorded_library(&mut app, "real-part")?;
+    app.part_search = "resistor".into();
+    assert!(
+        waits_for_text(&ctx, &mut app, "R_Small")?,
+        "the open library lists the parts that match the words: {}",
+        app.message
+    );
+    let source = app
+        .part_sources
+        .open()
+        .ok_or("the open library should be on")?;
+    let found = pcbcraft_library::sources::PartSource::search(source.as_ref(), "resistor")
+        .map_err(|e| e.to_string())?;
+    let part = found
+        .iter()
+        .find(|p| p.mpn == "R")
+        .ok_or("the library should know the part R")?;
+    let before = shared
+        .lock()
+        .map_err(|_| "session")?
+        .project
+        .components
+        .len();
+    app.place_online_for_test(&ctx, part, "schematic", Point::new(20.0, 20.0));
+    // The worker thread can be slow on a busy runner (a full suite there has run for fifteen
+    // minutes), so wait up to 90 seconds.
+    for _ in 0..1800 {
+        frame(&ctx, &mut app, vec![], none);
+        let now = shared
+            .lock()
+            .map_err(|_| "session")?
+            .project
+            .components
+            .len();
+        if now > before {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let session = shared.lock().map_err(|_| "session")?;
+    assert_eq!(
+        session.project.components.len(),
+        before + 1,
+        "picking the found part puts it on the sheet: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_finds_a_chip_package_by_name_and_places_it_on_the_board() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared.clone(), Preferences::default(), None, None);
+    app.refresh();
+    app.region().left_tab = "library".to_owned();
+    let ctx = egui::Context::default();
+    let none = egui::Modifiers::NONE;
+    frame(&ctx, &mut app, vec![], none);
+    app.change_tab(Tab::Schematic);
+    // The open library answers from its recordings: no network in a story.
+    use_recorded_library(&mut app, "chip-package")?;
+    app.dock.view = library_dock::ViewKind::Footprints;
+    // Typed the way people type it: dash, capitals, no size.
+    app.part_search = "LQFP-64".into();
+    assert!(
+        waits_for_text(&ctx, &mut app, "LQFP-64")?,
+        "the footprint list shows the 64-pin package: {}",
+        app.message
+    );
+    let source = app
+        .part_sources
+        .open()
+        .ok_or("the open library should be on")?;
+    let found = source
+        .search_cards(
+            pcbcraft_library::open_library::CardScope::Footprints,
+            "lqfp64",
+        )
+        .map_err(|e| e.to_string())?;
+    let part = found
+        .iter()
+        .find(|p| p.mpn == "LQFP-64_10x10mm_P0.5mm")
+        .ok_or("the library should know the package")?;
+    app.place_online_for_test(&ctx, part, "board", Point::new(30.0, 30.0));
+    // The worker thread can be slow on a busy runner, so wait up to 30 seconds.
+    for _ in 0..600 {
+        frame(&ctx, &mut app, vec![], none);
+        if !shared
+            .lock()
+            .map_err(|_| "session")?
+            .project
+            .board
+            .footprints
+            .is_empty()
+        {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let session = shared.lock().map_err(|_| "session")?;
+    let placed = session
+        .project
+        .board
+        .footprints
+        .first()
+        .ok_or_else(|| format!("picking the package puts it on the board: {}", app.message))?;
+    assert_eq!(placed.pads.len(), 64, "all 64 pads arrive");
+    assert_eq!(placed.position, Point::new(30.0, 30.0));
+    let component = session
+        .project
+        .components
+        .iter()
+        .find(|c| c.id == placed.component)
+        .ok_or("the board part has a schematic part")?;
+    let fp = component
+        .library_footprint
+        .as_ref()
+        .ok_or("the part carries the package")?;
+    assert_eq!(fp.definition.name, "LQFP-64_10x10mm_P0.5mm");
+    assert_eq!(component.pins.len(), 64, "one schematic pin per pad");
+    Ok(())
+}
+
+#[test]
+fn open_library_3d_models_fetch_only_when_the_person_asks() -> Result<(), String> {
+    use crate::library_online;
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared.clone(), Preferences::default(), None, None);
+    use_recorded_library(&mut app, "real-part-second")?;
+    let source = app
+        .part_sources
+        .open()
+        .ok_or("the open library should be on")?;
+    let off = library_online::import_open(&source, "Device/R", false)?;
+    assert!(off.get("model").is_none());
+    assert_eq!(off["notices"].as_array().map(|a| a.len()), Some(2));
+    let on = library_online::import_open(&source, "Device/R", true)?;
+    assert!(on.get("model").is_some());
+    assert_eq!(on["notices"].as_array().map(|a| a.len()), Some(3));
+    assert!(
+        on["notices"]
+            .as_array()
+            .and_then(|a| a.last())
+            .and_then(|v| v.as_str())
+            .is_some_and(|n| n.contains("CC-BY-SA 4.0") && n.contains(".step")),
+        "the model notice carries the licence and file"
+    );
+    Ok(())
+}
+
+/// A footprint whose two pads sit on top of each other, saved into the
+/// project library the way an import would.
+fn app_with_overlapping_pads() -> Result<(App, egui::Context), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(
+        shared,
+        Preferences::default(),
+        None,
+        Some("footprint-editor"),
+    );
+    app.refresh();
+    let Some(authoring::Draft::Footprint(mut def)) = app.library.editor.draft.clone() else {
+        return Err("the footprint editor should start with a draft".to_string());
+    };
+    def.name = "SquashedPair".into();
+    for pad in &mut def.pads {
+        pad.position = Point::new(0.0, 0.0);
+        pad.size = Point::new(2.0, 2.0);
+    }
+    app.run("library.footprint.upsert", json!({"definition": def}));
+    let revision = app.revision;
+    app.refresh_footprint_quality();
+    assert_eq!(
+        app.revision, revision,
+        "checking a footprint must not change the design"
+    );
+    Ok((app, egui::Context::default()))
+}
+
+#[test]
+fn a_newcomer_sees_a_library_finding_with_a_fix_on_the_checks_tab() -> Result<(), String> {
+    let (mut app, ctx) = app_with_overlapping_pads()?;
+    app.home_open = false;
+    app.change_tab(Tab::Pcb);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.change_tab(Tab::Checks);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    {
+        let needle = "SquashedPair: Two pads share the same copper area";
+        assert!(
+            scrolled_to_at(&ctx, &mut app, needle, 720.0)?,
+            "the findings sheet should show \"{needle}\""
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_sees_a_quality_badge_beside_each_project_footprint() -> Result<(), String> {
+    let (mut app, _ctx) = app_with_overlapping_pads()?;
+    assert!(
+        app.library
+            .quality
+            .findings_for("SquashedPair")
+            .iter()
+            .any(|f| f.error && f.code == "lib_pad_overlap"),
+        "the squashed footprint should be marked as having a mistake to fix"
+    );
+    let ctx = egui::Context::default();
+    app.open_library_collections();
+    app.library.editor.mode = 0;
+    let mut shown = false;
+    for _ in 0..4 {
+        shown = paints_text(&ctx, &mut app, "to fix")?;
+        if shown {
+            break;
+        }
+    }
+    if !shown {
+        for _ in 0..10 {
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(egui::pos2(720.0, 500.0)),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Line,
+                        delta: egui::vec2(0.0, -6.0),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+            if paints_text(&ctx, &mut app, "to fix")? {
+                shown = true;
+                break;
+            }
+        }
+    }
+    assert!(
+        shown,
+        "the project footprint list should show a badge reading \"to fix\""
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_draws_a_two_pin_symbol_with_the_mouse() -> Result<(), String> {
+    let (shared, mut app, ctx) = authoring::tests::editor("symbol-editor")?;
+    authoring::tests::clear_symbol_draft(&mut app);
+    authoring::tests::tap(&ctx, &mut app, "Fit")?;
+    authoring::tests::tap(&ctx, &mut app, "Pin")?;
+    authoring::tests::library_world_click(&ctx, &mut app, Point::new(-2.0, 0.0))?;
+    authoring::tests::library_world_click(&ctx, &mut app, Point::new(2.0, 0.0))?;
+    authoring::tests::tap(&ctx, &mut app, "Draw rectangle")?;
+    authoring::tests::library_world_click(&ctx, &mut app, Point::new(-1.0, -1.0))?;
+    authoring::tests::library_world_click(&ctx, &mut app, Point::new(1.0, 1.0))?;
+    let draft = authoring::tests::draft_symbol(&app)?;
+    assert_eq!(draft.pins.len(), 2, "two pin clicks place two pins");
+    assert!(
+        draft
+            .pins
+            .iter()
+            .any(|p| p.position == Point::new(-2.0, 0.0)),
+        "pin one sits on the first grid click"
+    );
+    assert!(
+        draft
+            .pins
+            .iter()
+            .any(|p| p.position == Point::new(2.0, 0.0)),
+        "pin two sits on the second grid click"
+    );
+    let rect = draft
+        .graphics
+        .iter()
+        .find_map(|g| match &g.primitive {
+            Graphic::Rectangle { start, end, .. } => Some((*start, *end)),
+            _ => None,
+        })
+        .ok_or("rectangle body missing")?;
+    assert_eq!(rect.0, Point::new(-1.0, -1.0));
+    assert_eq!(rect.1, Point::new(1.0, 1.0));
+    authoring::tests::tap(&ctx, &mut app, "Save symbol to project library")?;
+    let session = shared.lock().map_err(|_| "session unavailable")?;
+    assert_eq!(session.project.library.symbols.len(), 1);
+    assert_eq!(session.project.library.symbols[0].pins.len(), 2);
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_drags_a_pad_into_place() -> Result<(), String> {
+    let (shared, mut app, ctx) = authoring::tests::editor("footprint-editor")?;
+    authoring::tests::tap(&ctx, &mut app, "Fit")?;
+    authoring::tests::tap(&ctx, &mut app, "Select")?;
+    authoring::tests::tap(&ctx, &mut app, "Save footprint to project library")?;
+    let before = app
+        .library
+        .editor
+        .draft
+        .as_ref()
+        .and_then(|d| match d {
+            Draft::Footprint(f) => f.pads.get(1).map(|p| p.position),
+            _ => None,
+        })
+        .ok_or("pad 2 missing from the default footprint")?;
+    authoring::tests::library_world_drag(
+        &ctx,
+        &mut app,
+        before,
+        before.offset(Point::new(1.0, 0.0)),
+    )?;
+    let after_drag = app
+        .library
+        .editor
+        .draft
+        .as_ref()
+        .and_then(|d| match d {
+            Draft::Footprint(f) => f.pads.get(1).map(|p| p.position),
+            _ => None,
+        })
+        .ok_or("draft lost after drag")?;
+    assert!(
+        (after_drag.x - before.x - 1.0).abs() < 1e-6,
+        "pad 2 moves one 1.0 mm step on the 0.5 mm grid"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Save footprint to project library")?;
+    {
+        let session = shared.lock().map_err(|_| "session unavailable")?;
+        let saved = &session.project.library.footprints[0].pads[1].position;
+        assert!((saved.x - after_drag.x).abs() < 1e-6);
+    }
+    app.tool_call("undo", json!({}));
+    let session = shared.lock().map_err(|_| "session unavailable")?;
+    assert!(
+        (session.project.library.footprints[0].pads[1].position.x - before.x).abs() < 1e-6,
+        "undo puts pad 2 back where it started"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_gives_a_footprint_a_3d_box_body() -> Result<(), String> {
+    let (_shared, mut app, ctx) = authoring::tests::editor("footprint-editor")?;
+    let box_body = |app: &App| -> Result<bool, String> {
+        match app.library.editor.draft.as_ref() {
+            Some(Draft::Footprint(f)) => Ok(f.box_body.is_some()),
+            _ => Err("the footprint draft is missing".into()),
+        }
+    };
+    assert!(
+        !box_body(&app)?,
+        "a new footprint starts without a box body"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Box body")?;
+    assert!(
+        box_body(&app)?,
+        "ticking Box body gives the footprint a 3D box body"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Box body")?;
+    assert!(
+        !box_body(&app)?,
+        "clearing Box body removes the 3D box body"
+    );
+    Ok(())
+}
+
+#[test]
+fn library_editor_canvas_and_form_show_the_same_pin_position_after_drag() -> Result<(), String> {
+    let (_shared, mut app, ctx) = authoring::tests::editor("symbol-editor")?;
+    authoring::tests::tap(&ctx, &mut app, "Fit")?;
+    authoring::tests::tap(&ctx, &mut app, "Select")?;
+    let start = authoring::tests::draft_symbol(&app)?.pins[0].position;
+    let target = canvas::snap(start.offset(Point::new(1.0, 0.5)));
+    authoring::tests::library_world_drag(&ctx, &mut app, start, target)?;
+    let draft_pos = authoring::tests::draft_symbol(&app)?.pins[0].position;
+    assert_eq!(draft_pos, target, "drag updates the draft pin position");
+    authoring::tests::tap(&ctx, &mut app, "Pin 1 · unit 1")?;
+    authoring::tests::frame(&ctx, &mut app, vec![]);
+    let shown = authoring::tests::draft_symbol(&app)?.pins[0].position;
+    assert_eq!(
+        shown, draft_pos,
+        "the form reads the same coordinates the canvas wrote"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_makes_a_qfn_from_its_datasheet_numbers() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(
+        shared.clone(),
+        Preferences::default(),
+        None,
+        Some("footprint-editor"),
+    );
+    app.refresh();
+    let ctx = egui::Context::default();
+    authoring::tests::tap(&ctx, &mut app, "Generate footprint")?;
+    assert!(
+        paints_text(
+            &ctx,
+            &mut app,
+            "Type the numbers from the package drawing in the datasheet. Dimensions are millimetres."
+        )?,
+        "the form tells a newcomer what to type"
+    );
+    // The datasheet says: 0.5 mm pitch, 32 pins, 5 by 5 mm body.
+    app.library.editor.wizard.family = "qfn";
+    app.library.editor.wizard.name = "QFN32_5X5".into();
+    app.library.editor.wizard.pitch = 0.5;
+    app.library.editor.wizard.pin_count = 32;
+    app.library.editor.wizard.body_length = 5.0;
+    app.library.editor.wizard.body_width = 5.0;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "33 pads, with a thermal pad")?,
+        "the preview counts the pads and shows the thermal pad"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Create footprint")?;
+    authoring::tests::tap(&ctx, &mut app, "Save footprint to project library")?;
+    let session = shared.lock().map_err(|_| "session unavailable")?;
+    let saved = session
+        .project
+        .library
+        .footprints
+        .iter()
+        .find(|f| f.name == "QFN32_5X5")
+        .ok_or("the library does not hold the new footprint")?;
+    assert_eq!(saved.pads.len(), 33, "32 pins plus the thermal pad");
+    assert!(saved.pads.iter().any(|p| p.number == "EP"));
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_sees_why_impossible_numbers_cannot_make_a_footprint() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(
+        shared,
+        Preferences::default(),
+        None,
+        Some("footprint-editor"),
+    );
+    app.refresh();
+    let ctx = egui::Context::default();
+    authoring::tests::tap(&ctx, &mut app, "Generate footprint")?;
+    app.library.editor.wizard.pitch = 40.0;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(
+            &ctx,
+            &mut app,
+            "pitch must be between 0.1 and 25.4 millimetres"
+        )?,
+        "a pitch that no package has is explained in plain words"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_makes_a_chamfered_pad_and_then_a_custom_pad() -> Result<(), String> {
+    let (shared, mut app, ctx) = authoring::tests::editor("footprint-editor")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Pad 1 · thru_hole")?;
+    authoring::tests::tap(&ctx, &mut app, "circle")?;
+    authoring::tests::tap(&ctx, &mut app, "Chamfered")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "Top left")?,
+        "a chamfered pad offers its corners by name"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Top right")?;
+    let Some(authoring::Draft::Footprint(draft)) = app.library.editor.draft.clone() else {
+        return Err("the footprint editor lost its draft".to_string());
+    };
+    let chamfer = draft.pads[0].chamfer.ok_or("the chamfer was not created")?;
+    assert_eq!(draft.pads[0].shape, "chamfered");
+    assert!(chamfer.corners.top_left && chamfer.corners.top_right);
+    assert!(!chamfer.corners.bottom_left && !chamfer.corners.bottom_right);
+    assert!(
+        (chamfer.ratio - 0.25).abs() < 1e-9,
+        "default cut is a quarter"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Save footprint to project library")?;
+    {
+        let session = shared.lock().map_err(|_| "session unavailable")?;
+        let saved = &session.project.library.footprints[0].pads[0];
+        assert_eq!(saved.shape, "chamfered", "the cut pad reaches the project");
+        assert_eq!(saved.chamfer, Some(chamfer));
+    }
+    authoring::tests::tap(&ctx, &mut app, "Chamfered")?;
+    authoring::tests::tap(&ctx, &mut app, "Custom polygon")?;
+    authoring::tests::tap(&ctx, &mut app, "Add point")?;
+    let Some(authoring::Draft::Footprint(draft)) = app.library.editor.draft.clone() else {
+        return Err("the footprint editor lost its draft".to_string());
+    };
+    assert_eq!(draft.pads[0].shape, "custom");
+    assert!(draft.pads[0].chamfer.is_none(), "the cuts go away");
+    assert_eq!(
+        draft.pads[0].polygon.len(),
+        5,
+        "four corners plus the added point"
+    );
+    Ok(())
+}
+
+fn editor_app(page: &str) -> (App, egui::Context) {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, Some(page));
+    app.refresh();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    (app, ctx)
+}
+
+fn symbol_draft(app: &App) -> Result<pcbcraft_library::SymbolDefinition, String> {
+    authoring::tests::draft_symbol(app)
+}
+
+#[test]
+fn a_newcomer_describes_a_new_symbol_in_every_box() -> Result<(), String> {
+    let (mut app, ctx) = editor_app("symbol-editor");
+    type_into(&ctx, &mut app, "textinput:Name", "Amplifier")?;
+    type_into(&ctx, &mut app, "textinput:Reference prefix", "U")?;
+    type_into(&ctx, &mut app, "textinput:Default value", "LM358")?;
+    type_into(&ctx, &mut app, "textinput:Description", "Dual op amp")?;
+    type_into(&ctx, &mut app, "textinput:Suggested footprint", "SOIC-8")?;
+    type_into(&ctx, &mut app, "textinput:Set name", "Analog")?;
+    let draft = symbol_draft(&app)?;
+    assert_eq!(draft.name, "Amplifier", "the name is the one typed");
+    assert_eq!(
+        draft.reference, "U",
+        "the reference prefix is the one typed"
+    );
+    assert_eq!(draft.value, "LM358", "the default value is the one typed");
+    assert_eq!(
+        draft.description, "Dual op amp",
+        "the note is the one typed"
+    );
+    assert_eq!(draft.footprint, "SOIC-8", "the package is the one typed");
+    assert_eq!(draft.set, "Analog", "the set is the one typed");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_adds_pins_and_shapes_to_a_symbol_and_makes_a_second_unit() -> Result<(), String> {
+    let (mut app, ctx) = editor_app("symbol-editor");
+    let pins = symbol_draft(&app)?.pins.len();
+    tap_id(&ctx, &mut app, "button:Add pin")?;
+    assert_eq!(
+        symbol_draft(&app)?.pins.len(),
+        pins + 1,
+        "one click, one pin"
+    );
+    let shapes = symbol_draft(&app)?.graphics.len();
+    for (index, button) in [
+        "button:Line",
+        "button:Rectangle",
+        "button:Circle",
+        "button:Arc",
+        "button:Polyline",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        tap_id(&ctx, &mut app, button)?;
+        assert_eq!(
+            symbol_draft(&app)?.graphics.len(),
+            shapes + index + 1,
+            "{button} adds one shape to the drawing"
+        );
+    }
+    // Opening a pin or a shape shows its own fields.
+    tap_id(&ctx, &mut app, "button:Pin # · unit #")?;
+    tap_id(&ctx, &mut app, "button:Graphic # · unit #")?;
+    tap_id(&ctx, &mut app, "button:Duplicate preview unit")?;
+    assert!(
+        symbol_draft(&app)?.pins.iter().any(|pin| pin.unit == 2),
+        "the copy lives in a second unit"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_picks_a_drawing_tool_in_the_symbol_editor() -> Result<(), String> {
+    use crate::authoring::LibraryTool;
+    let (mut app, ctx) = editor_app("symbol-editor");
+    for (button, tool) in [
+        ("button:Draw line", LibraryTool::Line),
+        ("button:Draw circle", LibraryTool::Circle),
+        ("button:Draw arc", LibraryTool::Arc),
+        ("button:Draw polyline", LibraryTool::Polyline),
+    ] {
+        tap_id(&ctx, &mut app, button)?;
+        assert!(
+            app.library.editor.tool == tool,
+            "{button} arms its drawing tool"
+        );
+    }
+    tap_id(&ctx, &mut app, "button:Fit")?;
+    assert!(
+        app.library.editor.tool == LibraryTool::Polyline,
+        "Fit zooms the canvas and leaves the chosen tool alone"
+    );
+    let before = symbol_draft(&app)?.graphics.len();
+    tap_id(&ctx, &mut app, "button:Text")?;
+    assert_eq!(
+        symbol_draft(&app)?.graphics.len(),
+        before + 1,
+        "Text adds one text label to the symbol"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_lays_out_a_footprint_with_pads_and_a_drawing() -> Result<(), String> {
+    use crate::authoring::LibraryTool;
+    let (mut app, ctx) = editor_app("footprint-editor");
+    let pads = match &app.library.editor.draft {
+        Some(Draft::Footprint(draft)) => draft.pads.len(),
+        _ => return Err("the footprint editor starts with a draft".into()),
+    };
+    tap_id(&ctx, &mut app, "button:Add pad")?;
+    let after = match &app.library.editor.draft {
+        Some(Draft::Footprint(draft)) => draft.pads.len(),
+        _ => return Err("the footprint draft vanished".into()),
+    };
+    assert_eq!(after, pads + 1, "one click, one pad");
+    tap_id(&ctx, &mut app, "button:Pad")?;
+    assert!(
+        app.library.editor.tool == LibraryTool::Pad,
+        "Pad arms the pad tool"
+    );
+    tap_id(&ctx, &mut app, "button:Pad # · thru_hole")?;
+    tap_id(&ctx, &mut app, "button:Line")?;
+    tap_id(&ctx, &mut app, "button:Graphic #")?;
+    let shapes = match &app.library.editor.draft {
+        Some(Draft::Footprint(draft)) => draft.graphics.len(),
+        _ => 0,
+    };
+    assert!(shapes > 0, "the footprint now has a drawn shape to open");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_switches_between_the_library_and_the_editor() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.region().left_tab = "library".to_owned();
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.open_library_collections();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert_eq!(
+        app.tab,
+        Tab::Library,
+        "the Collections page is in the Library tab"
+    );
+    tap_id(&ctx, &mut app, "button:New symbol")?;
+    assert!(
+        matches!(app.library.editor.draft, Some(Draft::Symbol(_))),
+        "New symbol starts a symbol draft"
+    );
+    assert_eq!(
+        app.libws.page,
+        library_workspace::Page::Edit,
+        "New symbol opens the editor on the Edit page"
+    );
+    tap_id(&ctx, &mut app, "tab:Collections")?;
+    assert_eq!(
+        app.libws.page,
+        library_workspace::Page::Collections,
+        "the Collections tab comes back to browsing"
+    );
+    tap_id(&ctx, &mut app, "button:New footprint")?;
+    assert!(
+        matches!(app.library.editor.draft, Some(Draft::Footprint(_))),
+        "New footprint starts a package draft"
+    );
+    tap_id(&ctx, &mut app, "tab:Collections")?;
+    app.library.editor.mode = 0;
+    tap_id(&ctx, &mut app, "button:Original starter symbols")?;
+    assert!(
+        paints_text_tall(&ctx, &mut app, "Place in schematic >")?,
+        "the starter symbols open with a button to place each one"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_browses_component_libraries_from_the_library_tab() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+    app.change_tab(Tab::Schematic);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.region().left_tab = "library".to_owned();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        scrolled_to_left(&ctx, &mut app, "Browse component libraries")?,
+        "the browse link is at the end of the list, below the connector series"
+    );
+    // The link is the last thing in the scrolled list; click where its text is painted.
+    let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let at = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Text(text)
+                if text.galley.text().contains("Browse component libraries") =>
+            {
+                Some(text.pos + text.galley.size() / 2.0)
+            }
+            _ => None,
+        })
+        .next_back()
+        .ok_or("the browse link is not painted")?;
+    tap_at(&ctx, &mut app, at)?;
+    assert_eq!(
+        app.tab,
+        Tab::Library,
+        "the browse link opens the Library tab, where the libraries are read and edited"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_exports_their_edited_part_to_a_file() -> Result<(), String> {
+    let (shared, mut app, ctx) = authoring::tests::editor("symbol-editor")?;
+    authoring::tests::clear_symbol_draft(&mut app);
+    type_into(&ctx, &mut app, "textinput:Name", "EditedExportSymbol")?;
+    type_into(&ctx, &mut app, "textinput:Default value", "CustomValue")?;
+    authoring::tests::tap(&ctx, &mut app, "Save symbol to project library")?;
+    {
+        let session = shared.lock().map_err(|_| "session unavailable")?;
+        assert_eq!(session.project.library.symbols.len(), 1);
+        assert_eq!(
+            session.project.library.symbols[0].name, "EditedExportSymbol",
+            "the edited symbol lives in the project library"
+        );
+    }
+    authoring::tests::tap(&ctx, &mut app, "Collections")?;
+    assert!(
+        paints_text(&ctx, &mut app, "This project's definitions")?,
+        "the project library list is on the Collections page"
+    );
+    let export_file = std::env::temp_dir().join(format!(
+        "pcbcraft-newcomer-export-{}.kicad_sym",
+        std::process::id()
+    ));
+    let export_path = export_file.to_string_lossy().into_owned();
+    type_into(&ctx, &mut app, "textinput:Symbol export file", &export_path)?;
+    authoring::tests::tap(&ctx, &mut app, "Export")?;
+    assert!(
+        export_file.exists(),
+        "export wrote a symbol library file to the chosen path"
+    );
+    let mut fresh = pcbcraft_engine::Session::default();
+    fresh
+        .execute(
+            "library.import_symbol_file",
+            json!({"path": export_path}),
+            None,
+        )
+        .map_err(|e| e.to_string())?;
+    let imported = fresh
+        .project
+        .library
+        .symbols
+        .iter()
+        .find(|s| s.name == "EditedExportSymbol")
+        .ok_or("the exported symbol did not come back through import")?;
+    assert_eq!(
+        imported.value, "CustomValue",
+        "import brings back the same default value"
+    );
+    let _ = std::fs::remove_file(&export_file);
+    Ok(())
+}
+
+/// Fixture file inside the library crate's test fixtures.
+fn library_fixture(name: &str) -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../library/tests/fixtures")
+        .join(name)
+}
+
+#[test]
+fn a_newcomer_exports_a_part_with_unknown_nodes_and_loses_none_of_them() -> Result<(), String> {
+    let (shared, mut app, ctx) = authoring::tests::editor("symbol-editor")?;
+    {
+        let mut session = shared.lock().map_err(|_| "session unavailable")?;
+        session
+            .execute(
+                "library.import_symbol_file",
+                json!({"path": library_fixture("unknown-nodes.kicad_sym").to_string_lossy()}),
+                None,
+            )
+            .map_err(|e| e.to_string())?;
+    }
+    app.refresh();
+    authoring::tests::tap(&ctx, &mut app, "Collections")?;
+    // The page grows as the browser's folder read lands; type only once the
+    // export box is painted and switched on.
+    waits_for_collections(&ctx, &mut app)?;
+    waits_for_control(&ctx, &mut app, "textinput:Symbol export file")?;
+    let export_file = std::env::temp_dir().join(format!(
+        "pcbcraft-lossless-symbol-{}.kicad_sym",
+        std::process::id()
+    ));
+    type_into(
+        &ctx,
+        &mut app,
+        "textinput:Symbol export file",
+        &export_file.to_string_lossy(),
+    )?;
+    authoring::tests::tap(&ctx, &mut app, "Export")?;
+    let text = std::fs::read_to_string(&export_file)
+        .map_err(|e| format!("export wrote no symbol file: {e}"))?;
+    let _ = std::fs::remove_file(&export_file);
+    assert!(
+        text.contains("(power_flag_hint yes)"),
+        "the exported symbol file keeps the node the app does not edit: {text}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_exports_a_footprint_and_keeps_its_pad_details_and_extra_nodes() -> Result<(), String>
+{
+    let (shared, mut app, ctx) = authoring::tests::editor("footprint-editor")?;
+    {
+        let mut session = shared.lock().map_err(|_| "session unavailable")?;
+        session
+            .execute(
+                "library.import_footprint_file",
+                json!({"path": library_fixture("unknown-nodes.kicad_mod").to_string_lossy()}),
+                None,
+            )
+            .map_err(|e| e.to_string())?;
+    }
+    app.refresh();
+    authoring::tests::tap(&ctx, &mut app, "Collections")?;
+    let folder = std::env::temp_dir().join(format!("pcbcraft-lossless-fp-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    waits_for_collections(&ctx, &mut app)?;
+    waits_for_control(&ctx, &mut app, "textinput:Footprint export folder")?;
+    type_into(
+        &ctx,
+        &mut app,
+        "textinput:Footprint export folder",
+        &folder.to_string_lossy(),
+    )?;
+    authoring::tests::tap(&ctx, &mut app, "Export")?;
+    let text = std::fs::read_to_string(folder.join("UnknownNodes.kicad_mod"))
+        .map_err(|e| format!("export wrote no footprint file: {e}"))?;
+    let _ = std::fs::remove_dir_all(&folder);
+    for needle in [
+        "(private_layers \"In1.Cu\" \"In2.Cu\")",
+        "(net_tie_pad_groups \"1, 2\")",
+        "(thermal_bridge_angle 45)",
+    ] {
+        assert!(
+            text.contains(needle),
+            "the exported footprint lost {needle}"
+        );
+    }
+    Ok(())
+}
+
+/// Draw frames until the collection browser has read its folders.
+fn waits_for_collections(ctx: &egui::Context, app: &mut App) -> Result<(), String> {
+    waits_for_library_read(ctx, app)
+}
+
+/// Keeps the folder list of a story away from the real user configuration:
+/// the session reads and writes its settings in a folder of its own.
+struct OwnSources {
+    config: pcbcraft_engine::user_config::UserConfig,
+    folder: std::path::PathBuf,
+}
+
+impl OwnSources {
+    fn take(name: &str) -> Result<Self, String> {
+        let (config, folder) = private_config(name)?;
+        Ok(Self { config, folder })
+    }
+}
+
+impl Drop for OwnSources {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.folder);
+    }
+}
+
+fn libraries_page(
+    name: &str,
+) -> Result<(OwnSources, pcbcraft_mcp::SharedSession, App, egui::Context), String> {
+    let own = OwnSources::take(name)?;
+    let shared = session_with(&own.config);
+    let mut app = App::create(shared.clone(), Preferences::default(), None, None);
+    app.refresh();
+    let ctx = egui::Context::default();
+    app.open_library_collections();
+    waits_for_collections(&ctx, &mut app)?;
+    Ok((own, shared, app, ctx))
+}
+
+#[test]
+fn a_newcomer_adds_a_folder_picks_its_library_and_searches_it() -> Result<(), String> {
+    let (_own, _shared, mut app, ctx) = libraries_page("browser")?;
+    app.open_library_sources();
+    let shelf = std::fs::canonicalize(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../library/tests/fixtures"),
+    )
+    .map_err(|e| format!("fixture shelf missing: {e}"))?
+    .to_string_lossy()
+    .into_owned();
+    type_into(
+        &ctx,
+        &mut app,
+        "textinput:Folder to add as a library source",
+        &shelf,
+    )?;
+    // Enter in the box adds the folder. Wait for the add and the re-read it
+    // starts: the controls are switched off while the browser is reading.
+    let added = waits_until(&ctx, &mut app, |app| app.library.notice.contains("Added"));
+    assert!(
+        added,
+        "adding the folder reports back: {}",
+        app.library.notice
+    );
+    tap_id(&ctx, &mut app, "tab:Collections")?;
+    waits_for_collections(&ctx, &mut app)?;
+    let added_path = app
+        .library
+        .catalog
+        .as_ref()
+        .and_then(|catalog| catalog.get("symbol_libraries"))
+        .and_then(Value::as_array)
+        .and_then(|libs| {
+            libs.iter().find_map(|lib| {
+                lib.get("path")
+                    .and_then(Value::as_str)
+                    .filter(|path| path.starts_with(&shelf))
+                    .map(str::to_owned)
+            })
+        })
+        .ok_or("the added collection is missing from the list")?;
+    // Opening the source list shows the collections to choose from.
+    tap_id(&ctx, &mut app, "combobox:Library source")?;
+    tap_id(&ctx, &mut app, "combobox:Library source")?;
+    type_into(&ctx, &mut app, "textinput:Library path", &added_path)?;
+    assert_eq!(app.library.path, added_path, "the path is the one typed");
+    type_into(
+        &ctx,
+        &mut app,
+        "textinput:Search names, descriptions, keywords",
+        "a",
+    )?;
+    // Enter in the search box already searched; let that read finish before
+    // pressing the button, which is switched off meanwhile.
+    waits_for_collections(&ctx, &mut app)?;
+    tap_id(&ctx, &mut app, "button:Search")?;
+    waits_for_collections(&ctx, &mut app)?;
+    assert!(
+        app.library.results.is_some() || !app.library.error.is_empty(),
+        "the search answers in the list or in words"
+    );
+    tap_id(&ctx, &mut app, "button:Refresh folders")?;
+    waits_for_collections(&ctx, &mut app)?;
+    assert!(
+        app.library.catalog.is_some(),
+        "Refresh folders reads the collections again"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_narrows_the_shown_library_entries_and_clears_the_filter() -> Result<(), String> {
+    let (_own, _shared, mut app, ctx) = libraries_page("filter")?;
+    type_into(&ctx, &mut app, "textinput:Filter shown results", "resistor")?;
+    assert_eq!(
+        app.library.filter, "resistor",
+        "the filter keeps what was typed"
+    );
+    tap_id(&ctx, &mut app, "button:Clear filter")?;
+    assert!(
+        app.library.filter.is_empty(),
+        "Clear filter empties the box"
+    );
+    Ok(())
+}
+
+/// A new empty folder under the temp folder, for a story that saves and picks files.
+fn story_folder(name: &str) -> Result<std::path::PathBuf, String> {
+    let folder = std::env::temp_dir().join(format!("pcbcraft-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+    Ok(folder)
+}
+
+/// The chooser window shows `folder`: type it into the path box and press Go.
+fn chooser_goes_to(
+    ctx: &egui::Context,
+    app: &mut App,
+    folder: &std::path::Path,
+) -> Result<(), String> {
+    type_into(ctx, app, "textinput:Folder path", &folder.to_string_lossy())?;
+    tap_id(ctx, app, "button:Go")
+}
+
+#[test]
+fn a_newcomer_saves_a_collection_file_and_loads_it_back() -> Result<(), String> {
+    let folder = story_folder("collection")?;
+    let file = folder.join("library.pcbcraft-lib");
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(
+        shared.clone(),
+        Preferences::default(),
+        None,
+        Some("symbol-editor"),
+    );
+    app.refresh();
+    let ctx = egui::Context::default();
+    authoring::tests::tap(&ctx, &mut app, "Save symbol to project library")?;
+    tap_id(&ctx, &mut app, "tab:Collections")?;
+    waits_for_collections(&ctx, &mut app)?;
+    tap_id(&ctx, &mut app, "button:Save library")?;
+    assert!(app.chooser_open(), "Save library opens the chooser");
+    chooser_goes_to(&ctx, &mut app, &folder)?;
+    tap_id(&ctx, &mut app, "button:Save here")?;
+    assert!(!app.chooser_open(), "the chooser closes after Save here");
+    assert!(
+        file.is_file(),
+        "the collection file lands on disk: {}",
+        app.message
+    );
+    let said = app.library.editor.notice.clone().unwrap_or_default();
+    assert!(
+        said.contains("Saved the project library"),
+        "the page says so: {said}"
+    );
+    app.run("library.symbol.remove", json!({"name": "NewSymbol"}));
+    tap_id(&ctx, &mut app, "button:Load library")?;
+    assert!(app.chooser_open(), "Load library opens the chooser");
+    chooser_goes_to(&ctx, &mut app, &folder)?;
+    tap_id(&ctx, &mut app, "button:library.pcbcraft-lib")?;
+    tap_id(&ctx, &mut app, "button:Load this file")?;
+    let said = app.library.editor.notice.clone().unwrap_or_default();
+    let session = shared.lock().map_err(|_| "session unavailable")?;
+    assert_eq!(
+        session.project.library.symbols.len(),
+        1,
+        "Load library brings the saved collection back: {said}"
+    );
+    drop(session);
+    assert!(
+        said.contains("Loaded library.pcbcraft-lib"),
+        "the page says what loaded: {said}"
+    );
+    let _ = std::fs::remove_dir_all(&folder);
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_is_told_why_a_collection_file_would_not_load() -> Result<(), String> {
+    let folder = story_folder("badcollection")?;
+    std::fs::write(folder.join("broken.pcbcraft-lib"), "not a collection")
+        .map_err(|e| e.to_string())?;
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, Some("symbol-editor"));
+    app.refresh();
+    let ctx = egui::Context::default();
+    tap_id(&ctx, &mut app, "tab:Collections")?;
+    waits_for_collections(&ctx, &mut app)?;
+    tap_id(&ctx, &mut app, "button:Load library")?;
+    chooser_goes_to(&ctx, &mut app, &folder)?;
+    tap_id(&ctx, &mut app, "button:broken.pcbcraft-lib")?;
+    tap_id(&ctx, &mut app, "button:Load this file")?;
+    let said = app.library.editor.notice.clone().unwrap_or_default();
+    assert!(
+        said.contains("Could not load broken.pcbcraft-lib"),
+        "a file that is not a collection gets a plain reason on the page: {said}"
+    );
+    let _ = std::fs::remove_dir_all(&folder);
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_cancels_the_chooser_and_nothing_changes() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, Some("symbol-editor"));
+    app.refresh();
+    let ctx = egui::Context::default();
+    tap_id(&ctx, &mut app, "tab:Collections")?;
+    waits_for_collections(&ctx, &mut app)?;
+    tap_id(&ctx, &mut app, "button:Load library")?;
+    assert!(app.chooser_open());
+    tap_id(&ctx, &mut app, "button:Cancel")?;
+    assert!(!app.chooser_open(), "Cancel closes the chooser");
+    assert!(
+        app.library.editor.notice.is_none(),
+        "Cancel says nothing and loads nothing"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_switches_the_collection_between_symbols_and_footprints_and_names_an_export_folder()
+-> Result<(), String> {
+    let (_own, _shared, mut app, ctx) = libraries_page("kinds")?;
+    tap_id(&ctx, &mut app, "button:Footprints")?;
+    tap_id(&ctx, &mut app, "button:Symbols")?;
+    let folder = std::env::temp_dir().join(format!("pcbcraft-fp-export-{}", std::process::id()));
+    type_into(
+        &ctx,
+        &mut app,
+        "textinput:Footprint export folder",
+        &folder.to_string_lossy(),
+    )?;
+    let _ = std::fs::remove_dir_all(&folder);
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_views_and_edits_a_3d_model_for_a_part_in_the_library() -> Result<(), String> {
+    let (_own, _shared, mut app, ctx) = libraries_page("3d-model")?;
+    // Create a footprint and save it to the project library.
+    let mut fp = authoring::new_footprint();
+    fp.name = "HasModel".into();
+    app.tool_call("library.footprint.upsert", json!({"definition": fp}));
+    // Set a 3D model on the footprint.
+    app.tool_call(
+        "library.footprint.set_model",
+        json!({"name": "HasModel", "path": "wedge.gltf"}),
+    );
+    // Create a symbol with that footprint.
+    let mut sym = authoring::new_symbol();
+    sym.name = "Test part".into();
+    sym.footprint = "HasModel".into();
+    app.tool_call("library.symbol.upsert", json!({"definition": sym.clone()}));
+    app.refresh();
+    // Open the part in the library workspace.
+    app.library_open_part(&ctx, &library_dock::Card::Project(Box::new(sym)));
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    // Navigate to the 3D model tab.
+    tap_id(&ctx, &mut app, "tab:#D model")?;
+    // Verify the 3D model transform panel shows.
+    assert!(
+        paints_text(&ctx, &mut app, "Model file")?,
+        "the library preview shows the 3D model transform panel for footprints with models"
+    );
+    // Verify the model path is shown.
+    assert!(
+        paints_text(&ctx, &mut app, "wedge.gltf")?,
+        "the model path appears in the preview"
+    );
+    // Verify the transform controls are present.
+    assert!(
+        paints_text(&ctx, &mut app, "Offset")?,
+        "the model transform panel has offset controls"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Scale")?,
+        "the model transform panel has scale controls"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Rotation")?,
+        "the model transform panel has rotation controls"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_publishes_a_part_and_installs_it_from_a_registry_folder() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.region().left_tab = "library".to_owned();
+    let ctx = egui::Context::default();
+    let none = egui::Modifiers::NONE;
+    frame(&ctx, &mut app, vec![], none);
+    let registry = std::env::temp_dir().join(format!("pcbcraft-registry-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&registry);
+    std::fs::create_dir_all(&registry).map_err(|e| e.to_string())?;
+    let registry_path = registry.to_string_lossy().to_string();
+    let files = serde_json::json!({
+        "MyPart.kicad_sym": base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            "(kicad_symbol_lib version 20240108)(symbol MyPart (in_bom yes)(on_board yes))"
+        )
+    });
+    let published = app.tool_call(
+        "registry.publish",
+        serde_json::json!({
+            "registry": registry_path.clone(),
+            "id": "my-part",
+            "title": "My Part",
+            "version": "1.0.0",
+            "kind": "part",
+            "tags": ["custom"],
+            "files": files
+        }),
+    );
+    assert!(published, "publishing to a local registry folder works");
+    let dest = std::env::temp_dir().join(format!("pcbcraft-install-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dest);
+    let installed = app.tool_call(
+        "registry.install",
+        serde_json::json!({
+            "registry": registry_path.clone(),
+            "id": "my-part",
+            "version": "1.0.0",
+            "dest": dest.to_string_lossy().to_string()
+        }),
+    );
+    assert!(installed, "installing from a local registry folder works");
+    let installed_file = dest.join("MyPart.kicad_sym");
+    assert!(
+        installed_file.is_file(),
+        "the installed file exists on disk"
+    );
+    let _ = std::fs::remove_dir_all(&registry);
+    let _ = std::fs::remove_dir_all(&dest);
+    Ok(())
+}

@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pcbcraft.dev/schemas/publication.v1.schema.json",
+  "title": "PCBCraft publication manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "identity",
+    "licences",
+    "version",
+    "files",
+    "provenance",
+    "bundle_root_hash"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "authors"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "authors": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+              "contact": { "type": "string", "maxLength": 256 }
+            }
+          }
+        },
+        "homepage": { "type": "string", "format": "uri" }
+      }
+    },
+    "licences": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hardware", "software", "documentation", "models_3d"],
+      "properties": {
+        "hardware": { "type": "string", "minLength": 1 },
+        "software": { "type": "string", "minLength": 1 },
+        "documentation": { "type": "string", "minLength": 1 },
+        "models_3d": { "type": "string", "minLength": 1 }
+      }
+    },
+    "version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version"],
+      "properties": {
+        "version": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "previous_version_hash": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" },
+        "changelog": { "type": "string", "maxLength": 16384 }
+      }
+    },
+    "derived_from": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["parent_id", "relation", "parent_licence"],
+        "properties": {
+          "parent_id": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "relation": {
+            "type": "string",
+            "enum": ["fork", "remix", "adaptation", "uses-part"]
+          },
+          "parent_licence": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "tags": {
+      "type": "array",
+      "maxItems": 32,
+      "items": { "type": "string", "minLength": 1, "maxLength": 32 }
+    },
+    "roles": {
+      "type": "array",
+      "maxItems": 8,
+      "items": { "type": "string", "minLength": 1, "maxLength": 32 }
+    },
+    "bom_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lines"],
+      "properties": {
+        "lines": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["designator", "value"],
+            "properties": {
+              "designator": { "type": "string", "minLength": 1, "maxLength": 64 },
+              "value": { "type": "string", "maxLength": 128 },
+              "mpn": { "type": "string", "maxLength": 128 },
+              "manufacturer": { "type": "string", "maxLength": 128 },
+              "datasheet_url": { "type": "string", "format": "uri" }
+            }
+          }
+        }
+      }
+    },
+    "compliance_claims": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scheme", "claim"],
+        "properties": {
+          "scheme": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "claim": { "type": "string", "minLength": 1, "maxLength": 512 },
+          "evidence_url": { "type": "string", "format": "uri" }
+        }
+      }
+    },
+    "previews": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "role"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "role": { "type": "string", "minLength": 1, "maxLength": 32 },
+          "caption": { "type": "string", "maxLength": 256 }
+        }
+      }
+    },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 512,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "sha256",
+          "size",
+          "media_type",
+          "role",
+          "format"
+        ],
+        "properties": {
+          "path": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "sha256": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" },
+          "size": { "type": "integer", "minimum": 0 },
+          "media_type": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "role": { "type": "string", "minLength": 1, "maxLength": 32 },
+          "format": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "format_version": { "type": "string", "maxLength": 32 }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["publisher", "tool", "tool_version"],
+      "properties": {
+        "publisher": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "tool": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "tool_version": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "source_revision": { "type": "string", "maxLength": 64 }
+      }
+    },
+    "publisher_signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "public_key_id", "signature"],
+      "properties": {
+        "algorithm": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "public_key_id": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "signature": { "type": "string", "minLength": 1, "maxLength": 4096 }
+      }
+    },
+    "bundle_root_hash": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" }
+  }
+}

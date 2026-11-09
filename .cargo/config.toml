@@ -1,0 +1,8 @@
+[alias]
+xtask = "run -p xtask --"
+
+[env]
+# The egui app's debug frames (the e2e walks drive whole windows on the test thread) need
+# more than the default 2 MiB test-thread stack. The engine's command dispatcher no
+# longer does: it is split into small slice functions and its tests run without this.
+RUST_MIN_STACK = "16777216"

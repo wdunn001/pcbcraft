@@ -1,0 +1,17 @@
+schema = 1
+
+[profile]
+id = "pcie-gen2"
+name = "PCIe gen2"
+category = "interface"
+summary = "PCIe gen2 rule starting points."
+
+[[net_class]]
+name = "SIG"
+clearance = 0.15
+width = 0.2
+patterns = ["*"]
+
+[[value_source]]
+field = "net_class.width"
+source = "pcie-gen2_default"

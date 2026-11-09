@@ -1,0 +1,16 @@
+schema = 1
+id = "synthetic_radio_bands"
+title = "Synthetic ISM and short-range radio bands by market for PCBCraft fixture tests"
+source_url = "https://example.test/compliance/lists/synthetic-radio-bands"
+published = "2024-01-01"
+retrieved = "2026-01-15"
+licence = "CC0-1.0"
+cadence_days = 180
+
+[[market]]
+code = "US"
+bands_mhz = [[902.0, 928.0], [2400.0, 2483.5]]
+
+[[market]]
+code = "EU"
+bands_mhz = [[863.0, 870.0], [2400.0, 2483.5]]

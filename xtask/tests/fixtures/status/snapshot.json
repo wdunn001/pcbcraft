@@ -1,0 +1,435 @@
+{
+  "api_requests": 9,
+  "fetched_at": "2026-10-29T23:00:00Z",
+  "issues": [
+    {
+      "depends_line": "Depends on: the strategy page from the first child of {{PCBREF:292}} (docs/adr-0001-simulation.md) merged to fork main. Do not start before that; the page is the contract.",
+      "migrated_from": 755,
+      "number": 596,
+      "state": "open",
+      "tags_line": "**Tags:** `track:ai-handoff` `kind:feature` `area:sim` `milestone:m4` `crate:sim` `crate:xtask` `conflict:parallel-safe` `size:m` `status:needs-owner-test` `ready` `research:done` `enrich:done`",
+      "title": "Native DC solver crate with value parser (child of {{PCBREF:292}})",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/596"
+    },
+    {
+      "depends_line": "{{PCBREF:762}}, {{PCBREF:765}} ",
+      "migrated_from": 766,
+      "number": 607,
+      "state": "open",
+      "tags_line": "**Tags:** `track:ai-handoff` `track:ui-design` `kind:enhancement` `area:ui-shell` `crate:ui-egui` `conflict:ui-egui-lib` `size:m` `status:in-progress` `research:n/a`",
+      "title": "Shell frame: slim menu bar, tab nav, status bar (no left rail)",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/607"
+    },
+    {
+      "depends_line": "{{PCBREF:766}}, {{PCBREF:761}}, icons ({{PCBREF:612}}) ",
+      "migrated_from": 767,
+      "number": 608,
+      "state": "open",
+      "tags_line": "**Tags:** `track:ai-handoff` `track:ui-design` `kind:enhancement` `area:ui-shell` `crate:ui-egui` `conflict:ui-egui-lib` `size:m` `status:in-progress` `research:n/a`",
+      "title": "Secondary tool bar under the tab nav, one row, per tab (with icons)",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/608"
+    },
+    {
+      "depends_line": "",
+      "migrated_from": 781,
+      "number": 624,
+      "state": "open",
+      "tags_line": "**Tags:** `track:ai-handoff` `kind:feature` `area:library` `crate:library` `conflict:parallel-safe` `size:s` `status:pr-open` `ready` `research:done` `enrich:done`",
+      "title": "Online CAD sources: CadSource trait, part references and provenance notice (child of {{PCBREF:757}})",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/624"
+    },
+    {
+      "depends_line": "",
+      "migrated_from": 782,
+      "number": 625,
+      "state": "open",
+      "tags_line": "**Tags:** `track:ai-handoff` `kind:feature` `area:library` `crate:library` `conflict:parallel-safe` `size:s` `status:pr-open` `ready` `research:done` `enrich:done`",
+      "title": "Online CAD sources: disk cache keyed by upstream path and hash, usable offline (child of {{PCBREF:757}})",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/625"
+    },
+    {
+      "depends_line": "",
+      "migrated_from": 783,
+      "number": 627,
+      "state": "open",
+      "tags_line": "**Tags:** `track:ai-handoff` `kind:feature` `area:library` `crate:library` `conflict:parallel-safe` `size:m` `status:pr-open` `ready` `research:done` `enrich:done`",
+      "title": "OpenLibrarySource: list, search and fetch from the open symbol, footprint and 3D repositories (child of {{PCBREF:757}})",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/627"
+    },
+    {
+      "depends_line": "",
+      "migrated_from": 784,
+      "number": 628,
+      "state": "open",
+      "tags_line": "**Tags:** `track:ai-handoff` `kind:feature` `area:library` `crate:library` `crate:engine` `conflict:parallel-safe` `size:m` `status:pr-open` `ready` `research:done` `enrich:done`",
+      "title": "Import an online part into the project library with attribution (command library.import_online) (child of {{PCBREF:757}})",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/628"
+    },
+    {
+      "depends_line": "",
+      "migrated_from": 785,
+      "number": 629,
+      "state": "open",
+      "tags_line": "**Tags:** `track:ai-handoff` `kind:feature` `area:library` `crate:engine` `conflict:parallel-safe` `size:m` `status:pr-open` `ready` `research:done` `enrich:done`",
+      "title": "library.place_online: place an online part on the Schematic or the Layout as one undo step (child of {{PCBREF:757}})",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/629"
+    },
+    {
+      "depends_line": "",
+      "migrated_from": 794,
+      "number": 638,
+      "state": "open",
+      "tags_line": "**Tags:** `track:ai-handoff` `track:ui-design` `kind:epic` `area:layout` `area:library` `area:artifacts` `area:ui-shell` `milestone:m5` `milestone:m6` `crate:doc` `crate:engine` `crate:io` `crate:rules` `crate:library` `crate:ui-egui` `conflict:ui-egui-lib` `size:l` `priority:owner-top` `status:open` `ready` `research:done` `enrich:done` `owner-decision`",
+      "title": "Epic: the board as physical layers, with components, nets, vias and per-layer artifacts, all selectable",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/638"
+    },
+    {
+      "depends_line": "",
+      "migrated_from": 796,
+      "number": 640,
+      "state": "open",
+      "tags_line": "**Tags:** `track:ai-handoff` `track:ui-design` `kind:feature` `area:ui-shell` `area:layout` `area:schematic` `crate:ui-egui` `conflict:ui-egui-lib` `size:m` `status:claimed` `ready` `research:done` `enrich:done` `priority:owner-top`",
+      "title": "Tool modifiers: Shift, Ctrl and Alt change what each tool does, one shared resolver, remappable",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/640"
+    },
+    {
+      "depends_line": "",
+      "migrated_from": 798,
+      "number": 642,
+      "state": "open",
+      "tags_line": "**Tags:** `track:ai-handoff` `kind:feature` `area:layout` `milestone:m5` `crate:doc` `crate:engine` `conflict:parallel-safe` `size:m` `priority:owner-top` `status:needs-owner-test` `ready` `research:done` `enrich:done` `owner-decision`",
+      "title": "Physical layer record: side, material, Dk, Df, thickness tolerance, copper weight; per-layer Dk replaces the single board value (child of {{PCBREF:794}})",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/642"
+    },
+    {
+      "depends_line": "",
+      "migrated_from": 800,
+      "number": 644,
+      "state": "open",
+      "tags_line": "**Tags:** `track:ai-handoff` `kind:feature` `area:layout` `milestone:m5` `crate:doc` `crate:rules` `conflict:parallel-safe` `size:m` `status:claimed` `ready` `research:done` `enrich:done`",
+      "title": "Pour and obstacle items by layer: vias only on their span, surface pads only on their face, antipads, six-layer fixture (child of {{PCBREF:794}})",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/644"
+    },
+    {
+      "depends_line": "",
+      "migrated_from": 801,
+      "number": 645,
+      "state": "open",
+      "tags_line": "**Tags:** `track:ai-handoff` `kind:feature` `area:layout` `area:artifacts` `milestone:m5` `crate:doc` `crate:io` `crate:rules` `conflict:parallel-safe` `size:m` `status:claimed` `ready` `research:done` `enrich:done`",
+      "title": "Back-drill: start layer, must-not-cut layer, maximum stub length, own drill pass and file (child of {{PCBREF:794}})",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/645"
+    },
+    {
+      "depends_line": "",
+      "migrated_from": 803,
+      "number": 648,
+      "state": "open",
+      "tags_line": "**Tags:** `track:ai-handoff` `kind:feature` `area:layout` `area:schematic` `crate:doc` `crate:engine` `conflict:parallel-safe` `size:s` `priority:owner-top` `status:needs-owner-test` `ready` `research:done` `enrich:done`",
+      "title": "Derived net membership query: tracks, vias, pads, zones by layer, wire segments and labels (child of {{PCBREF:794}})",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/648"
+    },
+    {
+      "depends_line": "",
+      "migrated_from": 818,
+      "number": 663,
+      "state": "open",
+      "tags_line": "**Tags:** `track:ai-handoff` `track:ui-design` `kind:feature` `area:ui-shell` `crate:ui-egui` `conflict:ui-egui-lib` `size:s` `status:blocked` `ready` `research:done` `enrich:done`",
+      "title": "Layers tree keyboard and accessibility pass following the tree view pattern (child of {{PCBREF:794}})",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/663"
+    },
+    {
+      "depends_line": "",
+      "migrated_from": 819,
+      "number": 665,
+      "state": "open",
+      "tags_line": "**Tags:** `track:ai-handoff` `kind:research` `area:io` `area:artifacts` `conflict:parallel-safe` `size:s` `status:blocked` `stage:research` `research:needed` `enrich:done` `owner-decision`",
+      "title": "PARKED research: ODB++ export of the matrix and drill layers (child of {{PCBREF:794}})",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/665"
+    },
+    {
+      "depends_line": "",
+      "migrated_from": 827,
+      "number": 674,
+      "state": "open",
+      "tags_line": "**Tags:** `track:ai-handoff` `track:ui-design` `kind:bug` `area:ui-shell` `crate:ui-egui` `conflict:ui-egui-lib` `size:s` `status:open` `ready` `research:n/a` `enrich:done`",
+      "title": "Reflow at 320 points: Help menu, a tree row and the 3D toolbar overrun",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/674"
+    },
+    {
+      "depends_line": "",
+      "migrated_from": 828,
+      "number": 675,
+      "state": "open",
+      "tags_line": "**Tags:** `track:ai-handoff` `kind:feature` `area:layout` `area:artifacts` `crate:doc` `crate:engine` `crate:io` `crate:ui-egui` `conflict:parallel-safe` `size:s` `status:open` `ready` `research:n/a` `enrich:done`",
+      "title": "Per-part flags: include in parts list and in placement file (and a board clearance setter)",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/675"
+    },
+    {
+      "depends_line": "",
+      "migrated_from": 829,
+      "number": 676,
+      "state": "open",
+      "tags_line": "**Tags:** `track:ai-handoff` `track:ui-design` `kind:feature` `area:schematic` `area:docs` `crate:xtask` `conflict:parallel-safe` `size:s` `status:open` `ready` `research:n/a` `enrich:done`",
+      "title": "Showcase project: clean schematic layout on all three pages",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/676"
+    },
+    {
+      "depends_line": "",
+      "migrated_from": 830,
+      "number": 677,
+      "state": "open",
+      "tags_line": "**Tags:** `track:ui-design` `kind:bug` `area:ui-shell` `crate:ui-egui` `conflict:ui-egui-lib` `size:xs` `status:claimed` `ready`",
+      "title": "View toggles and zoom card draw above menus and windows",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/677"
+    },
+    {
+      "depends_line": "",
+      "migrated_from": 832,
+      "number": 678,
+      "state": "open",
+      "tags_line": "**Tags:** `track:ai-handoff` `kind:research` `area:library` `milestone:m4` `size:l` `status:open` `stage:enrich` `research:done` `owner-decision`",
+      "title": "Research: datasheet cache and rules service for the shared component library",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/678"
+    },
+    {
+      "depends_line": "",
+      "migrated_from": 833,
+      "number": 679,
+      "state": "open",
+      "tags_line": "**Tags:** `track:ui-design` `kind:feature` `area:ui-shell` `crate:ui-egui` `conflict:ui-egui-lib` `size:xs` `status:needs-owner-test` `ready` `research:n/a` `enrich:done`",
+      "title": "Pan the view with Space and drag",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/679"
+    }
+  ],
+  "main_sha": "ce172b5208b3a4d207a4d2f550a76389bfbb8403",
+  "pulls": [
+    {
+      "issues_line": "Issues: #693, #800",
+      "merge_sha": "1a867537766ad8f92b5cd8c3ccc37c2e3446d0bb",
+      "merged_at": "2026-10-29T15:35:44Z",
+      "number": 73,
+      "title": "Regenerate the showcase examples (main is red)",
+      "url": "https://github.com/wdunn001/pcbcraft/pull/73"
+    },
+    {
+      "issues_line": "Issues: #798, #800, #803",
+      "merge_sha": "3d08d9a6ccb74266bb1db5904231c4bc669a0649",
+      "merged_at": "2026-10-29T15:13:17Z",
+      "number": 70,
+      "title": "Layer record, span-aware pours and net members (#798, #800, #803)",
+      "url": "https://github.com/wdunn001/pcbcraft/pull/70"
+    },
+    {
+      "issues_line": "Issues: #803",
+      "merge_sha": "6314ed65c0c7bafaa16ff0ba1d8d8e52a5588a04",
+      "merged_at": "2026-10-29T15:13:19Z",
+      "number": 68,
+      "title": "Net members query (#803)",
+      "url": "https://github.com/wdunn001/pcbcraft/pull/68"
+    },
+    {
+      "issues_line": "Issues: #800, #794",
+      "merge_sha": "42491f3a4593ff118984225229dcec8705927589",
+      "merged_at": "2026-10-29T15:13:19Z",
+      "number": 67,
+      "title": "Span-aware pour obstacles and antipads (#800)",
+      "url": "https://github.com/wdunn001/pcbcraft/pull/67"
+    },
+    {
+      "issues_line": "Issues: #798",
+      "merge_sha": "5e87c0a3a6e17dcbd14a3db8ee4f700295a30c2d",
+      "merged_at": "2026-10-29T15:13:19Z",
+      "number": 66,
+      "title": "Physical layer record (#798)",
+      "url": "https://github.com/wdunn001/pcbcraft/pull/66"
+    },
+    {
+      "issues_line": "Issues: #796",
+      "merge_sha": "e67723c2acaacc686a7bdb5d4d6bed7370053a01",
+      "merged_at": "2026-10-29T17:20:17Z",
+      "number": 64,
+      "title": "Tool modifiers: Shift, Ctrl and Alt, one shared resolver (#796)",
+      "url": "https://github.com/wdunn001/pcbcraft/pull/64"
+    },
+    {
+      "issues_line": "Issues: #785 (epic #757)",
+      "merge_sha": "217ea1f241a945e13ed90ef6b23930ba662e7572",
+      "merged_at": "2026-10-29T16:14:54Z",
+      "number": 61,
+      "title": "library.place_online: place an online part on the schematic or layout (#785)",
+      "url": "https://github.com/wdunn001/pcbcraft/pull/61"
+    },
+    {
+      "issues_line": "Issues: #783 (epic #757)",
+      "merge_sha": "781e4613a2ab1429bb02cba01b458a917516e806",
+      "merged_at": "2026-10-29T16:14:54Z",
+      "number": 59,
+      "title": "OpenLibrarySource: list, search and fetch from the open libraries (#783)",
+      "url": "https://github.com/wdunn001/pcbcraft/pull/59"
+    },
+    {
+      "issues_line": "Issues: #782 (epic #757)",
+      "merge_sha": "27d6acf5a5ac37c019e9406146d51aadec01d11d",
+      "merged_at": "2026-10-29T16:14:55Z",
+      "number": 58,
+      "title": "Online CAD sources: disk cache keyed by upstream path and hash (#782)",
+      "url": "https://github.com/wdunn001/pcbcraft/pull/58"
+    },
+    {
+      "issues_line": "Issues: #781 (epic #757)",
+      "merge_sha": "189779d7fdc173d3f1a089b67af5537408f11fe8",
+      "merged_at": "2026-10-29T16:14:55Z",
+      "number": 57,
+      "title": "Online CAD sources: CadSource trait, references and provenance (#781)",
+      "url": "https://github.com/wdunn001/pcbcraft/pull/57"
+    }
+  ],
+  "releases": [],
+  "repo": "wdunn001/pcbcraft",
+  "runs": [
+    {
+      "conclusion": "success",
+      "created_at": "2026-10-29T19:47:50Z",
+      "head_sha": "ce172b5208b3a4d207a4d2f550a76389bfbb8403",
+      "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40943287741"
+    },
+    {
+      "conclusion": "success",
+      "created_at": "2026-10-29T19:17:23Z",
+      "head_sha": "0b9d72a502253de18fb80a3ae950a5aeb3ec6634",
+      "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40938726973"
+    },
+    {
+      "conclusion": "success",
+      "created_at": "2026-10-29T18:42:33Z",
+      "head_sha": "e1d86fb8442edcf504318ec73f887219597c889d",
+      "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40933347178"
+    },
+    {
+      "conclusion": "success",
+      "created_at": "2026-10-29T18:29:17Z",
+      "head_sha": "ebbe3195344f7c69c85236a7bcb9ab5743febe1f",
+      "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40931264581"
+    },
+    {
+      "conclusion": "success",
+      "created_at": "2026-10-29T18:14:02Z",
+      "head_sha": "b73d0a0102d0ebf72b49d991345d8f6d3dc3227d",
+      "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40928850300"
+    },
+    {
+      "conclusion": "success",
+      "created_at": "2026-10-29T17:54:02Z",
+      "head_sha": "1cf4cceec3f97f887fd6bd33f46a94b78b9c4988",
+      "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40925699695"
+    },
+    {
+      "conclusion": "success",
+      "created_at": "2026-10-29T17:40:39Z",
+      "head_sha": "03c54cfb1c70eb24b2fd151ea312dda78b692693",
+      "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40923599905"
+    },
+    {
+      "conclusion": "cancelled",
+      "created_at": "2026-10-29T17:39:17Z",
+      "head_sha": "88aa4d5999f6ef6355fb48ec98b2b43791856f01",
+      "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40923384668"
+    },
+    {
+      "conclusion": "failure",
+      "created_at": "2026-10-29T17:20:37Z",
+      "head_sha": "85a7ffd9874de94646ffaae3db56f4fef09812f8",
+      "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40920408026"
+    },
+    {
+      "conclusion": "cancelled",
+      "created_at": "2026-10-29T17:20:34Z",
+      "head_sha": "3181f1d9c64ee7007c22b2c4cdbebd7a299db996",
+      "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40920397338"
+    },
+    {
+      "conclusion": "cancelled",
+      "created_at": "2026-10-29T17:20:30Z",
+      "head_sha": "9984b91802b206b69b772821295be8fe096a7c0f",
+      "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40920388609"
+    },
+    {
+      "conclusion": "cancelled",
+      "created_at": "2026-10-29T17:20:25Z",
+      "head_sha": "45c4a35955bb14c788a1c7d86460442f8ea74747",
+      "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40920375525"
+    },
+    {
+      "conclusion": "cancelled",
+      "created_at": "2026-10-29T17:20:20Z",
+      "head_sha": "e67723c2acaacc686a7bdb5d4d6bed7370053a01",
+      "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40920361944"
+    },
+    {
+      "conclusion": "failure",
+      "created_at": "2026-10-29T17:11:04Z",
+      "head_sha": "7dc20d18a0d48a887b72b25eea3c12203c267c54",
+      "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40918858711"
+    },
+    {
+      "conclusion": "success",
+      "created_at": "2026-10-29T16:34:01Z",
+      "head_sha": "81058a6590998e04c0f3d68384da584a94c2e2e1",
+      "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40912840612"
+    },
+    {
+      "conclusion": "success",
+      "created_at": "2026-10-29T16:14:58Z",
+      "head_sha": "acafc779babb6a2fc6dee9695380db74834661c7",
+      "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40909679694"
+    },
+    {
+      "conclusion": "success",
+      "created_at": "2026-10-29T15:35:47Z",
+      "head_sha": "1a867537766ad8f92b5cd8c3ccc37c2e3446d0bb",
+      "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40903167215"
+    },
+    {
+      "conclusion": "failure",
+      "created_at": "2026-10-29T15:15:46Z",
+      "head_sha": "3a3453c580434160c7ff8ff71c876c5965ced50e",
+      "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40899759270"
+    },
+    {
+      "conclusion": "cancelled",
+      "created_at": "2026-10-29T15:13:20Z",
+      "head_sha": "3d08d9a6ccb74266bb1db5904231c4bc669a0649",
+      "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40899335833"
+    },
+    {
+      "conclusion": "cancelled",
+      "created_at": "2026-10-29T15:13:12Z",
+      "head_sha": "db7697a37d83204b150d2bcfd1d3b9541670e425",
+      "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40899312726"
+    },
+    {
+      "conclusion": "success",
+      "created_at": "2026-10-29T14:50:00Z",
+      "head_sha": "e6d56a0aca79477317c70ed44b07a33db67339b7",
+      "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40895421433"
+    },
+    {
+      "conclusion": "cancelled",
+      "created_at": "2026-10-29T14:08:55Z",
+      "head_sha": "9da2295af90318311dc51072719775ab3004c4df",
+      "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40888604564"
+    },
+    {
+      "conclusion": "cancelled",
+      "created_at": "2026-10-29T14:08:51Z",
+      "head_sha": "2d7e28cbd345097c6589dbda637a5dd4dbf19b04",
+      "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40888593496"
+    },
+    {
+      "conclusion": "success",
+      "created_at": "2026-10-29T13:47:07Z",
+      "head_sha": "23d425cecc6f57dd8f6c7b4680a10a3304587ee6",
+      "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40885128921"
+    }
+  ]
+}

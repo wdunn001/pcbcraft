@@ -1,0 +1,18 @@
+# Pseudo-locale (en-XA) problems per screen and width, from the gate's failure message.
+# Format: clipped|escaped | screen | width | count
+# clipped: text cut off by its clip rectangle with no ellipsis. escaped: a control that
+# leaves the window sideways. The gate fails when a count differs from this file; fix the
+# layout, then lower the number. Never raise one. Tracked in #923; 320-point escapes in #674.
+clipped | Pcb | 1280 | 1
+clipped | Pcb | 320 | 3
+escaped | Pcb | 320 | 4
+clipped | Rules | 1280 | 3
+clipped | Rules | 320 | 3
+escaped | Rules | 320 | 35
+clipped | Settings | 320 | 1
+escaped | Settings | 320 | 2
+clipped | PlotFiles | 320 | 3
+escaped | PlotFiles | 320 | 2
+clipped | Pcb, lower dock page 2 | 1280 | 1
+clipped | Pcb, lower dock page 2 | 320 | 3
+escaped | Pcb, lower dock page 2 | 320 | 4

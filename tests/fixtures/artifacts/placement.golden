@@ -1,0 +1,9 @@
+File Format,ASCII,
+##
+#	Pick and Place File	Dual amplifier · editable libraries
+#
+SMT,THT,X,Y,Rotation,Side,Package
+SMT,"J1",12.000,19.080,0.0,T,"connector"
+SMT,"J2",48.000,21.620,0.0,T,"connector"
+SMT,"J3",45.000,7.000,0.0,T,"connector"
+THT,"U1",26.000,14.000,0.0,T,"DIP8_Custom"

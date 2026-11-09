@@ -1,0 +1,2753 @@
+{
+  "counts": {
+    "features_by_proof": {
+      "no-test": 46,
+      "tested": 20
+    },
+    "issues_by_state": {
+      "awaiting-test": 2,
+      "built": 9,
+      "in-progress": 5,
+      "planned": 2,
+      "ready": 4,
+      "released": 0
+    }
+  },
+  "features": [
+    {
+      "area": "access",
+      "ci": null,
+      "commands": [],
+      "id": "access-contrast-and-target-size",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "tested",
+      "state": "unlinked",
+      "tests": [
+        {
+          "file": "crates/ui-egui/src/e2e/shell.rs",
+          "name": "a_newcomer_never_meets_a_control_too_small_to_hit"
+        },
+        {
+          "file": "crates/ui-egui/src/contrast.rs",
+          "name": "every_theme_meets_contrast_minimums"
+        }
+      ],
+      "title": "Contrast and target size"
+    },
+    {
+      "area": "access",
+      "ci": null,
+      "commands": [],
+      "id": "access-keyboard-use",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "tested",
+      "state": "unlinked",
+      "tests": [
+        {
+          "file": "crates/ui-egui/src/e2e/shell.rs",
+          "name": "a_newcomer_opens_settings_from_the_app_bar_with_the_keyboard_only"
+        },
+        {
+          "file": "crates/ui-egui/src/e2e/shell.rs",
+          "name": "a_newcomer_switches_view_with_the_keyboard_only"
+        }
+      ],
+      "title": "Keyboard use"
+    },
+    {
+      "area": "access",
+      "ci": null,
+      "commands": [],
+      "id": "access-names-for-every-control",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "tested",
+      "state": "unlinked",
+      "tests": [
+        {
+          "file": "crates/ui-egui/src/e2e/shell.rs",
+          "name": "every_interactive_control_has_an_accessible_name"
+        }
+      ],
+      "title": "Names for every control"
+    },
+    {
+      "area": "access",
+      "ci": null,
+      "commands": [],
+      "id": "access-reduced-motion",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "tested",
+      "state": "unlinked",
+      "tests": [
+        {
+          "file": "crates/ui-egui/src/motion.rs",
+          "name": "reduced_motion_survives_a_preferences_round_trip"
+        }
+      ],
+      "title": "Reduced motion"
+    },
+    {
+      "area": "access",
+      "ci": null,
+      "commands": [],
+      "id": "access-screen-reader-announcements",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "tested",
+      "state": "unlinked",
+      "tests": [
+        {
+          "file": "crates/ui-egui/src/e2e/shell.rs",
+          "name": "a_newcomer_with_a_screen_reader_hears_the_status_after_a_command"
+        },
+        {
+          "file": "crates/ui-egui/src/e2e/shell.rs",
+          "name": "an_unchanged_message_is_not_announced_twice"
+        }
+      ],
+      "title": "Screen reader announcements"
+    },
+    {
+      "area": "access",
+      "ci": null,
+      "commands": [],
+      "id": "access-your-language",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "tested",
+      "state": "unlinked",
+      "tests": [
+        {
+          "file": "crates/ui-egui/src/e2e/shell.rs",
+          "name": "a_newcomer_switches_the_app_to_their_language"
+        }
+      ],
+      "title": "Your language"
+    },
+    {
+      "area": "assistant",
+      "ci": null,
+      "commands": [],
+      "id": "assistant-assistant-panel",
+      "issues": [],
+      "listed_status": "desktop",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "tested",
+      "state": "unlinked",
+      "tests": [
+        {
+          "file": "crates/ui-egui/src/e2e/assistant.rs",
+          "name": "a_newcomer_asks_the_assistant_to_add_a_resistor"
+        },
+        {
+          "file": "crates/ui-egui/src/e2e/assistant.rs",
+          "name": "a_newcomer_opens_the_assistant_and_is_told_how_to_connect_a_model"
+        }
+      ],
+      "title": "Assistant panel"
+    },
+    {
+      "area": "assistant",
+      "ci": null,
+      "commands": [],
+      "id": "assistant-batches-preview-and-undo",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [
+        "batch",
+        "dry_run",
+        "undo"
+      ],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Batches, preview and undo"
+    },
+    {
+      "area": "assistant",
+      "ci": null,
+      "commands": [],
+      "id": "assistant-command-line",
+      "issues": [],
+      "listed_status": "desktop",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Command line"
+    },
+    {
+      "area": "assistant",
+      "ci": null,
+      "commands": [],
+      "id": "assistant-local-model-servers",
+      "issues": [],
+      "listed_status": "desktop",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "tested",
+      "state": "unlinked",
+      "tests": [
+        {
+          "file": "crates/ui-egui/src/e2e/assistant.rs",
+          "name": "a_newcomer_adds_a_local_model_server_and_tests_it"
+        }
+      ],
+      "title": "Local model servers"
+    },
+    {
+      "area": "assistant",
+      "ci": null,
+      "commands": [],
+      "id": "assistant-mcp-server",
+      "issues": [],
+      "listed_status": "desktop",
+      "mcp_tools": [
+        "list_commands"
+      ],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "MCP server"
+    },
+    {
+      "area": "assistant",
+      "ci": null,
+      "commands": [],
+      "id": "assistant-you-approve-every-change",
+      "issues": [],
+      "listed_status": "desktop",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "tested",
+      "state": "unlinked",
+      "tests": [
+        {
+          "file": "crates/ui-egui/src/e2e/assistant.rs",
+          "name": "a_newcomer_allows_two_changes_and_takes_them_back_with_one_undo"
+        },
+        {
+          "file": "crates/ui-egui/src/e2e/assistant.rs",
+          "name": "a_newcomer_denies_a_change_and_the_design_stays_as_it_was"
+        }
+      ],
+      "title": "You approve every change"
+    },
+    {
+      "area": "browser",
+      "ci": null,
+      "commands": [
+        "project.export_archive"
+      ],
+      "id": "browser-project-archive",
+      "issues": [],
+      "listed_status": "desktop",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Project archive"
+    },
+    {
+      "area": "browser",
+      "ci": null,
+      "commands": [],
+      "id": "browser-runs-in-a-browser-tab",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Runs in a browser tab"
+    },
+    {
+      "area": "browser",
+      "ci": null,
+      "commands": [],
+      "id": "browser-sample-design",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [
+        "sample_design"
+      ],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Sample design"
+    },
+    {
+      "area": "layout",
+      "ci": null,
+      "commands": [
+        "board.fiducial_place"
+      ],
+      "id": "layout-assembly-marks",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "tested",
+      "state": "unlinked",
+      "tests": [
+        {
+          "file": "crates/ui-egui/src/e2e/shell.rs",
+          "name": "a_newcomer_adds_assembly_marks_for_the_build_camera"
+        }
+      ],
+      "title": "Assembly marks"
+    },
+    {
+      "area": "layout",
+      "ci": null,
+      "commands": [
+        "variant.create"
+      ],
+      "id": "layout-assembly-variants",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "tested",
+      "state": "unlinked",
+      "tests": [
+        {
+          "file": "crates/ui-egui/src/e2e/builds.rs",
+          "name": "a_newcomer_describes_a_build_that_leaves_a_part_off"
+        }
+      ],
+      "title": "Assembly variants"
+    },
+    {
+      "area": "layout",
+      "ci": null,
+      "commands": [
+        "zone.pour",
+        "zone.fill"
+      ],
+      "id": "layout-copper-zones",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Copper zones"
+    },
+    {
+      "area": "layout",
+      "ci": null,
+      "commands": [
+        "track.route_pair"
+      ],
+      "id": "layout-differential-pairs",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "tested",
+      "state": "unlinked",
+      "tests": [
+        {
+          "file": "crates/ui-egui/src/e2e/pairs.rs",
+          "name": "a_newcomer_routes_a_pair_in_one_drag"
+        }
+      ],
+      "title": "Differential pairs"
+    },
+    {
+      "area": "layout",
+      "ci": null,
+      "commands": [
+        "footprint.dock_edge",
+        "footprint.set_castellated"
+      ],
+      "id": "layout-edge-connectors-and-castellated-pads",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Edge connectors and castellated pads"
+    },
+    {
+      "area": "layout",
+      "ci": null,
+      "commands": [
+        "track.tune_length"
+      ],
+      "id": "layout-length-tuning",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Length tuning"
+    },
+    {
+      "area": "layout",
+      "ci": null,
+      "commands": [
+        "board.panel"
+      ],
+      "id": "layout-panel-planning",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "tested",
+      "state": "unlinked",
+      "tests": [
+        {
+          "file": "crates/ui-egui/src/e2e/artifacts.rs",
+          "name": "a_newcomer_plans_a_panel_of_board_copies"
+        }
+      ],
+      "title": "Panel planning"
+    },
+    {
+      "area": "layout",
+      "ci": null,
+      "commands": [
+        "board.cutout.add"
+      ],
+      "id": "layout-round-cutouts",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Round cutouts"
+    },
+    {
+      "area": "layout",
+      "ci": null,
+      "commands": [
+        "track.route"
+      ],
+      "id": "layout-routing-with-45-degree-steps",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Routing with 45-degree steps"
+    },
+    {
+      "area": "layout",
+      "ci": null,
+      "commands": [
+        "footprint.array"
+      ],
+      "id": "layout-step-and-repeat",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Step and repeat"
+    },
+    {
+      "area": "layout",
+      "ci": null,
+      "commands": [
+        "teardrop.add"
+      ],
+      "id": "layout-teardrops",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Teardrops"
+    },
+    {
+      "area": "layout",
+      "ci": null,
+      "commands": [
+        "via.stitch"
+      ],
+      "id": "layout-via-stitching",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Via stitching"
+    },
+    {
+      "area": "libraries",
+      "ci": null,
+      "commands": [
+        "footprint.assign_pattern"
+      ],
+      "id": "libraries-bulk-footprint-assignment",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Bulk footprint assignment"
+    },
+    {
+      "area": "libraries",
+      "ci": null,
+      "commands": [],
+      "id": "libraries-compare-two-parts",
+      "issues": [],
+      "listed_status": "desktop",
+      "mcp_tools": [
+        "library.compare"
+      ],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Compare two parts"
+    },
+    {
+      "area": "libraries",
+      "ci": null,
+      "commands": [
+        "library.footprint.generate_courtyard"
+      ],
+      "id": "libraries-courtyards",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Courtyards"
+    },
+    {
+      "area": "libraries",
+      "ci": null,
+      "commands": [
+        "library.footprint.generate"
+      ],
+      "id": "libraries-footprint-generator",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Footprint generator"
+    },
+    {
+      "area": "libraries",
+      "ci": null,
+      "commands": [
+        "library.import_symbol_file",
+        "library.import_footprint_file"
+      ],
+      "id": "libraries-import-library-files",
+      "issues": [],
+      "listed_status": "desktop",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Import library files"
+    },
+    {
+      "area": "libraries",
+      "ci": null,
+      "commands": [],
+      "id": "libraries-part-search",
+      "issues": [],
+      "listed_status": "desktop",
+      "mcp_tools": [
+        "library.search"
+      ],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "tested",
+      "state": "unlinked",
+      "tests": [
+        {
+          "file": "crates/ui-egui/src/e2e/library.rs",
+          "name": "a_newcomer_searches_for_a_part_and_it_is_ready_to_place"
+        }
+      ],
+      "title": "Part search"
+    },
+    {
+      "area": "libraries",
+      "ci": null,
+      "commands": [
+        "part.attach_source"
+      ],
+      "id": "libraries-part-sources",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Part sources"
+    },
+    {
+      "area": "libraries",
+      "ci": null,
+      "commands": [
+        "component.set_sourcing",
+        "component.set_supplier"
+      ],
+      "id": "libraries-part-sourcing-fields",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Part sourcing fields"
+    },
+    {
+      "area": "libraries",
+      "ci": null,
+      "commands": [
+        "library.symbol.upsert",
+        "library.footprint.pad_set"
+      ],
+      "id": "libraries-symbol-and-footprint-editors",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Symbol and footprint editors"
+    },
+    {
+      "area": "machines",
+      "ci": null,
+      "commands": [
+        "machine.import",
+        "machine.export"
+      ],
+      "id": "machines-import-and-export-a-profile",
+      "issues": [],
+      "listed_status": "desktop",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Import and export a profile"
+    },
+    {
+      "area": "machines",
+      "ci": null,
+      "commands": [
+        "dxf.import",
+        "svg.import",
+        "image.trace"
+      ],
+      "id": "machines-import-drawings-and-images",
+      "issues": [],
+      "listed_status": "desktop",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Import drawings and images"
+    },
+    {
+      "area": "machines",
+      "ci": null,
+      "commands": [
+        "laser_job.export"
+      ],
+      "id": "machines-laser-job-export",
+      "issues": [],
+      "listed_status": "desktop",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Laser job export"
+    },
+    {
+      "area": "machines",
+      "ci": null,
+      "commands": [
+        "machine.list"
+      ],
+      "id": "machines-machine-profiles",
+      "issues": [],
+      "listed_status": "desktop",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Machine profiles"
+    },
+    {
+      "area": "machines",
+      "ci": null,
+      "commands": [
+        "placement_yy1.export"
+      ],
+      "id": "machines-pick-and-place-file",
+      "issues": [],
+      "listed_status": "desktop",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Pick and place file"
+    },
+    {
+      "area": "outputs",
+      "ci": null,
+      "commands": [
+        "bom.export"
+      ],
+      "id": "outputs-bill-of-materials",
+      "issues": [],
+      "listed_status": "desktop",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Bill of materials"
+    },
+    {
+      "area": "outputs",
+      "ci": null,
+      "commands": [
+        "drill.chart",
+        "pad.table"
+      ],
+      "id": "outputs-drill-chart-and-pad-table",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Drill chart and pad table"
+    },
+    {
+      "area": "outputs",
+      "ci": null,
+      "commands": [],
+      "id": "outputs-exchange-files",
+      "issues": [],
+      "listed_status": "desktop",
+      "mcp_tools": [
+        "ipc2581.write",
+        "odb.write",
+        "ipc356.write"
+      ],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Exchange files"
+    },
+    {
+      "area": "outputs",
+      "ci": null,
+      "commands": [
+        "output_job.package"
+      ],
+      "id": "outputs-fabrication-bundle",
+      "issues": [],
+      "listed_status": "desktop",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Fabrication bundle"
+    },
+    {
+      "area": "outputs",
+      "ci": null,
+      "commands": [],
+      "id": "outputs-gerber-and-drill-files",
+      "issues": [],
+      "listed_status": "desktop",
+      "mcp_tools": [
+        "gerber.export"
+      ],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Gerber and drill files"
+    },
+    {
+      "area": "outputs",
+      "ci": null,
+      "commands": [
+        "netlist.export",
+        "netlist.import"
+      ],
+      "id": "outputs-netlist",
+      "issues": [],
+      "listed_status": "desktop",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Netlist"
+    },
+    {
+      "area": "outputs",
+      "ci": null,
+      "commands": [
+        "output_job.run"
+      ],
+      "id": "outputs-output-jobs",
+      "issues": [],
+      "listed_status": "desktop",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Output jobs"
+    },
+    {
+      "area": "outputs",
+      "ci": null,
+      "commands": [],
+      "id": "outputs-pdf-and-dxf-drawings",
+      "issues": [],
+      "listed_status": "desktop",
+      "mcp_tools": [
+        "pdf.write",
+        "dxf.export"
+      ],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "PDF and DXF drawings"
+    },
+    {
+      "area": "rules",
+      "ci": null,
+      "commands": [
+        "board.statistics"
+      ],
+      "id": "rules-board-statistics",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Board statistics"
+    },
+    {
+      "area": "rules",
+      "ci": null,
+      "commands": [],
+      "id": "rules-electrical-and-design-rule-checks",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [
+        "checks"
+      ],
+      "merges": [],
+      "missing_tests": [
+        "a_newcomer_sees_findings_grouped_by_check"
+      ],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Electrical and design rule checks"
+    },
+    {
+      "area": "rules",
+      "ci": null,
+      "commands": [
+        "rules.preset_apply"
+      ],
+      "id": "rules-fabrication-presets",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Fabrication presets"
+    },
+    {
+      "area": "rules",
+      "ci": null,
+      "commands": [
+        "impedance.calc"
+      ],
+      "id": "rules-impedance-calculator",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Impedance calculator"
+    },
+    {
+      "area": "rules",
+      "ci": null,
+      "commands": [
+        "rules.severity",
+        "rules.exclude_region"
+      ],
+      "id": "rules-quiet-a-check",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "tested",
+      "state": "unlinked",
+      "tests": [
+        {
+          "file": "crates/ui-egui/src/e2e/checks.rs",
+          "name": "a_newcomer_silences_a_check_around_a_spot"
+        }
+      ],
+      "title": "Quiet a check"
+    },
+    {
+      "area": "rules",
+      "ci": null,
+      "commands": [],
+      "id": "rules-rule-sets",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "tested",
+      "state": "unlinked",
+      "tests": [
+        {
+          "file": "crates/ui-egui/src/e2e/rules.rs",
+          "name": "a_newcomer_adds_a_rule_set_and_tunes_its_numbers"
+        }
+      ],
+      "title": "Rule sets"
+    },
+    {
+      "area": "rules",
+      "ci": null,
+      "commands": [
+        "checks.custom_add"
+      ],
+      "id": "rules-your-own-checks",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "tested",
+      "state": "unlinked",
+      "tests": [
+        {
+          "file": "crates/ui-egui/src/e2e/checks.rs",
+          "name": "a_newcomer_writes_their_own_check"
+        }
+      ],
+      "title": "Your own checks"
+    },
+    {
+      "area": "schematic",
+      "ci": null,
+      "commands": [
+        "barcode.place"
+      ],
+      "id": "schematic-code-39-barcodes",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Code 39 barcodes"
+    },
+    {
+      "area": "schematic",
+      "ci": null,
+      "commands": [
+        "label.place",
+        "pin.no_connect"
+      ],
+      "id": "schematic-labels-and-no-connect-flags",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Labels and no-connect flags"
+    },
+    {
+      "area": "schematic",
+      "ci": null,
+      "commands": [
+        "net.chain"
+      ],
+      "id": "schematic-net-chain-walk",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Net chain walk"
+    },
+    {
+      "area": "schematic",
+      "ci": null,
+      "commands": [
+        "schematic.new_sheet",
+        "schematic.place_port"
+      ],
+      "id": "schematic-pages-and-hierarchy-ports",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Pages and hierarchy ports"
+    },
+    {
+      "area": "schematic",
+      "ci": null,
+      "commands": [
+        "schematic.table"
+      ],
+      "id": "schematic-parts-table-on-the-sheet",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Parts table on the sheet"
+    },
+    {
+      "area": "schematic",
+      "ci": null,
+      "commands": [
+        "wire.draw",
+        "wire.draw_bus"
+      ],
+      "id": "schematic-wires-and-buses",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Wires and buses"
+    },
+    {
+      "area": "view3d",
+      "ci": null,
+      "commands": [],
+      "id": "view3d-3d-view",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "tested",
+      "state": "unlinked",
+      "tests": [
+        {
+          "file": "crates/ui-egui/src/e2e/board3d.rs",
+          "name": "a_newcomer_opens_the_3d_view_and_sees_the_parts"
+        }
+      ],
+      "title": "3D view"
+    },
+    {
+      "area": "view3d",
+      "ci": null,
+      "commands": [],
+      "id": "view3d-board-mesh-and-step-file",
+      "issues": [],
+      "listed_status": "desktop",
+      "mcp_tools": [
+        "board_mesh",
+        "step.write"
+      ],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "no-test",
+      "state": "unlinked",
+      "tests": [],
+      "title": "Board mesh and STEP file"
+    },
+    {
+      "area": "view3d",
+      "ci": null,
+      "commands": [],
+      "id": "view3d-pick-a-part-in-3d",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [
+        "a_newcomer_picks_a_part_from_the_3d_list"
+      ],
+      "proof": "tested",
+      "state": "unlinked",
+      "tests": [
+        {
+          "file": "crates/ui-egui/src/e2e/board3d.rs",
+          "name": "a_newcomer_clicks_a_part_in_3d_and_sees_its_properties"
+        }
+      ],
+      "title": "Pick a part in 3D"
+    },
+    {
+      "area": "view3d",
+      "ci": null,
+      "commands": [],
+      "id": "view3d-turn-the-board-around",
+      "issues": [],
+      "listed_status": "browser",
+      "mcp_tools": [],
+      "merges": [],
+      "missing_tests": [],
+      "proof": "tested",
+      "state": "unlinked",
+      "tests": [
+        {
+          "file": "crates/ui-egui/src/e2e/board3d.rs",
+          "name": "a_newcomer_turns_the_board_around_in_3d"
+        }
+      ],
+      "title": "Turn the board around"
+    }
+  ],
+  "generated_at": "2026-10-29T23:00:00Z",
+  "issues": [
+    {
+      "blocked": false,
+      "blocked_by": [],
+      "merges": [],
+      "milestone": "m4",
+      "number": 596,
+      "owner_tested": false,
+      "state": "awaiting-test",
+      "tags": [
+        "track:ai-handoff",
+        "kind:feature",
+        "area:sim",
+        "milestone:m4",
+        "crate:sim",
+        "crate:xtask",
+        "conflict:parallel-safe",
+        "size:m",
+        "status:needs-owner-test",
+        "ready",
+        "research:done",
+        "enrich:done"
+      ],
+      "title": "Native DC solver crate with value parser (child of {{PCBREF:292}})",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/596"
+    },
+    {
+      "blocked": false,
+      "blocked_by": [],
+      "merges": [],
+      "milestone": null,
+      "number": 607,
+      "owner_tested": true,
+      "state": "in-progress",
+      "tags": [
+        "track:ai-handoff",
+        "track:ui-design",
+        "kind:enhancement",
+        "area:ui-shell",
+        "crate:ui-egui",
+        "conflict:ui-egui-lib",
+        "size:m",
+        "status:in-progress",
+        "research:n/a"
+      ],
+      "title": "Shell frame: slim menu bar, tab nav, status bar (no left rail)",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/607"
+    },
+    {
+      "blocked": false,
+      "blocked_by": [
+        607
+      ],
+      "merges": [],
+      "milestone": null,
+      "number": 608,
+      "owner_tested": true,
+      "state": "in-progress",
+      "tags": [
+        "track:ai-handoff",
+        "track:ui-design",
+        "kind:enhancement",
+        "area:ui-shell",
+        "crate:ui-egui",
+        "conflict:ui-egui-lib",
+        "size:m",
+        "status:in-progress",
+        "research:n/a"
+      ],
+      "title": "Secondary tool bar under the tab nav, one row, per tab (with icons)",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/608"
+    },
+    {
+      "blocked": false,
+      "blocked_by": [],
+      "merges": [
+        {
+          "ci": {
+            "created_at": "2026-10-29T16:14:58Z",
+            "head_sha": "acafc779babb6a2fc6dee9695380db74834661c7",
+            "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40909679694"
+          },
+          "merge_sha": "189779d7fdc173d3f1a089b67af5537408f11fe8",
+          "merged_at": "2026-10-29T16:14:55Z",
+          "pr": 57,
+          "title": "Online CAD sources: CadSource trait, references and provenance (#781)",
+          "url": "https://github.com/wdunn001/pcbcraft/pull/57"
+        }
+      ],
+      "milestone": null,
+      "number": 624,
+      "owner_tested": true,
+      "state": "built",
+      "tags": [
+        "track:ai-handoff",
+        "kind:feature",
+        "area:library",
+        "crate:library",
+        "conflict:parallel-safe",
+        "size:s",
+        "status:pr-open",
+        "ready",
+        "research:done",
+        "enrich:done"
+      ],
+      "title": "Online CAD sources: CadSource trait, part references and provenance notice (child of {{PCBREF:757}})",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/624"
+    },
+    {
+      "blocked": false,
+      "blocked_by": [],
+      "merges": [
+        {
+          "ci": {
+            "created_at": "2026-10-29T16:14:58Z",
+            "head_sha": "acafc779babb6a2fc6dee9695380db74834661c7",
+            "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40909679694"
+          },
+          "merge_sha": "27d6acf5a5ac37c019e9406146d51aadec01d11d",
+          "merged_at": "2026-10-29T16:14:55Z",
+          "pr": 58,
+          "title": "Online CAD sources: disk cache keyed by upstream path and hash (#782)",
+          "url": "https://github.com/wdunn001/pcbcraft/pull/58"
+        }
+      ],
+      "milestone": null,
+      "number": 625,
+      "owner_tested": true,
+      "state": "built",
+      "tags": [
+        "track:ai-handoff",
+        "kind:feature",
+        "area:library",
+        "crate:library",
+        "conflict:parallel-safe",
+        "size:s",
+        "status:pr-open",
+        "ready",
+        "research:done",
+        "enrich:done"
+      ],
+      "title": "Online CAD sources: disk cache keyed by upstream path and hash, usable offline (child of {{PCBREF:757}})",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/625"
+    },
+    {
+      "blocked": false,
+      "blocked_by": [],
+      "merges": [
+        {
+          "ci": {
+            "created_at": "2026-10-29T16:14:58Z",
+            "head_sha": "acafc779babb6a2fc6dee9695380db74834661c7",
+            "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40909679694"
+          },
+          "merge_sha": "781e4613a2ab1429bb02cba01b458a917516e806",
+          "merged_at": "2026-10-29T16:14:54Z",
+          "pr": 59,
+          "title": "OpenLibrarySource: list, search and fetch from the open libraries (#783)",
+          "url": "https://github.com/wdunn001/pcbcraft/pull/59"
+        }
+      ],
+      "milestone": null,
+      "number": 627,
+      "owner_tested": true,
+      "state": "built",
+      "tags": [
+        "track:ai-handoff",
+        "kind:feature",
+        "area:library",
+        "crate:library",
+        "conflict:parallel-safe",
+        "size:m",
+        "status:pr-open",
+        "ready",
+        "research:done",
+        "enrich:done"
+      ],
+      "title": "OpenLibrarySource: list, search and fetch from the open symbol, footprint and 3D repositories (child of {{PCBREF:757}})",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/627"
+    },
+    {
+      "blocked": false,
+      "blocked_by": [],
+      "merges": [],
+      "milestone": null,
+      "number": 628,
+      "owner_tested": true,
+      "state": "in-progress",
+      "tags": [
+        "track:ai-handoff",
+        "kind:feature",
+        "area:library",
+        "crate:library",
+        "crate:engine",
+        "conflict:parallel-safe",
+        "size:m",
+        "status:pr-open",
+        "ready",
+        "research:done",
+        "enrich:done"
+      ],
+      "title": "Import an online part into the project library with attribution (command library.import_online) (child of {{PCBREF:757}})",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/628"
+    },
+    {
+      "blocked": false,
+      "blocked_by": [],
+      "merges": [
+        {
+          "ci": {
+            "created_at": "2026-10-29T16:14:58Z",
+            "head_sha": "acafc779babb6a2fc6dee9695380db74834661c7",
+            "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40909679694"
+          },
+          "merge_sha": "217ea1f241a945e13ed90ef6b23930ba662e7572",
+          "merged_at": "2026-10-29T16:14:54Z",
+          "pr": 61,
+          "title": "library.place_online: place an online part on the schematic or layout (#785)",
+          "url": "https://github.com/wdunn001/pcbcraft/pull/61"
+        }
+      ],
+      "milestone": null,
+      "number": 629,
+      "owner_tested": true,
+      "state": "built",
+      "tags": [
+        "track:ai-handoff",
+        "kind:feature",
+        "area:library",
+        "crate:engine",
+        "conflict:parallel-safe",
+        "size:m",
+        "status:pr-open",
+        "ready",
+        "research:done",
+        "enrich:done"
+      ],
+      "title": "library.place_online: place an online part on the Schematic or the Layout as one undo step (child of {{PCBREF:757}})",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/629"
+    },
+    {
+      "blocked": false,
+      "blocked_by": [],
+      "merges": [
+        {
+          "ci": {
+            "created_at": "2026-10-29T15:35:47Z",
+            "head_sha": "1a867537766ad8f92b5cd8c3ccc37c2e3446d0bb",
+            "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40903167215"
+          },
+          "merge_sha": "42491f3a4593ff118984225229dcec8705927589",
+          "merged_at": "2026-10-29T15:13:19Z",
+          "pr": 67,
+          "title": "Span-aware pour obstacles and antipads (#800)",
+          "url": "https://github.com/wdunn001/pcbcraft/pull/67"
+        }
+      ],
+      "milestone": "m5",
+      "number": 638,
+      "owner_tested": true,
+      "state": "built",
+      "tags": [
+        "track:ai-handoff",
+        "track:ui-design",
+        "kind:epic",
+        "area:layout",
+        "area:library",
+        "area:artifacts",
+        "area:ui-shell",
+        "milestone:m5",
+        "milestone:m6",
+        "crate:doc",
+        "crate:engine",
+        "crate:io",
+        "crate:rules",
+        "crate:library",
+        "crate:ui-egui",
+        "conflict:ui-egui-lib",
+        "size:l",
+        "priority:owner-top",
+        "status:open",
+        "ready",
+        "research:done",
+        "enrich:done",
+        "owner-decision"
+      ],
+      "title": "Epic: the board as physical layers, with components, nets, vias and per-layer artifacts, all selectable",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/638"
+    },
+    {
+      "blocked": false,
+      "blocked_by": [],
+      "merges": [
+        {
+          "ci": {
+            "created_at": "2026-10-29T17:40:39Z",
+            "head_sha": "03c54cfb1c70eb24b2fd151ea312dda78b692693",
+            "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40923599905"
+          },
+          "merge_sha": "e67723c2acaacc686a7bdb5d4d6bed7370053a01",
+          "merged_at": "2026-10-29T17:20:17Z",
+          "pr": 64,
+          "title": "Tool modifiers: Shift, Ctrl and Alt, one shared resolver (#796)",
+          "url": "https://github.com/wdunn001/pcbcraft/pull/64"
+        }
+      ],
+      "milestone": null,
+      "number": 640,
+      "owner_tested": true,
+      "state": "built",
+      "tags": [
+        "track:ai-handoff",
+        "track:ui-design",
+        "kind:feature",
+        "area:ui-shell",
+        "area:layout",
+        "area:schematic",
+        "crate:ui-egui",
+        "conflict:ui-egui-lib",
+        "size:m",
+        "status:claimed",
+        "ready",
+        "research:done",
+        "enrich:done",
+        "priority:owner-top"
+      ],
+      "title": "Tool modifiers: Shift, Ctrl and Alt change what each tool does, one shared resolver, remappable",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/640"
+    },
+    {
+      "blocked": false,
+      "blocked_by": [],
+      "merges": [
+        {
+          "ci": {
+            "created_at": "2026-10-29T15:35:47Z",
+            "head_sha": "1a867537766ad8f92b5cd8c3ccc37c2e3446d0bb",
+            "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40903167215"
+          },
+          "merge_sha": "3d08d9a6ccb74266bb1db5904231c4bc669a0649",
+          "merged_at": "2026-10-29T15:13:17Z",
+          "pr": 70,
+          "title": "Layer record, span-aware pours and net members (#798, #800, #803)",
+          "url": "https://github.com/wdunn001/pcbcraft/pull/70"
+        },
+        {
+          "ci": {
+            "created_at": "2026-10-29T15:35:47Z",
+            "head_sha": "1a867537766ad8f92b5cd8c3ccc37c2e3446d0bb",
+            "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40903167215"
+          },
+          "merge_sha": "5e87c0a3a6e17dcbd14a3db8ee4f700295a30c2d",
+          "merged_at": "2026-10-29T15:13:19Z",
+          "pr": 66,
+          "title": "Physical layer record (#798)",
+          "url": "https://github.com/wdunn001/pcbcraft/pull/66"
+        }
+      ],
+      "milestone": "m5",
+      "number": 642,
+      "owner_tested": false,
+      "state": "built",
+      "tags": [
+        "track:ai-handoff",
+        "kind:feature",
+        "area:layout",
+        "milestone:m5",
+        "crate:doc",
+        "crate:engine",
+        "conflict:parallel-safe",
+        "size:m",
+        "priority:owner-top",
+        "status:needs-owner-test",
+        "ready",
+        "research:done",
+        "enrich:done",
+        "owner-decision"
+      ],
+      "title": "Physical layer record: side, material, Dk, Df, thickness tolerance, copper weight; per-layer Dk replaces the single board value (child of {{PCBREF:794}})",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/642"
+    },
+    {
+      "blocked": false,
+      "blocked_by": [],
+      "merges": [
+        {
+          "ci": {
+            "created_at": "2026-10-29T15:35:47Z",
+            "head_sha": "1a867537766ad8f92b5cd8c3ccc37c2e3446d0bb",
+            "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40903167215"
+          },
+          "merge_sha": "3d08d9a6ccb74266bb1db5904231c4bc669a0649",
+          "merged_at": "2026-10-29T15:13:17Z",
+          "pr": 70,
+          "title": "Layer record, span-aware pours and net members (#798, #800, #803)",
+          "url": "https://github.com/wdunn001/pcbcraft/pull/70"
+        },
+        {
+          "ci": {
+            "created_at": "2026-10-29T15:35:47Z",
+            "head_sha": "1a867537766ad8f92b5cd8c3ccc37c2e3446d0bb",
+            "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40903167215"
+          },
+          "merge_sha": "42491f3a4593ff118984225229dcec8705927589",
+          "merged_at": "2026-10-29T15:13:19Z",
+          "pr": 67,
+          "title": "Span-aware pour obstacles and antipads (#800)",
+          "url": "https://github.com/wdunn001/pcbcraft/pull/67"
+        },
+        {
+          "ci": {
+            "created_at": "2026-10-29T15:35:47Z",
+            "head_sha": "1a867537766ad8f92b5cd8c3ccc37c2e3446d0bb",
+            "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40903167215"
+          },
+          "merge_sha": "1a867537766ad8f92b5cd8c3ccc37c2e3446d0bb",
+          "merged_at": "2026-10-29T15:35:44Z",
+          "pr": 73,
+          "title": "Regenerate the showcase examples (main is red)",
+          "url": "https://github.com/wdunn001/pcbcraft/pull/73"
+        }
+      ],
+      "milestone": "m5",
+      "number": 644,
+      "owner_tested": true,
+      "state": "built",
+      "tags": [
+        "track:ai-handoff",
+        "kind:feature",
+        "area:layout",
+        "milestone:m5",
+        "crate:doc",
+        "crate:rules",
+        "conflict:parallel-safe",
+        "size:m",
+        "status:claimed",
+        "ready",
+        "research:done",
+        "enrich:done"
+      ],
+      "title": "Pour and obstacle items by layer: vias only on their span, surface pads only on their face, antipads, six-layer fixture (child of {{PCBREF:794}})",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/644"
+    },
+    {
+      "blocked": false,
+      "blocked_by": [],
+      "merges": [],
+      "milestone": "m5",
+      "number": 645,
+      "owner_tested": true,
+      "state": "in-progress",
+      "tags": [
+        "track:ai-handoff",
+        "kind:feature",
+        "area:layout",
+        "area:artifacts",
+        "milestone:m5",
+        "crate:doc",
+        "crate:io",
+        "crate:rules",
+        "conflict:parallel-safe",
+        "size:m",
+        "status:claimed",
+        "ready",
+        "research:done",
+        "enrich:done"
+      ],
+      "title": "Back-drill: start layer, must-not-cut layer, maximum stub length, own drill pass and file (child of {{PCBREF:794}})",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/645"
+    },
+    {
+      "blocked": false,
+      "blocked_by": [],
+      "merges": [
+        {
+          "ci": {
+            "created_at": "2026-10-29T15:35:47Z",
+            "head_sha": "1a867537766ad8f92b5cd8c3ccc37c2e3446d0bb",
+            "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40903167215"
+          },
+          "merge_sha": "3d08d9a6ccb74266bb1db5904231c4bc669a0649",
+          "merged_at": "2026-10-29T15:13:17Z",
+          "pr": 70,
+          "title": "Layer record, span-aware pours and net members (#798, #800, #803)",
+          "url": "https://github.com/wdunn001/pcbcraft/pull/70"
+        },
+        {
+          "ci": {
+            "created_at": "2026-10-29T15:35:47Z",
+            "head_sha": "1a867537766ad8f92b5cd8c3ccc37c2e3446d0bb",
+            "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40903167215"
+          },
+          "merge_sha": "6314ed65c0c7bafaa16ff0ba1d8d8e52a5588a04",
+          "merged_at": "2026-10-29T15:13:19Z",
+          "pr": 68,
+          "title": "Net members query (#803)",
+          "url": "https://github.com/wdunn001/pcbcraft/pull/68"
+        }
+      ],
+      "milestone": null,
+      "number": 648,
+      "owner_tested": false,
+      "state": "built",
+      "tags": [
+        "track:ai-handoff",
+        "kind:feature",
+        "area:layout",
+        "area:schematic",
+        "crate:doc",
+        "crate:engine",
+        "conflict:parallel-safe",
+        "size:s",
+        "priority:owner-top",
+        "status:needs-owner-test",
+        "ready",
+        "research:done",
+        "enrich:done"
+      ],
+      "title": "Derived net membership query: tracks, vias, pads, zones by layer, wire segments and labels (child of {{PCBREF:794}})",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/648"
+    },
+    {
+      "blocked": true,
+      "blocked_by": [],
+      "merges": [],
+      "milestone": null,
+      "number": 663,
+      "owner_tested": true,
+      "state": "ready",
+      "tags": [
+        "track:ai-handoff",
+        "track:ui-design",
+        "kind:feature",
+        "area:ui-shell",
+        "crate:ui-egui",
+        "conflict:ui-egui-lib",
+        "size:s",
+        "status:blocked",
+        "ready",
+        "research:done",
+        "enrich:done"
+      ],
+      "title": "Layers tree keyboard and accessibility pass following the tree view pattern (child of {{PCBREF:794}})",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/663"
+    },
+    {
+      "blocked": true,
+      "blocked_by": [],
+      "merges": [],
+      "milestone": null,
+      "number": 665,
+      "owner_tested": true,
+      "state": "planned",
+      "tags": [
+        "track:ai-handoff",
+        "kind:research",
+        "area:io",
+        "area:artifacts",
+        "conflict:parallel-safe",
+        "size:s",
+        "status:blocked",
+        "stage:research",
+        "research:needed",
+        "enrich:done",
+        "owner-decision"
+      ],
+      "title": "PARKED research: ODB++ export of the matrix and drill layers (child of {{PCBREF:794}})",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/665"
+    },
+    {
+      "blocked": false,
+      "blocked_by": [],
+      "merges": [],
+      "milestone": null,
+      "number": 674,
+      "owner_tested": true,
+      "state": "ready",
+      "tags": [
+        "track:ai-handoff",
+        "track:ui-design",
+        "kind:bug",
+        "area:ui-shell",
+        "crate:ui-egui",
+        "conflict:ui-egui-lib",
+        "size:s",
+        "status:open",
+        "ready",
+        "research:n/a",
+        "enrich:done"
+      ],
+      "title": "Reflow at 320 points: Help menu, a tree row and the 3D toolbar overrun",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/674"
+    },
+    {
+      "blocked": false,
+      "blocked_by": [],
+      "merges": [],
+      "milestone": null,
+      "number": 675,
+      "owner_tested": true,
+      "state": "ready",
+      "tags": [
+        "track:ai-handoff",
+        "kind:feature",
+        "area:layout",
+        "area:artifacts",
+        "crate:doc",
+        "crate:engine",
+        "crate:io",
+        "crate:ui-egui",
+        "conflict:parallel-safe",
+        "size:s",
+        "status:open",
+        "ready",
+        "research:n/a",
+        "enrich:done"
+      ],
+      "title": "Per-part flags: include in parts list and in placement file (and a board clearance setter)",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/675"
+    },
+    {
+      "blocked": false,
+      "blocked_by": [],
+      "merges": [],
+      "milestone": null,
+      "number": 676,
+      "owner_tested": true,
+      "state": "ready",
+      "tags": [
+        "track:ai-handoff",
+        "track:ui-design",
+        "kind:feature",
+        "area:schematic",
+        "area:docs",
+        "crate:xtask",
+        "conflict:parallel-safe",
+        "size:s",
+        "status:open",
+        "ready",
+        "research:n/a",
+        "enrich:done"
+      ],
+      "title": "Showcase project: clean schematic layout on all three pages",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/676"
+    },
+    {
+      "blocked": false,
+      "blocked_by": [],
+      "merges": [],
+      "milestone": null,
+      "number": 677,
+      "owner_tested": true,
+      "state": "in-progress",
+      "tags": [
+        "track:ui-design",
+        "kind:bug",
+        "area:ui-shell",
+        "crate:ui-egui",
+        "conflict:ui-egui-lib",
+        "size:xs",
+        "status:claimed",
+        "ready"
+      ],
+      "title": "View toggles and zoom card draw above menus and windows",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/677"
+    },
+    {
+      "blocked": false,
+      "blocked_by": [],
+      "merges": [],
+      "milestone": "m4",
+      "number": 678,
+      "owner_tested": true,
+      "state": "planned",
+      "tags": [
+        "track:ai-handoff",
+        "kind:research",
+        "area:library",
+        "milestone:m4",
+        "size:l",
+        "status:open",
+        "stage:enrich",
+        "research:done",
+        "owner-decision"
+      ],
+      "title": "Research: datasheet cache and rules service for the shared component library",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/678"
+    },
+    {
+      "blocked": false,
+      "blocked_by": [],
+      "merges": [],
+      "milestone": null,
+      "number": 679,
+      "owner_tested": false,
+      "state": "awaiting-test",
+      "tags": [
+        "track:ui-design",
+        "kind:feature",
+        "area:ui-shell",
+        "crate:ui-egui",
+        "conflict:ui-egui-lib",
+        "size:xs",
+        "status:needs-owner-test",
+        "ready",
+        "research:n/a",
+        "enrich:done"
+      ],
+      "title": "Pan the view with Space and drag",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/679"
+    }
+  ],
+  "roadmap": [
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M0",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Rust workspace and enforced dependency direction"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M0",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Stable IDs, typed commands, discoverable schemas, revision guards"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M0",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Transactional edits/batches, undo/redo, validated project persistence"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M0",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "MCP stdio and loopback bridge into the displayed session"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M0",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Single-window tabbed editor, shared project and cross-tab component selection"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M0",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Pinned craft-ui integration; dark/light/accent/grid preferences"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M0",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Native and WebAssembly compilation gates"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M1",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Four original two-pin symbol templates and generic SMD footprints"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M1",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Explicit pin nets and orthogonal schematic wire presentation"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M1",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Schematic-to-board reconciliation with retained footprint placement"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M1",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Basic straight and orthogonal tracks, same-layer copper connectivity, airwires"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M1",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Initial ERC/DRC with affected object references"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M1",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Rectangular outline dimensions and circular cutouts"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M1",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Board interchange subset export validated with an external checker"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M1",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Read/search/preview installed symbol and footprint libraries"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M1",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Embed placed single/multi-unit symbols and assigned front SMD/PTH footprints"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M1",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Actual pad geometry in UI, previews, clearance checks and board export"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M1",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Native project-library symbol/footprint editors with pins, pads and graphics"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M1",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Multi-unit packages with independently movable schematic units and one footprint"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M1",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Reusable native library collections, attribution, atomic saves and undoable load"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M1",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Plated through-hole pads, circular/oval offset drills, front/back pad bridges"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M1",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Interactive canvas library drawing (#300) and library writers (#301) (#300 subset on fork main; #459, #460 remain open)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M1",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Repeated common pins (#302) and back SMD placement (#305)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M1",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Graphical pin styles on project-library symbols (#303 subset on fork main)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M1",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Unplated footprint holes and board mounting holes/slots (#304 subset on fork main)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M1",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Explicit wire vertices, junctions, labels and no-connect flags (#308 subset on fork main)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M1",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Buses (#308) and hierarchy (#306, #307) (#308 subset on fork main; #379, #380, #461, #462, #464, #465 remain open)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M1",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "General import of boards and schematics with unknown-field preservation and round-trip fixtures (#309, #310, #311) (#309 subset on fork main; #310, #311, #458, #463 remain open)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M1",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Complete pin-type electrical rules (#312) and project/net-class rules with fabrication presets (#313) (#312 subset on fork main; #381, #382, #384, #466, #467 remain open)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M1",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Browser download/upload and project recovery (#314) (#314 subset on fork main; #438, #440 remain open)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M1",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Configurable shortcut profiles and a complete default keymap (#315)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M1",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Schematic and board stay in sync automatically (#332)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M2",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Chamfered and custom polygon pad shapes with exact clearance outlines (#281)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M2",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Plated vias, stitch grids and editable copper pours with cutouts (thermal reliefs and keepouts #284 remain open)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M2",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Inner copper layer stackups (#317)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M2",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Interactive 45° routing, obstacle avoidance, shove and track dragging (#282) (#282 subset on fork main; the drag interface remains open)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M2",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Differential pair routing as one coupled gesture (#341 subset on fork main; skew tuning #407 remains open)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M2",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Length tuning and impedance-aware constraints (#283)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M2",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Copper zone thermal reliefs, islands, keepouts and robust polygon operations (#284) (#284 subset on fork main; the pour panel and keepout interface remain open)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M2",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Comprehensive clearance and manufacturing checks (#285) (#285 subset on fork main; #489 remains open)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M2",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Checks on drawn machine layers against the copper and vias they cross (#277)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M2",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Design-intent electrical checks: power pins, decoupling and pull-ups (#334) (#334 subset on fork main; #492, #498, #499, #501 remain open)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M2",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Many fabrication plots, drill, placement, BOM and named output jobs (#286 subset on fork main; fabrication-valid copper gerbers #351 remain open)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M2",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Everyday editing: copy and paste, box select, measure, groups and track cleanup (#342) (#342 subset on fork main; #427, #428 remain open)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M2",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Logos and reference images placed as bitmaps and traced to silk, mask or copper (#343)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M2",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Initial Gerber copper layer writer (pad flashes and tracks)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M3",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Line/arc outline sketch model inspired by a planar sketch workflow (#287)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M3",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Dimensions, constraints, named parameters and expression-driven regeneration (#288)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M3",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Unplated mounting holes, routed slots and rectangular edge notches (#289 subset on fork main; sketch-driven patterns remain in #287)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M3",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "PCB/enclosure coordination, shared mounting datums and STEP exchange (#290)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M3",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Component bodies in STEP and enclosure model import (#321) (#321 subset on fork main; STEP part bodies are in, glTF, VRML and STEP model import remain open)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M3",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Real 3D board tab with component bodies and inspection (#291) (#291 subset on fork main; #542, #670 remain open)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M4",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Simulation strategy compatible with the Rust-only constraint (#292)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M4",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Full schematic/PCB/library editor workflows"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M4",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Reference-project parity suite with golden outputs (#293)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M4",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Autosave/recovery, project migration, large-board responsiveness (#294)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M4",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Native Windows/Linux/macOS packaging and browser distribution (#295), built by the CI/CD pipeline (#340) (#295 subset on fork main; #468, #469, #470, #477, #480, #482 remain open)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M4",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Craft Launcher integration where authorized by its maintainers (#296)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M4",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Compare two versions of a design (#335)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M4",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Open and inspect fabrication files (#336)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M4",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Drawing frames and title blocks for schematics and drawings (#337) (#337 subset on fork main; #430, #431 remain open)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M4",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Accessibility: keyboard-only use, screen reader names and scalable text (#339) (#339 subset on fork main; keyboard-only use and scalable text remain open)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M4",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Text catalog and translations for every user-visible string (#349) (#349 subset on fork main; #604 remains open)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M4",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Design calculators: track width, via, impedance, divider and unit conversion (#350)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M5",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Layer model for any number of copper layers, with migration of existing designs (#317)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M5",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Route, pour and check on inner layers (#318) (#318 subset on fork main; #385, #386 remain open)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M5",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Fabrication outputs per copper layer (#319)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M5",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Blind, buried and micro vias (#320)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M6",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Artifact records with stale marker and preview (#323) (#323 subset on fork main; #387, #388 remain open)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M6",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Machine profiles (#324) (#324 subset on fork main; #357, #390 remain open)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M6",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Fabrication-house plots with attributes, drill split and drill map (#325)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M6",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "BOM artifact (#326)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M6",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Assembly and fabrication drawings (#327)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M6",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Fabrication-layer PNG rasters via output jobs (#328 subset on fork main; UV-specific workflows and drawn-layer BMP export remain open)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M6",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "CNC isolation G-code (#329)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M6",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "CNC drilling and outline G-code (#330)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "M6",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Paste stencil and laser cut paths (#331)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M6",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Plot drawn layers for laser, mill and printer output (#276 on fork main)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "M6",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Panel fabrication export with breakaway and tooling holes (#338 subset on fork main; interactive panel UI #417-#419 remain open)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "Workbench and UX",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Top menu bar, Start page, plain menu labels, canvas handles, pin and pad click wiring, stackup-first Layers, status strip, Review groups, custom checks, unified library sources and sets, drawn machine layer model"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "Workbench and UX",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Workbench layout: top menu bar, library left, assistant and Layers tree right, tool strip under the tabs (#299)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "Workbench and UX",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "One vector-style Layers tree replaces the Parts, Nets and Layers docks (#274) (scope continues in #756)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "Workbench and UX",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Draw directly on your own layers from the canvas (#275)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "Workbench and UX",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Rules and Checks as top tabs, Project Settings with breathing room (#278)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "Workbench and UX",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Right-click context menu on the canvas (#279)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "Workbench and UX",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Library browser with filters in the left dock (#280)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "Workbench and UX",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Online part sources: search distributor catalogs from the library (#333)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "Workbench and UX",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Find and place open-library footprints by name (#76)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "Workbench and UX",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Generate IPC-style land patterns from package parameters and read-only footprint checks (#344 subset on fork main)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "Workbench and UX",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Parts table: edit every part's fields in one grid (#345) (#345 subset on fork main; #435, #436 remain open)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "Workbench and UX",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Schematic tool strip: wiring, labels, shapes, text and tables drawn on the sheet (#346) (#346 subset on fork main; #443, #444, #445, #475 remain open)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "Workbench and UX",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Several designs open at once, one document tab each (#347) (#347 subset on fork main; #439, #441, #442 remain open)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "Workbench and UX",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Assistant pane backed by the typed command surface (#348)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "Workbench and UX",
+      "scope": "subset",
+      "state": "unlinked",
+      "text": "Assistant epic: bring the assistant structure of a sibling Craft app into PCBCraft (#360), with its core crate (#366), backends (#367, #374), settings (#368), edit gate (#369), context (#370), knowledge retrieval (#371), transcript (#372), offline behaviour and story suite (#373) and shared home decision (#375) (#360 subset on fork main; #371, #374, #375 remain open)"
+    },
+    {
+      "checked": true,
+      "issues": [],
+      "milestone": "Workbench and UX",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Move the end-to-end stories out of the UI crate's lib.rs into `crates/ui-egui/tests/e2e/<area>.rs` (#392)"
+    },
+    {
+      "checked": false,
+      "issues": [],
+      "milestone": "Workbench and UX",
+      "scope": "full",
+      "state": "unlinked",
+      "text": "Help reference: electrical engineering terms, formulas and calculators inside the app (issue to be filed; related to #350)"
+    }
+  ],
+  "schema_version": 1,
+  "source": {
+    "api_requests": 9,
+    "last_green_ci": {
+      "created_at": "2026-10-29T19:47:50Z",
+      "head_sha": "ce172b5208b3a4d207a4d2f550a76389bfbb8403",
+      "url": "https://github.com/wdunn001/pcbcraft/actions/runs/40943287741"
+    },
+    "latest_release": null,
+    "main_sha": "ce172b5208b3a4d207a4d2f550a76389bfbb8403",
+    "repo": "wdunn001/pcbcraft"
+  },
+  "stale": false,
+  "warnings": [
+    "1 issue references in merged pull requests match no issue"
+  ]
+}

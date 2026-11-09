@@ -1,0 +1,47 @@
+schema = 1
+id = "us_government_ndaa"
+title = "US government / NDAA"
+description = "Affiliation with a listed entity and whether a part is a substantial or essential component are legal judgements. PCBCraft compares recorded manufacturer names to bundled list snapshots; near-name matches are possible matches, not confirmed hits. Section 5949 rules stay unverified when only a catalog brand is known. Proposed-rule effective dates are noted in rule text and are not assumed final."
+
+[[rules]]
+id = "ndaa_section_889_telecom"
+kind = "entity_list"
+list = "us-ndaa-synthetic-entities"
+entry_type = "telecommunications"
+severity_hit = "error"
+severity_unverified = "warning"
+message_hit = "Manufacturer matches a bundled telecommunications entity list entry."
+message_unverified = "No manufacturer is recorded for this part, so Section 889 style telecom coverage cannot be verified."
+citation = "NDAA Section 889 (Pub. L. 115-232); fixture list only in this build."
+
+[[rules]]
+id = "ndaa_section_889_video"
+kind = "entity_list"
+list = "us-ndaa-synthetic-entities"
+entry_type = "video_surveillance"
+severity_hit = "error"
+severity_unverified = "warning"
+message_hit = "Manufacturer matches a bundled video-surveillance entity list entry."
+message_unverified = "No manufacturer is recorded for this part, so video-surveillance list coverage cannot be verified."
+citation = "NDAA Section 889 (Pub. L. 115-232); fixture list only in this build."
+
+[[rules]]
+id = "ndaa_section_5949_silicon"
+kind = "silicon_vendor"
+list = "us-ndaa-synthetic-entities"
+roles = ["processor", "memory"]
+severity_hit = "error"
+severity_unverified = "warning"
+message_hit = "Recorded silicon vendor matches a bundled covered-semiconductor entry."
+message_unverified = "Processor or memory part has no recorded silicon vendor; only the catalog brand is known."
+citation = "FY2023 NDAA Section 5949; proposed rule status stated in product docs, not assumed final here."
+
+[[rules]]
+id = "fcc_covered_list_roles"
+kind = "entity_list"
+list = "us-ndaa-synthetic-entities"
+severity_hit = "warning"
+severity_unverified = "warning"
+message_hit = "Manufacturer matches a bundled FCC Covered List style entry."
+message_unverified = "No manufacturer is recorded; FCC Covered List style checks stay unverified."
+citation = "FCC Covered List (47 CFR); fixture entries show entry type and date added."

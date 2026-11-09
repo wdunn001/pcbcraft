@@ -1,0 +1,8 @@
+Cross-origin probe for the open library host (issue #631).
+
+Date: 2026-10-30
+URL: https://gitlab.com/api/v4/projects/kicad%2Flibraries%2Fkicad-symbols/repository/commits/master
+Method: GET, no credentials, CORS mode
+Observed: Access-Control-Allow-Origin: * on success responses; failed opaque responses would block reads.
+
+Re-check if the Online source stops working in a browser tab after a host change.

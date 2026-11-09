@@ -1,0 +1,232 @@
+//! Stories for the in-app datasheet text layer.
+
+use super::support::*;
+use super::workbench::{centre_of, fresh, settled};
+use pcbcraft_datasheet::fixtures;
+use serde_json::json;
+
+#[test]
+fn a_newcomer_searches_a_datasheet_and_copies_text_in_order() -> Result<(), String> {
+    let f = fixtures::all()
+        .into_iter()
+        .find(|f| f.name == "text-one-page.pdf")
+        .ok_or("fixture pdf")?;
+    let ctx = egui::Context::default();
+    let mut app = fresh();
+    app.datasheet_pane
+        .open_fixture(&ctx, f.bytes)
+        .map_err(|e| e.to_string())?;
+    app.datasheet_pane.search_in_ui("LM317");
+    assert_eq!(
+        app.datasheet_pane.match_count(),
+        1,
+        "search should find the part name on the page"
+    );
+    app.datasheet_pane.select_all_on_page();
+    let copied = app.datasheet_pane.copied_selection();
+    assert!(
+        copied.contains("LM317") && copied.contains("TO-220"),
+        "copy should keep reading order across the title and body: {copied}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_finds_matches_on_every_page() -> Result<(), String> {
+    let f = fixtures::all()
+        .into_iter()
+        .find(|f| f.name == "two-pages.pdf")
+        .ok_or("fixture pdf")?;
+    let ctx = egui::Context::default();
+    let mut app = fresh();
+    app.datasheet_pane
+        .open_fixture(&ctx, f.bytes)
+        .map_err(|e| e.to_string())?;
+    app.datasheet_pane.search_in_ui("Absolute");
+    assert_eq!(
+        app.datasheet_pane.match_count(),
+        1,
+        "search should reach the second page"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_sees_when_a_page_has_no_text_layer() -> Result<(), String> {
+    let f = fixtures::all()
+        .into_iter()
+        .find(|f| f.name == "ink-only.pdf")
+        .ok_or("fixture pdf")?;
+    let ctx = egui::Context::default();
+    let mut app = fresh();
+    app.datasheet_pane
+        .open_fixture(&ctx, f.bytes)
+        .map_err(|e| e.to_string())?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        app.datasheet_pane.page_shows_no_text_message(),
+        "ink without glyphs should explain that there is no text layer"
+    );
+    assert!(
+        paints_text(
+            &ctx,
+            &mut app,
+            &pcbcraft_text::lookup("datasheet.pane.no_text", &[])
+        )?,
+        "the plain sentence should appear on screen"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_opens_a_local_datasheet_from_properties() -> Result<(), String> {
+    let f = fixtures::all()
+        .into_iter()
+        .find(|f| f.name == "text-one-page.pdf")
+        .ok_or("fixture pdf")?;
+    let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let path = dir.path().join("part.pdf");
+    std::fs::write(&path, &f.bytes).map_err(|e| e.to_string())?;
+    let url = format!("file:///{}", path.display().to_string().replace('\\', "/"));
+    let mut app = fresh();
+    app.tool_call("sample_design", json!({}));
+    let resistor = app
+        .project
+        .components
+        .iter()
+        .find(|c| c.reference.starts_with('R'))
+        .map(|c| c.id)
+        .ok_or("the practice design carries a resistor")?;
+    app.tool_call(
+        "component.field",
+        json!({"id": resistor, "key": "Datasheet", "value": url}),
+    );
+    app.select(Some(resistor));
+    let ctx = egui::Context::default();
+    settled(&ctx, &mut app);
+    assert!(
+        scrolled_to(&ctx, &mut app, "View datasheet")?,
+        "the datasheet action stays visible"
+    );
+    let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let at = centre_of(&out, "View datasheet", f32::MAX).ok_or("view datasheet button")?;
+    // Rest the pointer on the button, press, and let go: a click needs the release.
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::PointerMoved(at)],
+        egui::Modifiers::NONE,
+    );
+    let mut opened_browser = false;
+    for pressed in [true, false] {
+        let out = frame(
+            &ctx,
+            &mut app,
+            vec![egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            }],
+            egui::Modifiers::NONE,
+        );
+        opened_browser |= out
+            .platform_output
+            .commands
+            .iter()
+            .any(|c| matches!(c, egui::OutputCommand::OpenUrl(_)));
+    }
+    assert!(
+        !opened_browser,
+        "a local file should open in the app, not the browser"
+    );
+    assert!(
+        app.datasheet_pane.is_open(),
+        "the reader pane should be open"
+    );
+    Ok(())
+}
+
+#[test]
+fn show_source_jumps_to_the_page_and_flashes_the_rectangle() -> Result<(), String> {
+    let f = fixtures::all()
+        .into_iter()
+        .find(|f| f.name == "text-one-page.pdf")
+        .ok_or("fixture pdf")?;
+    let ctx = egui::Context::default();
+    let mut app = fresh();
+    app.datasheet_pane
+        .open_fixture(&ctx, f.bytes)
+        .map_err(|e| e.to_string())?;
+    let now = ctx.input(|i| i.time);
+    app.datasheet_pane
+        .show_source(0, [10.0, 20.0, 60.0, 40.0], now);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        app.datasheet_pane.is_open(),
+        "show_source should open the reader pane"
+    );
+    assert_eq!(
+        app.datasheet_pane.flash_rect(),
+        Some((0, [10.0, 20.0, 60.0, 40.0])),
+        "the flash should be set on the first frame"
+    );
+    // One test frame advances about a sixtieth of a second, so 120 frames pass 1.5 seconds.
+    for _ in 0..120 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    assert!(
+        app.datasheet_pane.flash_rect().is_none(),
+        "the flash should clear after 1.5 seconds of context time"
+    );
+    Ok(())
+}
+
+#[test]
+fn show_source_clamps_a_page_past_the_end() -> Result<(), String> {
+    let f = fixtures::all()
+        .into_iter()
+        .find(|f| f.name == "two-pages.pdf")
+        .ok_or("fixture pdf")?;
+    let ctx = egui::Context::default();
+    let mut app = fresh();
+    app.datasheet_pane
+        .open_fixture(&ctx, f.bytes)
+        .map_err(|e| e.to_string())?;
+    let now = ctx.input(|i| i.time);
+    app.datasheet_pane
+        .show_source(99, [10.0, 20.0, 60.0, 40.0], now);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert_eq!(
+        app.datasheet_pane.flash_rect(),
+        Some((1, [10.0, 20.0, 60.0, 40.0])),
+        "page 99 should clamp to the last page (index 1)"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_finds_tables_in_an_open_datasheet() -> Result<(), String> {
+    let f = fixtures::all()
+        .into_iter()
+        .find(|f| f.name == "text-one-page.pdf")
+        .ok_or("fixture pdf")?;
+    let ctx = egui::Context::default();
+    let mut app = fresh();
+    app.datasheet_pane
+        .open_fixture(&ctx, f.bytes)
+        .map_err(|e| e.to_string())?;
+    app.datasheet_pane.pending_extract = true;
+    // One frame advances context time and processes the pending extract request.
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let attachment = app
+        .project
+        .files
+        .iter()
+        .find(|f| f.name.starts_with("datasheet-extract-"));
+    assert!(
+        attachment.is_some(),
+        "an attachment starting with datasheet-extract- should exist after clicking Find tables"
+    );
+    Ok(())
+}

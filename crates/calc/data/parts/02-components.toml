@@ -1,0 +1,135 @@
+# Glossary part 02-components
+schema = 1
+
+[[term]]
+id = "resistor"
+term = "Resistor"
+category = "components"
+short = "Two terminal part that limits current and divides voltage."
+long = "Resistors come in thick film packages with standard E series values. Power rating and pulse capability must exceed stress in the circuit."
+synonyms = ["R"]
+related = ["e_series", "resistance"]
+units = "ohm"
+in_pcbcraft = []
+search = "resistor ohm smd 0805"
+calculator = "resistor_code"
+source = "Component catalogs"
+
+[[term]]
+id = "capacitor"
+term = "Capacitor"
+category = "components"
+short = "Two terminal part that stores charge and passes changing current."
+long = "Ceramic capacitors dominate decoupling while electrolytics hold bulk energy. Voltage rating and dielectric type set reliability."
+synonyms = ["cap"]
+related = ["capacitance", "decoupling"]
+units = "F"
+in_pcbcraft = []
+search = "capacitor ceramic electrolytic value"
+source = "Component catalogs"
+
+[[term]]
+id = "inductor"
+term = "Inductor"
+category = "components"
+short = "Coiled part that stores energy in a magnetic field."
+long = "Inductors specify current saturation and DC resistance. Shielded parts reduce coupling to neighbors on dense boards."
+synonyms = ["choke"]
+related = ["inductance", "ferrite_bead"]
+units = "H"
+in_pcbcraft = []
+search = "inductor choke coil saturation"
+source = "Component catalogs"
+
+[[term]]
+id = "e_series"
+term = "E series values"
+category = "components"
+short = "Standard resistor and capacitor value steps such as E24 and E96."
+long = "E series keeps stock manageable. Tighter tolerance series use finer steps so calculated values can be matched closely."
+synonyms = ["preferred values"]
+related = ["resistor"]
+units = ""
+in_pcbcraft = []
+search = "e24 e96 preferred standard value"
+calculator = "e_series"
+source = "IEC preferred values"
+
+[[term]]
+id = "footprint"
+term = "Footprint"
+category = "components"
+short = "Board land pattern that matches a physical package."
+long = "Footprints define pad size, paste and courtyard. They must align with the manufacturer recommended pattern for reflow yield."
+synonyms = ["land pattern", "package"]
+related = ["pad", "courtyard"]
+units = ""
+in_pcbcraft = ["footprint.assign"]
+search = "footprint land pattern pad"
+source = "PCB assembly practice"
+
+[[term]]
+id = "symbol"
+term = "Schematic symbol"
+category = "components"
+short = "Drawing that represents a part and its pins in the schematic."
+long = "Symbols carry pin electrical types and default footprints. A consistent library keeps netlists and bills of materials aligned."
+synonyms = ["component symbol"]
+related = ["footprint", "reference_designator"]
+units = ""
+in_pcbcraft = ["component.add"]
+search = "symbol schematic pin library"
+source = "Schematic capture practice"
+
+[[term]]
+id = "reference_designator"
+term = "Reference designator"
+category = "components"
+short = "Unique label such as R1 or U3 that identifies a placed instance."
+long = "Reference designators appear on silkscreen, assembly drawings and test documents. Renaming must stay consistent across schematic and board."
+synonyms = ["refdes"]
+related = ["symbol", "bom"]
+units = ""
+in_pcbcraft = ["component.reference"]
+search = "reference designator refdes label"
+source = "Documentation practice"
+
+[[term]]
+id = "bom"
+term = "Bill of materials"
+category = "components"
+short = "List of parts, values and references needed to build a board."
+long = "A BOM groups identical line items and records manufacturer numbers. Variants mark parts that differ between product SKUs."
+synonyms = ["BOM"]
+related = ["reference_designator", "dnp"]
+units = ""
+in_pcbcraft = []
+search = "bom parts list mpn"
+source = "Manufacturing practice"
+
+[[term]]
+id = "dnp"
+term = "Do not populate"
+category = "components"
+short = "Marking that a footprint is left empty on a given build."
+long = "DNP supports optional features without new artwork. Assembly notes must call out which references are skipped."
+synonyms = ["DNP", "not fitted"]
+related = ["bom", "assembly"]
+units = ""
+in_pcbcraft = []
+search = "dnp not fitted optional"
+source = "Manufacturing practice"
+
+[[term]]
+id = "courtyard"
+term = "Courtyard"
+category = "components"
+short = "Keepout rectangle around a footprint for assembly clearance."
+long = "Courtyards prevent overlapping placement that pick and place cannot reach. They include body size plus process margin."
+synonyms = ["component courtyard"]
+related = ["footprint", "assembly"]
+units = "mm"
+in_pcbcraft = []
+search = "courtyard keepout placement margin"
+source = "IPC land pattern practice"
+

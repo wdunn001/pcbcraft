@@ -1,0 +1,120 @@
+# Glossary part 03-schematic
+schema = 1
+
+[[term]]
+id = "net_label"
+term = "Net label"
+category = "schematic"
+short = "Text that assigns the same net name to connected pins."
+long = "Labels reduce wire clutter on large sheets. Matching names merge into one net in the netlist."
+synonyms = ["label"]
+related = ["net", "wire"]
+units = ""
+in_pcbcraft = ["label.place"]
+search = "net label name wire"
+source = "Schematic capture practice"
+
+[[term]]
+id = "wire"
+term = "Schematic wire"
+category = "schematic"
+short = "Line that shows electrical connection between pins on a sheet."
+long = "Wires do not carry length or impedance. They only declare topology until the design reaches layout."
+synonyms = ["connection"]
+related = ["net_label", "net"]
+units = ""
+in_pcbcraft = ["wire.draw"]
+search = "schematic wire connect pin"
+source = "Schematic capture practice"
+
+[[term]]
+id = "net"
+term = "Net"
+category = "schematic"
+short = "Named set of pins that must connect on the board."
+long = "Nets carry power, ground and signals. Class rules assign default width and clearance per net or group."
+synonyms = ["signal net"]
+related = ["net_class", "net_label"]
+units = ""
+in_pcbcraft = ["net.rename"]
+search = "net name signal power"
+source = "Schematic capture practice"
+
+[[term]]
+id = "net_class"
+term = "Net class"
+category = "schematic"
+short = "Group of nets that share routing width and clearance defaults."
+long = "Classes speed routing by applying one rule set to many nets. Power nets often use wider defaults than signals."
+synonyms = ["class"]
+related = ["net", "clearance"]
+units = ""
+in_pcbcraft = ["netclass.add"]
+search = "net class width clearance default"
+source = "Design rule practice"
+
+[[term]]
+id = "erc"
+term = "Electrical rules check"
+category = "schematic"
+short = "Automated review of schematic connectivity and pin types."
+long = "ERC catches unconnected inputs, power conflicts and single pin nets before layout effort begins."
+synonyms = ["ERC"]
+related = ["erc", "net"]
+units = ""
+in_pcbcraft = []
+search = "erc schematic electrical rule"
+source = "Verification practice"
+
+[[term]]
+id = "drc"
+term = "Design rules check"
+category = "schematic"
+short = "Automated review of board geometry against spacing and routing rules."
+long = "DRC flags clearance violations, width limits and unrouted nets before fabrication. Severity can be tuned per check code."
+synonyms = ["DRC"]
+related = ["erc", "clearance", "unrouted"]
+units = ""
+in_pcbcraft = ["rules.severity"]
+search = "drc design rule clearance violation"
+source = "Verification practice"
+
+[[term]]
+id = "hierarchical_sheet"
+term = "Hierarchical sheet"
+category = "schematic"
+short = "Child drawing linked from a parent sheet through sheet symbols."
+long = "Hierarchy splits large designs into reviewable pages. Sheet pins must match between parent and child."
+synonyms = ["subsheet"]
+related = ["wire", "net_label"]
+units = ""
+in_pcbcraft = []
+search = "hierarchical sheet subsheet block"
+source = "Schematic capture practice"
+
+[[term]]
+id = "power_flag"
+term = "Power flag"
+category = "schematic"
+short = "Marker that tells ERC a global power net is intentionally driven."
+long = "Flags suppress false unconnected power warnings. They should sit on the sheet where the rail enters."
+synonyms = ["PWR flag"]
+related = ["power_rail", "erc"]
+units = ""
+in_pcbcraft = []
+search = "power flag pwr global net"
+source = "Schematic capture practice"
+
+[[term]]
+id = "no_connect"
+term = "No connect marker"
+category = "schematic"
+short = "Cross symbol showing a pin is deliberately unused."
+long = "No connect markers document intent and satisfy ERC for unused pins on microcontrollers and connectors."
+synonyms = ["NC marker"]
+related = ["erc"]
+units = ""
+in_pcbcraft = ["pin.no_connect"]
+search = "no connect nc unused pin"
+source = "Schematic capture practice"
+

@@ -1,0 +1,4 @@
+net	reference	pin
+GND	R1	2
+SIG	R1	1
+SIG	R2	1

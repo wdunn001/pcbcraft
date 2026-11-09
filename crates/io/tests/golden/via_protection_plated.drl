@@ -1,0 +1,36 @@
+M48
+Plated,1,2,PTH
+METRIC
+; #@! TA.DrillTolerance,0.050,0.050
+; #@! TA.AperFunction,Plated,PTH,ViaDrill,None
+T01C0.200
+; #@! TD
+; #@! TA.DrillTolerance,0.050,0.050
+; #@! TA.AperFunction,Plated,PTH,ViaDrill,Ia
+T02C0.300
+; #@! TD
+; #@! TA.DrillTolerance,0.050,0.050
+; #@! TA.AperFunction,Plated,PTH,ViaDrill,Ib
+T03C0.300
+; #@! TD
+; #@! TA.DrillTolerance,0.050,0.050
+; #@! TA.AperFunction,Plated,PTH,ViaDrill,VII
+T04C0.300
+; #@! TD
+; #@! TA.DrillTolerance,0.050,0.050
+T05C0.800
+; #@! TD
+%
+G90
+G05
+T01
+X16.000Y10.000
+T02
+X12.000Y10.000
+T03
+X10.000Y10.000
+T04
+X14.000Y10.000
+T05
+X30.000Y20.000
+M30

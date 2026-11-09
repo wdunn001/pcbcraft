@@ -1,0 +1,35 @@
+{
+  "name": "PCBCraft",
+  "short_name": "PCBCraft",
+  "description": "Schematic capture, PCB layout and design checks in the browser.",
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#0b1a16",
+  "background_color": "#0b1a16",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icon-monochrome-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "monochrome"
+    }
+  ]
+}

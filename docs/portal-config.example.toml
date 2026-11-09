@@ -1,0 +1,16 @@
+# Example portal deployment settings. Copy outside the repository and edit.
+# Do not commit real secrets or production hostnames.
+
+instance_id = "example-instance"
+title = "Example sharing portal"
+listen = "127.0.0.1:8080"
+database_url = "sqlite://./portal.db"
+
+[object_store]
+driver = "local-folder"
+root = "./object-store"
+
+[auth]
+email_link = true
+passkey = true
+# oidc_issuer = "https://issuer.example.test/"

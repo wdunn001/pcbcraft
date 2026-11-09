@@ -1,0 +1,23 @@
+schema = 1
+id = "reach_svhc_candidate"
+title = "REACH SVHC candidate list (bundled snapshot)"
+source_url = "https://echa.europa.eu/candidate-list-table"
+published = "2026-03-01"
+retrieved = "2026-03-28"
+licence = "ECHA terms of use; substance names in this file are public regulatory identifiers."
+cadence_days = 180
+version = "2026-03"
+
+[[substances]]
+cas = "999-00-1"
+ec = "200-000-1"
+name = "Synthetic SVHC Alpha"
+added = "2026-01-15"
+citation = "Bundled teaching snapshot; not a live ECHA extract."
+
+[[substances]]
+cas = "999-00-2"
+ec = "200-000-2"
+name = "Synthetic SVHC Beta"
+added = "2026-02-01"
+citation = "Bundled teaching snapshot; not a live ECHA extract."

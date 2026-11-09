@@ -1,0 +1,18 @@
+{
+  "format": "pcbcraft-registry-catalogue",
+  "schema_version": 1,
+  "items": [
+    {
+      "id": "fixture-r",
+      "title": "Fixture resistor symbol",
+      "version": "1.0.0",
+      "kind": "part",
+      "tags": [
+        "passive",
+        "fixture"
+      ],
+      "bundle_root_hash": "2e48c815c981a4edd35336b99e70e9a5b8a79fca4bba4b38792ca0dd66796731",
+      "path": "publications/fixture-r/1.0.0"
+    }
+  ]
+}

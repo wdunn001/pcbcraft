@@ -1,0 +1,10 @@
+{
+  "DatasheetUrl": "https://example.invalid/digikey-datasheet.pdf",
+  "ProductStatus": "Active",
+  "Classifications": {
+    "RoHS": "Compliant",
+    "REACH": "Unaffected",
+    "MoistureSensitivityLevel": "Level 3"
+  },
+  "DateLastBuyChance": "2027-06-15"
+}

@@ -1,0 +1,18 @@
+/* Self-hosted fonts from @fontsource (SIL OFL 1.1). No request to a font service.
+   Latin, Latin-extended and Cyrillic subsets only; the browser fetches a file only when
+   a glyph in its unicode-range is used. CJK, Arabic and Hebrew fall back to system fonts.
+   Two weights per family to keep first paint small. */
+@import '@fontsource/ibm-plex-sans/latin-400.css';
+@import '@fontsource/ibm-plex-sans/latin-ext-400.css';
+@import '@fontsource/ibm-plex-sans/cyrillic-400.css';
+@import '@fontsource/ibm-plex-sans/latin-600.css';
+@import '@fontsource/ibm-plex-sans/latin-ext-600.css';
+@import '@fontsource/ibm-plex-sans/cyrillic-600.css';
+@import '@fontsource/ibm-plex-sans-condensed/latin-600.css';
+@import '@fontsource/ibm-plex-sans-condensed/latin-ext-600.css';
+@import '@fontsource/ibm-plex-sans-condensed/latin-700.css';
+@import '@fontsource/ibm-plex-sans-condensed/latin-ext-700.css';
+@import '@fontsource/jetbrains-mono/latin-400.css';
+@import '@fontsource/jetbrains-mono/latin-ext-400.css';
+@import '@fontsource/jetbrains-mono/cyrillic-400.css';
+@import '@fontsource/jetbrains-mono/latin-600.css';

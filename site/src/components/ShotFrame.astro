@@ -1,0 +1,127 @@
+---
+// Frame for one screenshot: a neutral application window around either a product image from the
+// screen catalog (src/data/screens.json, files in src/assets/screens/) or, when the catalog has
+// no image for the slot, the hatched placeholder. Default slot content (a drawing) still wins.
+// Rules: `alt` is the fallback description; a catalog image uses its own catalog alt text and the
+// build fails if that is missing. The caption's right side names the origin: Capture or Design render.
+// Dependencies: ../data/screens.json, ../assets/screens/*.{webp,png}, ../../scripts/make-screens.mjs.
+// Do not: put an image here by hand; add it to the catalog and rerun make-screens.
+import catalog from '../data/screens.json';
+interface Props {
+  id: string;
+  alt: string;
+  title?: string;
+  ratio?: string;
+  caption?: string;
+  eager?: boolean;
+}
+const files = import.meta.glob('../assets/screens/*.{webp,png}', { eager: true, import: 'default' }) as Record<string, ImageMetadata>;
+const pick = (name: string, ext: string) => files[`../assets/screens/${name}.${ext}`];
+const { id, alt, title = 'PCBCraft', ratio = '16 / 10', caption, eager = false } = Astro.props;
+const key = (catalog.slots as Record<string, string>)[id] ?? id;
+const entry = (catalog.images as Record<string, any>)[key];
+if (entry && !entry.alt) throw new Error(`screen ${key} has no alt text in screens.json`);
+const png = entry ? pick(key, 'png') : undefined;
+const webp = entry ? pick(key, 'webp') : undefined;
+if (entry && (!png || !webp)) throw new Error(`screen ${key} is in the catalog but its files are missing; run make-screens`);
+const mPng = entry?.mobile ? pick(`${key}-m`, 'png') : undefined;
+const mWebp = entry?.mobile ? pick(`${key}-m`, 'webp') : undefined;
+const origin = entry ? (entry.origin === 'capture' ? 'Capture' : 'Design render') : '';
+const filled = Astro.slots.has('default');
+const hasImage = !filled && !!png;
+---
+
+<figure class="shot" data-shot={id} data-origin={origin || undefined}>
+  <div class="chrome" aria-hidden="true">
+    <i></i><i></i><i></i><span class="mono">{title}</span>
+  </div>
+  {
+    hasImage ? (
+      <div class="view img">
+        <picture>
+          {mWebp && <source media="(max-width: 56rem)" srcset={mWebp.src} type="image/webp" />}
+          {mPng && <source media="(max-width: 56rem)" srcset={mPng.src} type="image/png" />}
+          <source srcset={webp?.src} type="image/webp" />
+          <img src={png?.src} width={png?.width} height={png?.height} alt={entry.alt} loading={eager ? 'eager' : 'lazy'} fetchpriority={eager ? 'high' : undefined} decoding="async" />
+        </picture>
+      </div>
+    ) : (
+      <div class="view" style={`aspect-ratio:${ratio}`} role="img" aria-label={alt} data-slot={filled ? undefined : 'SCREENSHOT #715'}>
+        {filled ? <slot /> : <span class="mono hatch-label">{id}</span>}
+      </div>
+    )
+  }
+  {(caption || origin) && <figcaption class="mono"><span>{caption}</span><span class="right">{origin || id}</span></figcaption>}
+</figure>
+
+<style>
+  .shot {
+    margin: 0;
+    overflow: hidden;
+    background: var(--pc-surface);
+    border: 1px solid var(--pc-edge);
+    border-radius: 10px;
+    box-shadow: var(--pc-shadow);
+  }
+  .chrome {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 12px;
+    height: 34px;
+    background: var(--pc-raised);
+    border-bottom: 1px solid var(--pc-line);
+    color: var(--pc-muted);
+    font-size: 0.72rem;
+  }
+  .chrome i {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--pc-line);
+  }
+  .chrome span {
+    margin-inline-start: 10px;
+    letter-spacing: 0.06em;
+  }
+  .view {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 100%;
+    background: var(--pc-surface);
+  }
+  .view :global(svg) {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .hatch-label {
+    padding: 0.4rem 0.8rem;
+    color: var(--pc-muted);
+    font-size: 0.8rem;
+    background: var(--pc-surface);
+    border-radius: 4px;
+  }
+  .view.img {
+    display: block;
+    line-height: 0;
+  }
+  .view.img img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  .view[data-slot] {
+    background: repeating-linear-gradient(45deg, var(--pc-raised) 0 10px, var(--pc-surface) 10px 20px);
+  }
+  figcaption {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.55rem 0.9rem;
+    color: var(--pc-muted);
+    font-size: 0.75rem;
+    border-top: 1px solid var(--pc-line);
+  }
+</style>

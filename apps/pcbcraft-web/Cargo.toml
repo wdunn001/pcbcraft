@@ -1,0 +1,34 @@
+[package]
+name = "pcbcraft-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "pcbcraft_web"
+path = "src/lib.rs"
+
+[[bin]]
+name = "pcbcraft-web"
+path = "src/main.rs"
+
+[dependencies]
+pcbcraft-assistant.workspace = true
+pcbcraft-ui-egui.workspace = true
+eframe.workspace = true
+pcbcraft-doc.workspace = true
+pcbcraft-engine.workspace = true
+pcbcraft-library.workspace = true
+pcbcraft-mcp.workspace = true
+pcbcraft-text.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["Window", "Document", "HtmlCanvasElement", "Request", "Response", "console", "Element", "Navigator", "Headers", "RequestInit", "RequestMode", "RequestCredentials", "Blob", "BlobPropertyBag", "File", "FileList", "FileReader", "HtmlAnchorElement", "HtmlInputElement", "ProgressEvent", "Event", "Url", "Storage", "RequestRedirect", "DragEvent", "DataTransfer", "EventTarget"] }

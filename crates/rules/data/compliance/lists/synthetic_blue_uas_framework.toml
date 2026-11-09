@@ -1,0 +1,14 @@
+schema = 1
+id = "synthetic_blue_uas_framework"
+title = "Synthetic Blue UAS-style framework list for PCBCraft fixture tests"
+source_url = "https://example.test/compliance/lists/synthetic-blue-uas-framework"
+published = "2024-06-01"
+retrieved = "2026-01-15"
+licence = "CC0-1.0"
+cadence_days = 90
+
+[[part_numbers]]
+mpn = "SYN-FIXTURE-FC-001"
+role = "flight_controller"
+added = "2024-06-01"
+citation = "Synthetic framework row for PCBCraft tests only."

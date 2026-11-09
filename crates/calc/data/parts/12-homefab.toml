@@ -1,0 +1,81 @@
+# Glossary part 12-homefab
+schema = 1
+
+[[term]]
+id = "cnc_milling"
+term = "CNC isolation milling"
+category = "homefab"
+short = "Mechanical removal of copper to form tracks on single sided boards."
+long = "Isolation milling uses small end mills instead of etching. Design rules favor wider spacing than dense commercial fabs."
+synonyms = ["isolation routing"]
+related = ["track_width", "clearance"]
+units = ""
+in_pcbcraft = []
+search = "cnc mill isolation home fab"
+source = "Home fabrication practice"
+
+[[term]]
+id = "toner_transfer"
+term = "Toner transfer"
+category = "homefab"
+short = "Printing resist with toner then etching away exposed copper."
+long = "Toner transfer suits single sided prototypes. Trace width and spacing must exceed what fine pitch SMT needs."
+synonyms = ["iron on resist"]
+related = ["etch", "track_width"]
+units = ""
+in_pcbcraft = []
+search = "toner transfer etch prototype"
+source = "Home fabrication practice"
+
+[[term]]
+id = "etch"
+term = "Chemical etch"
+category = "homefab"
+short = "Dissolving exposed copper while resist protects tracks."
+long = "Etch tanks need ventilation and waste handling. Even copper thickness affects minimum achievable width."
+synonyms = ["ferric etch"]
+related = ["toner_transfer", "solder_mask"]
+units = ""
+in_pcbcraft = []
+search = "etch copper chloride prototype"
+source = "Home fabrication practice"
+
+[[term]]
+id = "drill_craft"
+term = "Manual drilling"
+category = "homefab"
+short = "Drilling holes with a press or small CNC before plating optional steps."
+long = "Manual drills wander if boards flex. Registration to artwork limits minimum via and through hole quality."
+synonyms = ["hand drill"]
+related = ["via", "annular_ring"]
+units = ""
+in_pcbcraft = []
+search = "drill press home prototype hole"
+source = "Home fabrication practice"
+
+[[term]]
+id = "solder_wire"
+term = "Hand soldering"
+category = "homefab"
+short = "Joining parts with iron heated solder wire and flux."
+long = "Hand soldering suits rework and one off builds. Thermal relief spokes on plane connections make joints easier."
+synonyms = ["iron solder"]
+related = ["thermal", "pad"]
+units = ""
+in_pcbcraft = []
+search = "hand solder iron flux rework"
+source = "Assembly practice"
+
+[[term]]
+id = "perfboard"
+term = "Perfboard"
+category = "homefab"
+short = "Perforated board with holes on a grid for wire leads."
+long = "Perfboard prototypes skip artwork. They help validate circuits before committing to etched or milled copper."
+synonyms = ["veroboard"]
+related = ["wire", "assembly"]
+units = ""
+in_pcbcraft = []
+search = "perfboard prototype breadboard solder"
+source = "Home fabrication practice"
+

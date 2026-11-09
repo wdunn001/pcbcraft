@@ -1,0 +1,97 @@
+#![cfg(feature = "plugin-firmware-target")]
+//! Issue #846: peripheral checks and firmware target export.
+use pcbcraft_doc::{Component, EmbeddedFile, Net, Pin, Project};
+use pcbcraft_engine::Session;
+use pcbcraft_geom::Point;
+
+fn firmware_fixture_project() -> Project {
+    let design_text = include_str!("../../library/tests/fixtures/firmware-design.toml");
+    let mcu_text = include_str!("../../library/tests/fixtures/stm32f405-fixture.mcu.toml");
+    let mut project = Project::default();
+    project.files.push(EmbeddedFile {
+        name: "firmware-design.toml".into(),
+        data: design_text.into(),
+        encoding: String::new(),
+    });
+    project.files.push(EmbeddedFile {
+        name: "stm32f405-fixture.mcu.toml".into(),
+        data: mcu_text.into(),
+        encoding: String::new(),
+    });
+    project.components.push(Component {
+        id: 1,
+        reference: "U1".into(),
+        value: "STM32F405".into(),
+        kind: "ic_mcu".into(),
+        position: Point { x: 0.0, y: 0.0 },
+        rotation: 0.0,
+        pins: vec![
+            Pin {
+                number: "PA5".into(),
+                name: "PA5".into(),
+                offset: Point { x: 0.0, y: 0.0 },
+                net: Some(10),
+                electrical_type: "bidirectional".into(),
+                direction: None,
+                unit: 1,
+                appearances: Default::default(),
+            },
+            Pin {
+                number: "PB2".into(),
+                name: "BOOT1".into(),
+                offset: Point { x: 0.0, y: 0.0 },
+                net: Some(11),
+                electrical_type: "input".into(),
+                direction: None,
+                unit: 1,
+                appearances: Default::default(),
+            },
+        ],
+        units: vec![],
+        library_symbol: None,
+        library_footprint: None,
+        fields: vec![],
+        sheet: 0,
+        compliance: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
+        instance: Default::default(),
+        part: None,
+        prototype: Default::default(),
+        sourcing: Default::default(),
+    });
+    project.nets.push(Net {
+        id: 10,
+        name: "+5V".into(),
+        ..Net::default()
+    });
+    project.nets.push(Net {
+        id: 11,
+        name: "+3V3".into(),
+        ..Net::default()
+    });
+    project
+}
+
+#[test]
+fn a_newcomer_is_told_a_pin_cannot_do_the_function_it_was_given() -> Result<(), String> {
+    let mut project = firmware_fixture_project();
+    project.files[0].data = project.files[0]
+        .data
+        .replace("function = \"SPI1_SCK\"", "function = \"CAN1_TX\"");
+    let mut session = Session::default();
+    session.project = project;
+    let checks = session.checks();
+    let peripheral = checks["peripheral"]
+        .as_array()
+        .ok_or("peripheral findings missing")?;
+    assert!(
+        peripheral.iter().any(|f| {
+            f.get("code")
+                .and_then(|c| c.as_str())
+                .is_some_and(|c| c == "peripheral_invalid_function")
+        }),
+        "expected invalid function finding"
+    );
+    Ok(())
+}

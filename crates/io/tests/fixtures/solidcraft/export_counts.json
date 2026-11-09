@@ -1,0 +1,7 @@
+{
+  "fixture": "board_mini.solidcraft",
+  "components": 1,
+  "occurrences": 1,
+  "bodies": 2,
+  "body_names": ["Board", "R1"]
+}

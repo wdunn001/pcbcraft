@@ -1,0 +1,9 @@
+{
+  "DataSheetUrl": "https://example.invalid/mouser-datasheet.pdf",
+  "LifecycleStatus": "Active",
+  "IsDiscontinued": false,
+  "ROHSStatus": "RoHS Compliant",
+  "REACH-SVHC": "No SVHC",
+  "ProductCompliance": "Halogen Free",
+  "Reeling": "Cut Tape (CT)"
+}

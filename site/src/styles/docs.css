@@ -1,0 +1,40 @@
+/* Docs polish on top of the Starlight mapping in theme.css. */
+:root {
+  --sl-text-h1: 2.4rem;
+}
+.sl-markdown-content a:not(.sl-link-button):not([class*='card']) {
+  color: var(--pc-cyan);
+}
+.sl-markdown-content h1,
+.sl-markdown-content h2,
+.sl-markdown-content h3,
+.sl-markdown-content h4,
+h1#_top {
+  font-family: var(--pc-font-head);
+  font-weight: 700;
+  letter-spacing: -0.005em;
+}
+h1#_top::before {
+  content: '';
+  display: block;
+  width: 56px;
+  height: 4px;
+  margin-bottom: 14px;
+  border-radius: 2px;
+  background: var(--pc-copper);
+}
+.sl-markdown-content code:not(pre code) {
+  font-family: var(--pc-font-mono);
+}
+:focus-visible {
+  outline: 3px solid var(--pc-gold);
+  outline-offset: 2px;
+}
+body {
+  background-image: linear-gradient(var(--pc-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--pc-grid) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+header.header {
+  background: var(--pc-bg);
+}

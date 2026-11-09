@@ -1,0 +1,79 @@
+# In-app tour structure for English. Title, body and list labels are catalog keys
+# in strings/en.txt (each needs a matching .tip line).
+
+[[tour]]
+id = "window_and_tabs"
+version = 1
+workspace = "schematic"
+trigger = "first_launch"
+
+[[tour.steps]]
+id = "tab_row"
+target = "shell.tab.schematic"
+title = "tour.window_and_tabs.tab_row.title"
+body = "tour.window_and_tabs.tab_row.body"
+placement = "bottom"
+
+[[tour.steps]]
+id = "left_region"
+target = "region.schematic.library"
+title = "tour.window_and_tabs.left_region.title"
+body = "tour.window_and_tabs.left_region.body"
+placement = "right"
+
+[[tour.steps]]
+id = "work_area"
+target = "none"
+title = "tour.window_and_tabs.work_area.title"
+body = "tour.window_and_tabs.work_area.body"
+placement = "auto"
+
+[[tour.steps]]
+id = "bottom_sheet"
+target = "region.schematic.findings"
+title = "tour.window_and_tabs.bottom_sheet.title"
+body = "tour.window_and_tabs.bottom_sheet.body"
+placement = "top"
+
+[[tour.steps]]
+id = "help_menu"
+target = "shell.menu.help"
+title = "tour.window_and_tabs.help_menu.title"
+body = "tour.window_and_tabs.help_menu.body"
+placement = "bottom"
+
+[[tour]]
+id = "place_a_part"
+version = 1
+workspace = "schematic"
+trigger = "first_visit"
+
+[[tour.steps]]
+id = "library_tab"
+target = "region.schematic.library"
+title = "tour.place_a_part.library_tab.title"
+body = "tour.place_a_part.library_tab.body"
+placement = "right"
+wait_for = "click:region.schematic.library"
+
+[[tour.steps]]
+id = "search"
+target = "schematic.library.search"
+title = "tour.place_a_part.search.title"
+body = "tour.place_a_part.search.body"
+placement = "bottom"
+
+[[tour.steps]]
+id = "pick_and_place"
+target = "none"
+title = "tour.place_a_part.pick_and_place.title"
+body = "tour.place_a_part.pick_and_place.body"
+placement = "auto"
+wait_for = "document_changed"
+
+[[tour.steps]]
+id = "inspector"
+target = "schematic.inspector"
+title = "tour.place_a_part.inspector.title"
+body = "tour.place_a_part.inspector.body"
+placement = "left"

@@ -1,0 +1,7 @@
+SPAN,KIND,PLATED,FUNCTION,DIAMETER_MM,SLOT_MM,COUNT,TOLERANCE_MM
+L1-L2,Blind,plated,Via,0.150,0.000,1,0.050
+L1-L4,Through,plated,Via,0.200,0.000,1,0.050
+L1-L4,Through,plated,Via,0.300,0.000,3,0.050
+L1-L4,Through,plated,Component pad,0.800,0.000,1,0.050
+L1-L4,Through,unplated,Mounting,3.200,0.000,1,0.050
+L2-L3,Buried,plated,Via,0.150,0.000,1,0.050

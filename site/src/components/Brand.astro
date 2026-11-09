@@ -1,0 +1,33 @@
+---
+// Brand lockup: mark plus the text wordmark "PCBCraft" (IBM Plex Sans SemiBold).
+// Context: owner picked logo concept 2 (Layer stack); #687 replaces the files in
+// src/assets/brand/. Rules: reference the mark only from that folder; keep the decorative
+// (alt empty) mark beside the visible text name.
+// Do not: put the mark in an <img> without empty alt next to the visible name.
+import { url } from '../lib/site';
+import mark from '../assets/brand/concept-2.svg';
+---
+
+<a class="brand" href={url()} aria-label="PCBCraft home">
+  <img class="mark" src={mark.src} width="30" height="30" alt="" aria-hidden="true" />
+  <span class="word">PCBCraft</span>
+</a>
+
+<style>
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    color: var(--pc-text);
+    text-decoration: none;
+    border-radius: 4px;
+  }
+  .word {
+    font: 600 1.3rem/1 var(--pc-font-body);
+    letter-spacing: -0.01em;
+  }
+  .mark {
+    display: block;
+    border-radius: 7px;
+  }
+</style>

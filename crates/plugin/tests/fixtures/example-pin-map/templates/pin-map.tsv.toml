@@ -1,0 +1,5 @@
+schema = 1
+kind = "pin_map"
+header = "net\treference\tpin\n"
+row = "{net}\t{reference}\t{pin}\n"
+sort = "net_then_reference"

@@ -1,0 +1,534 @@
+# Pull request and main gate. Four stages, each job runs one `cargo xtask`
+# command (or one build), so any failure reproduces locally with the same
+# command. Stage 1 is the only stage a draft pull request runs. See docs/ci.md.
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+  merge_group:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  # One run per pull request: a new push, or marking the pull request ready,
+  # cancels the older run of that pull request. Runs on main, in the merge queue
+  # and manual runs are never cancelled, so every commit on main keeps its result.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+  RUST_BACKTRACE: 1
+
+jobs:
+  changes:
+    name: Changes
+    runs-on: [self-hosted, pcbcraft]
+    permissions:
+      contents: read
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      site: ${{ steps.filter.outputs.site }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: filter
+        name: Skip stages 2 to 4 for documentation-only changes
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          base=""
+          if [ "$EVENT" = pull_request ]; then
+            base=$(git merge-base "$PR_BASE" HEAD || true)
+          elif [ "$EVENT" = push ]; then
+            # A push to main is a merge commit, and its first parent is the main that came before it.
+            # The push event's "before" value is not reliable when runs are cancelled or batched: it
+            # produced an empty file list and skipped every test stage on code changes.
+            base=$(git rev-parse HEAD^1 2>/dev/null || true)
+          fi
+          if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo "No usable base commit; running everything."
+            echo "rust=true" >> "$GITHUB_OUTPUT"
+            echo "site=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(git diff --name-only "$base" HEAD)
+          printf 'Changed files:\n%s\n' "$changed"
+          if printf '%s\n' "$changed" | grep -qE '^site/|^docs/|^\.github/workflows/ci\.yml$'; then
+            echo "site=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "site=false" >> "$GITHUB_OUTPUT"
+          fi
+          code=$(printf '%s\n' "$changed" | grep -vE '^$|\.md$|^docs/|^LICENSE$|^NOTICE$|^\.github/ISSUE_TEMPLATE/' || true)
+          if [ -n "$code" ]; then
+            echo "rust=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Only documentation changed; skipping stages 2 to 4."
+            echo "rust=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Stage 1: cheap checks, fail fast. Drafts run this stage only.
+  lint:
+    name: Lint
+    runs-on: [self-hosted, pcbcraft-laptop]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install window-system packages
+        run: .github/scripts/install-linux-deps.sh 
+      # The runner containers share one /cargo volume. A sibling job's cache restore
+      # rewrites the registry under a running compile, which shows up as missing
+      # sources or a vanished rustc. Give each job its own cargo home.
+      - name: Use a job-private cargo home
+        shell: bash
+        run: echo "CARGO_HOME=$RUNNER_TEMP/cargo" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: 1.99.1
+          components: rustfmt
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: lint
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Lint
+        run: cargo xtask lint --json
+      # A pull request that changes the app, the engine or the site needs a change file, unless it
+      # carries the docs-only label. The files feed the changelog page and the release notes.
+      - name: Require a change file
+        if: github.event_name == 'pull_request'
+        env:
+          CHANGESET_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: cargo xtask changeset require
+
+  clippy:
+    name: Clippy
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: [self-hosted, pcbcraft-laptop]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install window-system packages
+        run: .github/scripts/install-linux-deps.sh 
+      # The runner containers share one /cargo volume. A sibling job's cache restore
+      # rewrites the registry under a running compile, which shows up as missing
+      # sources or a vanished rustc. Give each job its own cargo home.
+      - name: Use a job-private cargo home
+        shell: bash
+        run: echo "CARGO_HOME=$RUNNER_TEMP/cargo" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: 1.99.1
+          components: clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: clippy
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo xtask clippy
+
+  deny:
+    name: Licenses and advisories
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: [self-hosted, pcbcraft-laptop]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install window-system packages
+        run: .github/scripts/install-linux-deps.sh 
+      # The runner containers share one /cargo volume. A sibling job's cache restore
+      # rewrites the registry under a running compile, which shows up as missing
+      # sources or a vanished rustc. Give each job its own cargo home.
+      - name: Use a job-private cargo home
+        shell: bash
+        run: echo "CARGO_HOME=$RUNNER_TEMP/cargo" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: 1.99.1
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: cargo-deny
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: xtask
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo xtask deny
+
+  # Stage 2: unit tests.
+  unit:
+    name: Unit tests
+    needs: [changes, lint, clippy, deny]
+    if: needs.changes.outputs.rust == 'true' && github.event.pull_request.draft != true
+    runs-on: [self-hosted, pcbcraft-laptop]
+    permissions:
+      contents: read
+    env:
+      NEXTEST_PROFILE: ci
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install window-system packages
+        run: .github/scripts/install-linux-deps.sh 
+      # Some runner work folders are small RAM-backed disks. The restored cache and the full
+      # test build do not fit in them, and the linker dies with a bus error. When the work
+      # disk is small, keep the build output on the container disk behind a symlink.
+      - name: Keep the build output on a big disk
+        shell: bash
+        run: |
+          avail=$(df -m "$GITHUB_WORKSPACE" | awk 'NR==2{print $4}')
+          echo "work disk free: ${avail} MB"
+          if [ "${avail:-99999}" -lt 20000 ]; then
+            rm -rf target
+            big="/tmp/pcb-target-${GITHUB_RUN_ID}-${GITHUB_JOB}"
+            mkdir -p "$big"
+            ln -s "$big" target
+            echo "PCB_BIG_TARGET=$big" >> "$GITHUB_ENV"
+            echo "build output on $big"
+          fi
+      # The runner containers share one /cargo volume. A sibling job's cache restore
+      # rewrites the registry under a running compile, which shows up as missing
+      # sources or a vanished rustc. Give each job its own cargo home.
+      - name: Use a job-private cargo home
+        shell: bash
+        run: echo "CARGO_HOME=$RUNNER_TEMP/cargo" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: 1.99.1
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: cargo-nextest
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: test
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo xtask test
+      - name: Upload test report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-report
+          path: target/nextest/ci/junit.xml
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Remove the build output from the big disk
+        if: ${{ always() }}
+        shell: bash
+        run: '[ -z "${PCB_BIG_TARGET:-}" ] || rm -rf "$PCB_BIG_TARGET"'
+
+  # Stage 3: builds. They need only the cheap checks (lint, clippy), so they
+  # run while the unit tests run. The wasm build comes first in priority.
+  check-wasm:
+    name: Check (wasm)
+    needs: [changes, lint, clippy]
+    if: needs.changes.outputs.rust == 'true' && github.event.pull_request.draft != true
+    runs-on: [self-hosted, pcbcraft-laptop]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install window-system packages
+        run: .github/scripts/install-linux-deps.sh 
+      # The runner containers share one /cargo volume. A sibling job's cache restore
+      # rewrites the registry under a running compile, which shows up as missing
+      # sources or a vanished rustc. Give each job its own cargo home.
+      - name: Use a job-private cargo home
+        shell: bash
+        run: echo "CARGO_HOME=$RUNNER_TEMP/cargo" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: 1.99.1
+          components: clippy
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: wasm-check
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The browser crates check for wasm32, wasm clippy blocks std::time clocks,
+      # and the portable crates pass cargo check for wasm32. Dev builds only, so this
+      # job runs next to the release bundle build instead of in front of it.
+      - run: cargo xtask wasm-check
+      - run: cargo xtask wasm-deps
+
+  build-wasm:
+    name: Build (wasm)
+    needs: [changes, lint, clippy]
+    if: needs.changes.outputs.rust == 'true' && github.event.pull_request.draft != true
+    runs-on: [self-hosted, pcbcraft-laptop]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install window-system packages
+        run: .github/scripts/install-linux-deps.sh 
+      # The runner containers share one /cargo volume. A sibling job's cache restore
+      # rewrites the registry under a running compile, which shows up as missing
+      # sources or a vanished rustc. Give each job its own cargo home.
+      - name: Use a job-private cargo home
+        shell: bash
+        run: echo "CARGO_HOME=$RUNNER_TEMP/cargo" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: 1.99.1
+          components: clippy
+          targets: wasm32-unknown-unknown
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: trunk
+      # Trunk downloads wasm-opt into its tool cache on first use, and that
+      # download times out now and then. Restore the cache instead; the key is
+      # the version pinned in apps/pcbcraft-web/Trunk.toml.
+      - name: Read the pinned wasm-opt version
+        id: wasm-opt
+        run: echo "version=$(sed -n 's/^wasm_opt *= *"\(.*\)"/\1/p' apps/pcbcraft-web/Trunk.toml)" >> "$GITHUB_OUTPUT"
+      - name: Restore the trunk tool cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/trunk
+          key: trunk-tools-${{ runner.os }}-${{ steps.wasm-opt.outputs.version }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: wasm
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The browser smoke runs under node; the runner image does not ship it.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      # Chromium needs system libraries the runner image may lack; the install
+      # does nothing when they are already present.
+      - name: Install browser system libraries
+        run: sudo env "PATH=$PATH" npx --yes playwright@1.50.1 install-deps chromium
+      # A trunk release build with hashed file names, without wasm-opt (the
+      # optimized bundle is built by the nightly, release and deploy workflows),
+      # and the headless browser first-frame smoke.
+      - run: cargo xtask wasm-bundle
+      - name: Upload the web bundle
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-dist
+          path: apps/pcbcraft-web/dist
+          if-no-files-found: error
+          retention-days: 14
+
+  build-linux-x64:
+    name: Build (Linux x86_64)
+    needs: [changes, lint, clippy]
+    if: needs.changes.outputs.rust == 'true' && github.event.pull_request.draft != true
+    runs-on: [self-hosted, pcbcraft-laptop]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install window-system packages
+        run: .github/scripts/install-linux-deps.sh 
+      # The runner containers share one /cargo volume. A sibling job's cache restore
+      # rewrites the registry under a running compile, which shows up as missing
+      # sources or a vanished rustc. Give each job its own cargo home.
+      - name: Use a job-private cargo home
+        shell: bash
+        run: echo "CARGO_HOME=$RUNNER_TEMP/cargo" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: 1.99.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: build-linux
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo build --release --locked -p pcbcraft -p pcbcraft-cli
+      - name: Upload the binaries
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-x86_64
+          path: |
+            target/release/pcbcraft
+            target/release/pcbcraft-cli
+          if-no-files-found: error
+          retention-days: 14
+
+  # Windows is cross-compiled on a Linux runner. Main and the merge queue only.
+  build-windows:
+    name: Build (Windows x86_64)
+    needs: [changes, unit]
+    if: ${{ needs.changes.outputs.rust == 'true' && (github.event_name == 'push' || github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch') }}
+    runs-on: [self-hosted, pcbcraft-laptop]
+    permissions:
+      contents: read
+    env:
+      XWIN_ACCEPT_LICENSE: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install window-system packages
+        run: .github/scripts/install-linux-deps.sh clang lld llvm
+      # The runner containers share one /cargo volume. A sibling job's cache restore
+      # rewrites the registry under a running compile, which shows up as missing
+      # sources or a vanished rustc. Give each job its own cargo home.
+      - name: Use a job-private cargo home
+        shell: bash
+        run: echo "CARGO_HOME=$RUNNER_TEMP/cargo" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: 1.99.1
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: build-windows
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Install cargo-xwin when the runner image lacks it
+        run: command -v cargo-xwin || cargo install --locked cargo-xwin
+      - run: cargo xwin build --release --locked --target x86_64-pc-windows-msvc -p pcbcraft -p pcbcraft-cli
+      - name: Upload the executables
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-x86_64
+          path: |
+            target/x86_64-pc-windows-msvc/release/pcbcraft.exe
+            target/x86_64-pc-windows-msvc/release/pcbcraft-cli.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  # Stage 4: end-to-end stories and the walk of every page. Needs only lint and clippy.
+  e2e:
+    name: E2E
+    needs: [changes, lint, clippy]
+    if: needs.changes.outputs.rust == 'true' && github.event.pull_request.draft != true
+    runs-on: [self-hosted, pcbcraft-laptop]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install window-system packages
+        run: .github/scripts/install-linux-deps.sh 
+      # Some runner work folders are small RAM-backed disks. The restored cache and the full
+      # test build do not fit in them, and the linker dies with a bus error. When the work
+      # disk is small, keep the build output on the container disk behind a symlink.
+      - name: Keep the build output on a big disk
+        shell: bash
+        run: |
+          avail=$(df -m "$GITHUB_WORKSPACE" | awk 'NR==2{print $4}')
+          echo "work disk free: ${avail} MB"
+          if [ "${avail:-99999}" -lt 20000 ]; then
+            rm -rf target
+            big="/tmp/pcb-target-${GITHUB_RUN_ID}-${GITHUB_JOB}"
+            mkdir -p "$big"
+            ln -s "$big" target
+            echo "PCB_BIG_TARGET=$big" >> "$GITHUB_ENV"
+            echo "build output on $big"
+          fi
+      # The runner containers share one /cargo volume. A sibling job's cache restore
+      # rewrites the registry under a running compile, which shows up as missing
+      # sources or a vanished rustc. Give each job its own cargo home.
+      - name: Use a job-private cargo home
+        shell: bash
+        run: echo "CARGO_HOME=$RUNNER_TEMP/cargo" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: 1.99.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: e2e
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo xtask e2e
+      - name: Upload the e2e report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-coverage
+          path: target/e2e
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Remove the build output from the big disk
+        if: ${{ always() }}
+        shell: bash
+        run: '[ -z "${PCB_BIG_TARGET:-}" ] || rm -rf "$PCB_BIG_TARGET"'
+
+  # The marketing site and user guide (Astro). Runs when site/, docs/ or this workflow changes.
+  # Every command is one npm script in site/package.json, so a failure reproduces locally.
+  site:
+    name: Site
+    needs: changes
+    if: needs.changes.outputs.site == 'true'
+    runs-on: [self-hosted, pcbcraft]
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      # Full history: the changelog takes each entry's date from the git history of its change file.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - run: npm ci --no-audit --no-fund
+      - run: npm run test:contrast
+      - run: npm run test:features
+      - run: npm run test:changelog
+      - run: npm run test:docs-map
+      - run: npm run check
+      - run: npm run build
+      - run: npm run test:links
+      - run: npm run test:csp
+      # The browser check needs playwright-core and axe-core next to a Chromium build.
+      - name: Install browser system libraries
+        run: sudo env "PATH=$PATH" npx --yes playwright@1.50.1 install-deps chromium
+      - name: Accessibility check in a browser
+        env:
+          PW_DIR: ${{ runner.temp }}/pw
+        run: |
+          mkdir -p "$PW_DIR"
+          (cd "$PW_DIR" && npm init -y >/dev/null && npm install --no-audit --no-fund playwright-core@1.50.1 axe-core@4.13.0)
+          (cd "$PW_DIR" && npx --yes playwright@1.50.1 install chromium)
+          node scripts/check-a11y.mjs
+
+  # The single required check. Runs even when an earlier job failed.
+  result:
+    name: CI result
+    if: ${{ always() }}
+    needs: [changes, lint, clippy, deny, unit, check-wasm, build-wasm, build-linux-x64, build-windows, e2e, site]
+    runs-on: [self-hosted, pcbcraft]
+    permissions: {}
+    steps:
+      - name: Fail when a job failed or was cancelled
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS"
+          # Skipped is fine: jobs skip by design (draft, documentation-only,
+          # Windows off main). Failure or cancellation is not.
+          if echo "$NEEDS" | grep -Eq '"result": "(failure|cancelled)"'; then
+            echo "A required job failed or was cancelled."
+            exit 1
+          fi

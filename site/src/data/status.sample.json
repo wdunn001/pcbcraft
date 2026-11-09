@@ -1,0 +1,27 @@
+{
+  "features": [
+    {
+      "id": "1",
+      "title": "Sample Feature",
+      "state": "planned",
+      "maturity": "tested",
+      "milestone": "m4",
+      "issues": [
+        "596"
+      ],
+      "ci_runs": [],
+      "releases": [],
+      "source": "feature/1.json"
+    }
+  ],
+  "issues": [
+    {
+      "id": "596",
+      "title": "Sample Issue",
+      "state": "open",
+      "url": "https://github.com/wdunn001/pcbcraft/issues/596"
+    }
+  ],
+  "generated_at": "2026-10-31T01:00:57.635Z",
+  "api_requests": 0
+}

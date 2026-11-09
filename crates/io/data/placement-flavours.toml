@@ -1,0 +1,115 @@
+# Bundled pick-and-place flavours. Data, not code: each record is one
+# PlacementFlavour (crates/io/src/placement_flavour.rs). Names are generic.
+
+[[flavour]]
+id = "cpl_mm"
+name = "Placement list, millimetres"
+delimiter = ","
+header = true
+units = "mm"
+decimals = 4
+origin = "board_lower_left"
+side_top = "Top"
+side_bottom = "Bottom"
+split_by_side = false
+smt_only = true
+dnp = "drop"
+fiducials = false
+bottom_rotation = "as_placed"
+bottom_mirror_x = false
+angle_range = "zero_to_360"
+file_stem = "cpl"
+extension = "csv"
+columns = [
+  { header = "Designator", field = "designator" },
+  { header = "Mid X", field = "x" },
+  { header = "Mid Y", field = "y" },
+  { header = "Rotation", field = "rotation" },
+  { header = "Layer", field = "side" },
+]
+
+[[flavour]]
+id = "cpl_inch"
+name = "Placement list per side, inches"
+delimiter = ","
+header = true
+units = "inch"
+decimals = 4
+origin = "board_lower_left"
+side_top = "top"
+side_bottom = "bottom"
+split_by_side = true
+smt_only = true
+dnp = "drop"
+fiducials = true
+bottom_rotation = "as_placed"
+bottom_mirror_x = false
+angle_range = "zero_to_360"
+file_stem = "placement"
+extension = "csv"
+columns = [
+  { header = "RefDes", field = "designator" },
+  { header = "Layer", field = "side" },
+  { header = "LocationX", field = "x" },
+  { header = "LocationY", field = "y" },
+  { header = "Rotation", field = "rotation" },
+]
+
+[[flavour]]
+id = "xyrs_mil"
+name = "Tab-delimited placement list, mils"
+delimiter = "\t"
+header = true
+units = "mil"
+decimals = 2
+origin = "board_lower_left"
+side_top = "T"
+side_bottom = "B"
+split_by_side = false
+smt_only = false
+dnp = "flag"
+fiducials = true
+bottom_rotation = "as_placed"
+bottom_mirror_x = false
+angle_range = "zero_to_360"
+file_stem = "placement"
+extension = "xyrs"
+columns = [
+  { header = "Designator", field = "designator" },
+  { header = "X", field = "x" },
+  { header = "Y", field = "y" },
+  { header = "Rotation", field = "rotation" },
+  { header = "Side", field = "side" },
+  { header = "Type", field = "mount" },
+  { header = "Value", field = "value" },
+  { header = "Package", field = "package" },
+  { header = "Populate", field = "populate" },
+]
+
+[[flavour]]
+id = "bottom_view_mm"
+name = "Placement list, bottom seen from below"
+delimiter = ";"
+header = true
+units = "mm"
+decimals = 3
+origin = "board_centre"
+side_top = "top"
+side_bottom = "bottom"
+split_by_side = true
+smt_only = true
+dnp = "drop"
+fiducials = false
+bottom_rotation = "mirror"
+bottom_mirror_x = true
+angle_range = "signed_180"
+file_stem = "centroid"
+extension = "txt"
+columns = [
+  { header = "Ref", field = "designator" },
+  { header = "PosX", field = "x" },
+  { header = "PosY", field = "y" },
+  { header = "Rot", field = "rotation" },
+  { header = "Side", field = "side" },
+  { header = "Package", field = "package" },
+]

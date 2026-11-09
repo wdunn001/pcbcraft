@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pcbcraft.dev/schemas/library-records.json",
+  "title": "PCBCraft library part records",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "part_components": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/component" }
+    },
+    "orderable_parts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/orderable" }
+    }
+  },
+  "$defs": {
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "source_name", "fetched_at"],
+      "properties": {
+        "source_id": { "type": "string", "maxLength": 256 },
+        "source_name": { "type": "string", "maxLength": 256 },
+        "license_name": { "type": "string" },
+        "license_url": { "type": "string" },
+        "fetched_at": { "type": "integer", "minimum": 0 },
+        "revision": { "type": "string" }
+      }
+    },
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "content_hash"],
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "content_hash": { "type": "string" },
+        "symbol": { "type": "string" },
+        "footprints": { "type": "array", "items": { "type": "string" } },
+        "model": { "type": "string" },
+        "pin_to_pad": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "kind": { "type": "string" },
+        "description": { "type": "string" },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      }
+    },
+    "orderable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "component_id", "manufacturer", "mpn", "lifecycle", "provenance"],
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "component_id": { "type": "string", "maxLength": 64 },
+        "manufacturer": { "type": "string", "maxLength": 256 },
+        "mpn": { "type": "string", "maxLength": 256 },
+        "supplier_skus": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["distributor", "sku"],
+            "properties": {
+              "distributor": { "type": "string" },
+              "sku": { "type": "string" }
+            }
+          }
+        },
+        "lifecycle": {
+          "type": "string",
+          "enum": ["active", "nrnd", "last_time_buy", "obsolete", "unknown"]
+        },
+        "lifecycle_raw": { "type": "string" },
+        "rohs": { "type": "boolean" },
+        "snapshots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["at"],
+            "properties": {
+              "at": { "type": "integer", "minimum": 0 },
+              "stock": { "type": "integer", "minimum": 0 },
+              "price_breaks": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["quantity", "unit_price", "currency"],
+                  "properties": {
+                    "quantity": { "type": "integer", "minimum": 1 },
+                    "unit_price": { "type": "number" },
+                    "currency": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "datasheet_url": { "type": "string" },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      }
+    }
+  }
+}

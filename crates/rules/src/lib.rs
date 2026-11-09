@@ -1,0 +1,7560 @@
+//! Initial electrical and geometric checks, with object-addressable diagnostics.
+//!
+//! # Rules
+//! - One finding per rule violation; objects list every relevant id.
+//! - A finding code never changes once published; severities are per-project overrides.
+//!
+//! # Dependencies
+//! - crates/doc/src/lib.rs
+//! - crates/geom/src/lib.rs
+//!
+use pcbcraft_doc::{
+    ArtKind, ArtShape, Board, Component, FabRules, Footprint, Id, Layer, PANEL_ASSEMBLER_MAX_MM,
+    PANEL_FIDUCIAL_COUNT, PANEL_SCORE_COMPONENT_MIN_MM, PANEL_SCORE_COPPER_MIN_MM,
+    PANEL_TAB_CHANNEL_MIN_MM, Pad, PanelSeparation, Project, VALIDATION_CHORD_ERROR, Via, ViaKind,
+    panel_layout, panel_score_lines,
+};
+use pcbcraft_geom::{Point, hull, point_segment, polygon_is_simple, segment_distance};
+use serde::Serialize;
+use std::collections::{BTreeMap, BTreeSet};
+
+mod acute;
+mod companion;
+pub mod compliance;
+mod courtyard;
+mod decoupling;
+mod diffpair_impedance;
+mod drill;
+mod extremes;
+mod finding_set;
+mod hole_copper;
+mod impedance_fix;
+mod impedance_target;
+mod mask_dam;
+mod pad_kinds;
+mod pair_properties;
+mod parallel_crosstalk;
+mod peripheral;
+mod return_path;
+mod si_codes;
+mod silk;
+mod silk_line;
+mod stub;
+pub mod testpoint;
+pub mod toolpath_gap;
+mod track_radius;
+mod via_current;
+mod vscore_edge;
+mod width_advice;
+
+pub use si_codes::{SIGNAL_INTEGRITY_CODES, is_signal_integrity};
+
+pub use companion::{companion_findings, companion_findings_for_rules};
+pub use via_current::{ViaCurrentAdvice, via_capacity};
+pub use width_advice::{WidthAdvice, width_advice, width_advice_on_layer};
+
+pub use compliance::{
+    BLUE_UAS_STYLE_DRONE_RULE_SET, ComplianceFinding, EU_MARKET_RULE_SET, ExportTradeReport,
+    RESPONSIBLE_SOURCING_RULE_SET, US_GOVERNMENT_NDAA_RULE_SET, bundled_export_and_trade,
+    compliance_check, export_trade_report, export_trade_report_with_ruleset, load_list_snapshot,
+};
+
+pub use courtyard::{CourtyardPair, courtyard_pairs};
+pub use extremes::{smallest_copper_gap, smallest_mask_web};
+pub use finding_set::{Counts, FindingSet, Loudness, Row, SeverityFilter};
+pub use impedance_fix::suggested_width;
+
+#[derive(Clone, Debug, Serialize)]
+/// One check result: a rule code, severity, message and the objects involved.
+/// Severity is stored as a string so it can be overridden per project.
+pub struct Finding {
+    pub code: &'static str,
+    pub severity: String,
+    pub message: String,
+    pub objects: Vec<Id>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
+}
+
+#[cfg(test)]
+fn finding(code: &'static str, severity: String, message: String, objects: Vec<Id>) -> Finding {
+    Finding {
+        code,
+        severity,
+        message,
+        objects,
+        hint: None,
+    }
+}
+
+/// Published DRC/ERC codes and their default severities when no override is set.
+pub const CHECK_CODES: &[(&str, &str)] = &[
+    ("unassigned_pin", "warning"),
+    ("single_pin_net", "warning"),
+    ("net_not_drawn", "warning"),
+    ("pin_conflict", "error"),
+    ("undriven_input", "warning"),
+    ("power_not_driven", "warning"),
+    ("missing_decoupling", "warning"),
+    ("missing_pullup", "warning"),
+    ("dangling_label", "warning"),
+    ("clearance", "error"),
+    ("track_on_different_layer_pad", "error"),
+    ("copper_short", "error"),
+    ("pad_clearance_bound", "error"),
+    ("board_edge", "error"),
+    ("cutout_clearance", "error"),
+    ("track_width", "error"),
+    ("track_length", "error"),
+    ("unrouted", "warning"),
+    ("missing_footprint", "warning"),
+    ("unassigned_via", "warning"),
+    ("diffpair_gap", "error"),
+    ("diffpair_skew", "error"),
+    ("pair_skew_exceeded", "error"),
+    ("pair_uncoupled_too_long", "error"),
+    ("art_off_board", "warning"),
+    ("cut_hits_via", "error"),
+    ("mask_covers_pad", "warning"),
+    ("mask_web", "warning"),
+    ("mask_dam", "warning"),
+    ("notch_feature", "error"),
+    ("pour_fill", "error"),
+    ("thermal_starved", "warning"),
+    ("zone_unconnected", "info"),
+    ("zone_island", "warning"),
+    ("panel_too_large_for_assembler", "error"),
+    ("panel_missing_fiducials", "error"),
+    ("panel_tab_too_narrow", "error"),
+    ("panel_copper_near_score", "error"),
+    ("panel_component_near_score", "error"),
+    ("via_span_not_allowed", "error"),
+    ("via_aspect_ratio", "warning"),
+    ("stacked_microvia", "info"),
+    ("min_track", "error"),
+    ("min_space", "error"),
+    ("min_drill", "error"),
+    ("annular_ring", "error"),
+    ("copper_to_edge", "error"),
+    ("aspect_ratio", "error"),
+    ("silk_text_height", "error"),
+    ("courtyard_overlap", "error"),
+    ("silk_over_pad", "error"),
+    ("silk_to_copper", "warning"),
+    ("silk_line", "warning"),
+    ("drill_overlap", "error"),
+    ("hole_to_hole_via", "error"),
+    ("hole_to_hole_pad", "error"),
+    ("hole_to_copper_via", "error"),
+    ("hole_to_copper_pth", "error"),
+    ("hole_to_copper_npth", "error"),
+    ("min_npth", "error"),
+    ("copper_sliver", "error"),
+    ("copper_to_vscore", "error"),
+    ("length_group_skew", "error"),
+    ("stub_length", "error"),
+    ("backdrill_must_not_cut", "error"),
+    ("backdrill_stub_too_long", "error"),
+    ("via_count", "warning"),
+    ("decoupling_distance", "warning"),
+    ("keepout", "error"),
+    ("toolpath_gap", "warning"),
+    ("impedance_target", "error"),
+    ("diffpair_impedance", "error"),
+    ("return_path", "warning"),
+    ("parallel_crosstalk", "warning"),
+    ("net_electrically_long", "warning"),
+    ("testpoint_coverage", "warning"),
+    ("missing_decoupling", "warning"),
+    ("acute_angle", "warning"),
+    ("track_radius", "error"),
+];
+
+#[derive(Clone, Debug, Serialize)]
+/// A connection to route: two endpoints on the same net.
+pub struct Airwire {
+    pub net: Id,
+    pub from: Point,
+    pub to: Point,
+    pub from_object: Id,
+    pub to_object: Id,
+}
+#[derive(Clone)]
+struct Copper {
+    id: Id,
+    net: Id,
+    start: Point,
+    end: Point,
+    radius: f64,
+    contact_radius: f64,
+    conservative: bool,
+    outline: Option<Vec<Point>>,
+    outline_error: f64,
+    layer: Layer,
+    pad: bool,
+    /// Clearance demanded by the owning footprint's own design-rule
+    /// overrides, if it carries one.
+    clearance: Option<f64>,
+    bridge: Option<(Id, String)>,
+    hole: Option<Hole>,
+    /// Closed outlines removed from this item's copper (zone cutouts).
+    cutouts: Vec<Vec<Point>>,
+}
+#[derive(Clone)]
+struct Hole {
+    start: Point,
+    end: Point,
+    radius: f64,
+}
+
+/// Filled copper of one zone as (outer ring, holes, anchor). A zone whose fill
+/// refuses, because the board is beyond the pour bounds, is reported inside
+/// `drc` and checked by its bare outline here.
+/// One poured piece: outer ring, hole rings, anchor point.
+type ZonePiece = (Vec<Point>, Vec<Vec<Point>>, Point);
+fn zone_pieces(
+    project: &Project,
+    zone: &pcbcraft_doc::CopperZone,
+) -> Result<Vec<ZonePiece>, String> {
+    let fill = pcbcraft_doc::zone_fill(project, zone)?;
+    Ok(fill
+        .pieces
+        .iter()
+        .filter_map(|piece| {
+            let mut rings = piece.iter();
+            let outer = rings.next()?.clone();
+            let anchor = outer.first().copied().unwrap_or_default();
+            Some((outer, rings.cloned().collect(), anchor))
+        })
+        .collect())
+}
+fn push_on_copper_layers(project: &Project, item: Copper, out: &mut Vec<Copper>) {
+    for layer in project.copper_layers() {
+        let mut copy = item.clone();
+        copy.layer = layer;
+        out.push(copy);
+    }
+}
+pub(crate) fn copper(project: &Project) -> Vec<Copper> {
+    let mut result = Vec::new();
+    for f in &project.board.footprints {
+        let local = project
+            .component(f.component)
+            .and_then(|c| c.library_footprint.as_ref())
+            .and_then(|l| l.definition.rules.as_ref())
+            .and_then(|r| r.clearance);
+        for pad in &f.pads {
+            if pad
+                .geometry
+                .as_ref()
+                .is_some_and(|g| g.pad_type == "unplated")
+            {
+                let Some(drill) = pad.geometry.as_ref().and_then(|g| g.drill.as_ref()) else {
+                    continue;
+                };
+                let position = f.pad_world_position(pad);
+                let radius = drill.size.x.min(drill.size.y) / 2.0;
+                if radius <= 0.0 {
+                    continue;
+                }
+                let item = Copper {
+                    id: f.id,
+                    net: 0,
+                    start: position,
+                    end: position,
+                    radius,
+                    contact_radius: radius,
+                    conservative: false,
+                    outline: None,
+                    outline_error: 0.0,
+                    layer: Layer::Front,
+                    pad: false,
+                    clearance: None,
+                    bridge: None,
+                    hole: None,
+                    cutouts: vec![],
+                };
+                push_on_copper_layers(project, item, &mut result);
+                continue;
+            }
+            if let Some(position) = f.pad_position(&pad.number) {
+                let plated = pad
+                    .geometry
+                    .as_ref()
+                    .is_some_and(|g| g.pad_type == "thru_hole");
+                let hole = pad.geometry.as_ref().and_then(|g| {
+                    g.drill.as_ref().map(|d| {
+                        let radius = d.size.x.min(d.size.y) / 2.0;
+                        let axis = Point::new(
+                            (d.size.x / 2.0 - radius).max(0.0),
+                            (d.size.y / 2.0 - radius).max(0.0),
+                        );
+                        let transform = |local: Point| {
+                            f.position.offset(
+                                pad.offset
+                                    .offset(local.rotate(-g.rotation))
+                                    .rotate(-f.rotation),
+                            )
+                        };
+                        Hole {
+                            start: transform(d.offset.offset(axis)),
+                            end: transform(d.offset.offset(Point::new(-axis.x, -axis.y))),
+                            radius,
+                        }
+                    })
+                });
+                let item = Copper {
+                    id: f.id,
+                    net: pad.net.unwrap_or(0),
+                    start: position,
+                    end: position,
+                    radius: pad.bounding_radius(),
+                    contact_radius: pad.contact_radius(),
+                    conservative: pad.geometry.as_ref().is_some_and(|p| p.shape != "circle"),
+                    outline: pad
+                        .geometry
+                        .as_ref()
+                        .filter(|p| p.shape != "circle")
+                        .map(|_| {
+                            pad.outline_points()
+                                .into_iter()
+                                .map(|p| f.position.offset(p.rotate(-f.rotation)))
+                                .collect()
+                        }),
+                    outline_error: pad.outline_error(),
+                    layer: project.face_layer(f.pad_layer(pad)),
+                    pad: true,
+                    clearance: local,
+                    bridge: if plated {
+                        Some((f.id, pad.number.clone()))
+                    } else {
+                        None
+                    },
+                    hole,
+                    cutouts: vec![],
+                };
+                if plated {
+                    // Plating joins every copper layer, inner ones included.
+                    push_on_copper_layers(project, item, &mut result);
+                } else {
+                    result.push(item);
+                }
+            }
+        }
+    }
+    for t in &project.board.netties {
+        let half = t.diameter / 2.0;
+        let axis = Point::new(half, 0.0).rotate(t.rotation);
+        for (net, sign) in [(t.net_a, 1.0), (t.net_b, -1.0)] {
+            let centre = t.position.offset(Point::new(axis.x * sign, axis.y * sign));
+            result.push(Copper {
+                id: t.id,
+                net,
+                start: centre,
+                end: centre,
+                radius: half,
+                contact_radius: half,
+                conservative: false,
+                outline: None,
+                outline_error: 0.0,
+                layer: Layer::Front,
+                pad: true,
+                clearance: None,
+                bridge: Some((t.id, "net tie".into())),
+                hole: None,
+                cutouts: vec![],
+            });
+        }
+    }
+    for t in &project.board.tracks {
+        let straight = |a: Point, b: Point, radius: f64| Copper {
+            id: t.id,
+            net: t.net,
+            start: a,
+            end: b,
+            radius,
+            contact_radius: radius,
+            conservative: false,
+            outline: None,
+            outline_error: 0.0,
+            layer: t.layer,
+            pad: false,
+            clearance: None,
+            bridge: None,
+            hole: None,
+            cutouts: vec![],
+        };
+        match t.curve() {
+            None => result.push(straight(t.start, t.end, t.width / 2.0)),
+            Some(arc) => {
+                // Sample the arc as chords, each capsule grown by the sagitta
+                // so the sampled copper covers the swept band.
+                let chords = 16;
+                let sagitta = arc.radius * (1.0 - (arc.sweep.abs() / (chords as f64 * 2.0)).cos());
+                let radius = t.width / 2.0 + sagitta;
+                for i in 0..chords {
+                    let a = arc.point_at(i as f64 / chords as f64);
+                    let b = arc.point_at((i + 1) as f64 / chords as f64);
+                    result.push(straight(a, b, radius));
+                }
+            }
+        }
+    }
+    for v in &project.board.vias {
+        let hole = (v.drill > 0.0).then(|| Hole {
+            start: v.position,
+            end: v.position,
+            radius: v.drill / 2.0,
+        });
+        let item = Copper {
+            id: v.id,
+            net: v.net,
+            start: v.position,
+            end: v.position,
+            radius: v.diameter / 2.0,
+            contact_radius: v.diameter / 2.0,
+            conservative: false,
+            outline: None,
+            outline_error: 0.0,
+            layer: Layer::Front,
+            pad: true,
+            clearance: None,
+            bridge: Some((v.id, "via".into())),
+            hole,
+            cutouts: vec![],
+        };
+        // One pad per copper layer in the via's span; it conducts nowhere else.
+        for layer in project.via_span_layers(v) {
+            if project.remove_unused_inner_pads_enabled()
+                && !project.copper_layer_is_end(layer)
+                && !pcbcraft_doc::fill::plated_item_connected_on_layer(
+                    project,
+                    v.net,
+                    v.position,
+                    v.diameter / 2.0,
+                    layer,
+                    pcbcraft_doc::fill::PlatedConnectKind::Via,
+                )
+            {
+                continue;
+            }
+            let mut pad = item.clone();
+            pad.layer = layer;
+            result.push(pad);
+        }
+    }
+    for h in &project.board.holes {
+        // An unplated drill is a keep-out shape on every layer: copper may
+        // not enter the drilled area and the drill must clear the edge. A
+        // slot is a capsule between its two centres, so clearance and the
+        // edge check measure the drilled shape itself.
+        let item = Copper {
+            id: h.id,
+            net: 0,
+            start: h.start(),
+            end: h.finish(),
+            radius: h.diameter / 2.0,
+            contact_radius: h.diameter / 2.0,
+            conservative: false,
+            outline: None,
+            outline_error: 0.0,
+            layer: Layer::Front,
+            pad: false,
+            clearance: None,
+            bridge: None,
+            hole: None,
+            cutouts: vec![],
+        };
+        for layer in project.copper_layers() {
+            let mut copy = item.clone();
+            copy.layer = layer;
+            result.push(copy);
+        }
+    }
+    for z in &project.board.zones {
+        if !z.filled {
+            continue;
+        }
+        // Real poured copper: the fill already knocked clearance holes around
+        // foreign copper, so what the checks see is what a fab plots.
+        let pieces = match zone_pieces(project, z) {
+            Ok(pieces) => pieces,
+            Err(_) => {
+                let Some(&first) = z.outline.first() else {
+                    continue;
+                };
+                vec![(z.outline.clone(), z.cutouts.clone(), first)]
+            }
+        };
+        for (outline, cutouts, first) in pieces {
+            result.push(Copper {
+                id: z.id,
+                net: z.net,
+                start: first,
+                end: first,
+                radius: 0.0,
+                contact_radius: 0.0,
+                conservative: false,
+                outline: Some(outline),
+                outline_error: 0.0,
+                layer: z.layer,
+                pad: false,
+                clearance: None,
+                bridge: None,
+                hole: None,
+                cutouts,
+            });
+        }
+    }
+    result
+}
+
+const LASER_OBJECT_CAP: usize = 4096;
+
+/// One closed copper outline on a layer, grouped by net for laser export.
+#[derive(Clone, Debug, Serialize)]
+pub struct LaserCopperOutline {
+    pub net: Id,
+    pub ring: Vec<Point>,
+}
+
+fn track_capsule_outline(start: Point, end: Point, half_width: f64) -> Vec<Point> {
+    if start.distance(end) < 1e-9 {
+        return hull::octagon(&[start], half_width);
+    }
+    hull::octagon(&[start, end], half_width)
+}
+
+fn open_ring(mut ring: Vec<Point>) -> Vec<Point> {
+    if ring.len() >= 2
+        && let (Some(first), Some(last)) = (ring.first(), ring.last())
+        && first.distance(*last) < 1e-9
+    {
+        ring.pop();
+    }
+    ring
+}
+
+fn copper_item_ring(item: &Copper) -> Option<Vec<Point>> {
+    if let Some(outline) = &item.outline {
+        return Some(open_ring(outline.clone()));
+    }
+    if item.start.distance(item.end) < 1e-9 {
+        return Some(hull::octagon(&[item.start], item.radius));
+    }
+    Some(track_capsule_outline(item.start, item.end, item.radius))
+}
+
+/// Copper outlines on one layer, grouped by net, using the same geometry as DRC.
+pub fn laser_copper_outlines(
+    project: &Project,
+    layer: Layer,
+) -> Result<Vec<LaserCopperOutline>, String> {
+    let mut out = Vec::new();
+    for item in copper(project)
+        .into_iter()
+        .filter(|c| c.layer == layer && c.net != 0)
+    {
+        if out.len() >= LASER_OBJECT_CAP {
+            return Err("laser copper outline limit reached (4096)".into());
+        }
+        let ring = copper_item_ring(&item)
+            .ok_or_else(|| "copper outline could not be built".to_string())?;
+        if !polygon_is_simple(&ring) {
+            return Err("a copper outline is not a simple closed ring".into());
+        }
+        out.push(LaserCopperOutline {
+            net: item.net,
+            ring,
+        });
+    }
+    Ok(out)
+}
+
+/// Isolation rings offset outward from each net's copper on one layer.
+pub fn isolation_cut_polygons(
+    project: &Project,
+    layer: Layer,
+    isolation_width_mm: f64,
+) -> Result<Vec<LaserCopperOutline>, String> {
+    if !isolation_width_mm.is_finite() || isolation_width_mm <= 0.0 {
+        return Err("isolation width must be a positive millimetre value".into());
+    }
+    let outlines = laser_copper_outlines(project, layer)?;
+    let mut by_net: BTreeMap<Id, Vec<Point>> = BTreeMap::new();
+    for item in outlines {
+        by_net.entry(item.net).or_default().extend(item.ring);
+    }
+    let mut out = Vec::new();
+    for (net, points) in by_net {
+        if out.len() >= LASER_OBJECT_CAP {
+            return Err("laser isolation outline limit reached (4096)".into());
+        }
+        let ring = hull::octagon(&points, isolation_width_mm);
+        if ring.len() < 3 || !polygon_is_simple(&ring) {
+            return Err("an isolation ring is not a simple closed polygon".into());
+        }
+        out.push(LaserCopperOutline { net, ring });
+    }
+    Ok(out)
+}
+
+/// Copper a new track must keep clear of, seen exactly as the checks see it.
+#[derive(Clone, Debug)]
+pub struct Obstacle {
+    pub id: Id,
+    pub net: Id,
+    pub layer: Layer,
+    /// True only for straight track segments, the one kind a shove may move.
+    /// Pads, vias, drilled holes, net ties, zones and arc tracks stay put.
+    pub is_track: bool,
+    /// Support points: the true pad outline, or both ends of a segment.
+    pub points: Vec<Point>,
+    /// Grow the support points by this much to get the copper edge.
+    pub radius: f64,
+    /// Where `Project::required_clearance_at` is asked about this copper.
+    pub at: Point,
+    /// Extra clearance the owning footprint demands, if any.
+    pub clearance: Option<f64>,
+}
+
+/// Every copper item on `layer`, built from the same list that `drc` uses.
+pub fn obstacles(project: &Project, layer: Layer) -> Vec<Obstacle> {
+    copper(project)
+        .into_iter()
+        .filter(|c| c.layer == layer)
+        .map(|c| {
+            let at = Point::new((c.start.x + c.end.x) / 2.0, (c.start.y + c.end.y) / 2.0);
+            let straight = project
+                .board
+                .tracks
+                .iter()
+                .any(|t| t.id == c.id && t.arc.is_none());
+            let (points, radius, is_track) = match c.outline {
+                Some(points) => (points, c.outline_error, false),
+                None => (vec![c.start, c.end], c.radius, straight),
+            };
+            Obstacle {
+                id: c.id,
+                net: c.net,
+                layer: c.layer,
+                is_track,
+                points,
+                radius,
+                at,
+                clearance: c.clearance,
+            }
+        })
+        .collect()
+}
+fn hole_contains(hole: &Hole, other: &Copper) -> bool {
+    // The distance-to-segment function is convex. Endpoint discs contained by
+    // the hole guarantee containment of the complete track capsule. Retain
+    // conservative contact bounds for pad shapes rather than inventing copper.
+    let radius = if other.pad {
+        other.radius
+    } else {
+        other.contact_radius
+    };
+    [other.start, other.end]
+        .into_iter()
+        .all(|point| point_segment(point, hole.start, hole.end) + radius < hole.radius - 1e-6)
+}
+fn overlapping(a: &Copper, b: &Copper) -> bool {
+    // A segment endpoint (or one whole outline) inside another outline means
+    // real overlap, which capsule distance alone cannot see. Zone cutouts
+    // remove the contact where the touching point falls inside one.
+    let segment_in = |points: &[Point], seg: &Copper| {
+        [seg.start, seg.end]
+            .into_iter()
+            .any(|p| inside(p, points) && !a.cutouts.iter().any(|c| inside(p, c)))
+    };
+    match (&a.outline, &b.outline) {
+        (Some(a_points), Some(b_points)) => {
+            let whole = |points: &[Point], other: &[Point]| {
+                points
+                    .first()
+                    .is_some_and(|p| inside(*p, other) && !a.cutouts.iter().any(|c| inside(*p, c)))
+            };
+            whole(a_points, b_points) || whole(b_points, a_points)
+        }
+        (Some(a_points), None) => segment_in(a_points, b),
+        (None, Some(b_points)) => [a.start, a.end]
+            .into_iter()
+            .any(|p| inside(p, b_points) && !b.cutouts.iter().any(|c| inside(p, c))),
+        (None, None) => false,
+    }
+}
+/// The largest clearance any rule in the project can demand. Two copper items
+/// farther apart than this, plus their own reach, cannot produce a clearance
+/// finding, which is what the broad phase below uses to skip them.
+fn widest_clearance(project: &Project, items: &[Copper]) -> f64 {
+    let mut widest = project.board.clearance;
+    for class in &project.net_classes {
+        widest = widest.max(class.clearance);
+    }
+    for rule in &project.board.pair_rules {
+        widest = widest.max(rule.clearance);
+    }
+    for area in &project.board.rule_areas {
+        widest = widest.max(area.clearance);
+    }
+    for item in items {
+        if let Some(clearance) = item.clearance {
+            widest = widest.max(clearance);
+        }
+    }
+    if widest.is_finite() {
+        widest.max(0.0)
+    } else {
+        0.0
+    }
+}
+
+/// The box around one copper item's own geometry, before any growth.
+fn span(item: &Copper) -> (Point, Point) {
+    let mut low = Point::new(item.start.x.min(item.end.x), item.start.y.min(item.end.y));
+    let mut high = Point::new(item.start.x.max(item.end.x), item.start.y.max(item.end.y));
+    for point in item.outline.iter().flatten() {
+        low = Point::new(low.x.min(point.x), low.y.min(point.y));
+        high = Point::new(high.x.max(point.x), high.y.max(point.y));
+    }
+    (low, high)
+}
+
+/// Items whose grown box covers more than this many cells are compared with
+/// every other item instead of being listed in each cell: a zone outline can be
+/// far larger than the cell size, and listing it everywhere would cost more
+/// than the pairs it saves.
+const WIDE_ITEM_CELLS: usize = 4096;
+
+/// A uniform grid over the board used to find the copper pairs that could
+/// touch. Each item goes into every cell its box covers once grown by what its
+/// copper reaches (radius, outline error and the widest required clearance).
+/// Two grown boxes that overlap share a cell, so a pair the exact `gap` test
+/// would report is never skipped, and unrelated copper is never compared.
+struct Grid {
+    cell: f64,
+    min: Point,
+    cols: usize,
+    rows: usize,
+    cells: Vec<Vec<usize>>,
+    /// Items too large to list per cell; compared with everything.
+    wide: Vec<usize>,
+    /// One candidate list per item, in item order.
+    near: Vec<Vec<usize>>,
+}
+
+impl Grid {
+    fn new(items: &[Copper], margin: f64) -> Grid {
+        let mut low = Point::new(f64::INFINITY, f64::INFINITY);
+        let mut high = Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY);
+        let mut widest_reach: f64 = 0.0;
+        for item in items {
+            let (item_low, item_high) = span(item);
+            low = Point::new(low.x.min(item_low.x), low.y.min(item_low.y));
+            high = Point::new(high.x.max(item_high.x), high.y.max(item_high.y));
+            widest_reach = widest_reach.max(item.radius + item.outline_error);
+        }
+        if !low.x.is_finite() || !high.x.is_finite() || !low.y.is_finite() || !high.y.is_finite() {
+            low = Point::default();
+            high = Point::default();
+        }
+        let reach = if widest_reach.is_finite() {
+            widest_reach + margin
+        } else {
+            margin
+        };
+        let cell = (2.0 * reach).max(1.0);
+        let cols = ((((high.x - low.x) / cell).ceil() as usize) + 1).clamp(1, 4096);
+        let rows = ((((high.y - low.y) / cell).ceil() as usize) + 1).clamp(1, 4096);
+        let mut grid = Grid {
+            cell,
+            min: low,
+            cols,
+            rows,
+            cells: vec![Vec::new(); cols * rows],
+            wide: Vec::new(),
+            near: vec![Vec::new(); items.len()],
+        };
+        for (index, item) in items.iter().enumerate() {
+            let (item_low, item_high) = span(item);
+            let pad = item.radius + item.outline_error + margin;
+            let grown = (
+                Point::new(item_low.x - pad, item_low.y - pad),
+                Point::new(item_high.x + pad, item_high.y + pad),
+            );
+            grid.insert(index, grown.0, grown.1);
+        }
+        grid.collect_neighbours();
+        grid
+    }
+
+    fn column(&self, x: f64) -> usize {
+        let width = self.cols.saturating_sub(1) as f64;
+        (((x - self.min.x) / self.cell).floor()).clamp(0.0, width) as usize
+    }
+
+    fn row(&self, y: f64) -> usize {
+        let height = self.rows.saturating_sub(1) as f64;
+        (((y - self.min.y) / self.cell).floor()).clamp(0.0, height) as usize
+    }
+
+    fn insert(&mut self, index: usize, low: Point, high: Point) {
+        let (first, last) = (self.column(low.x), self.column(high.x));
+        let (bottom, top) = (self.row(low.y), self.row(high.y));
+        let count = (last - first + 1).saturating_mul(top - bottom + 1);
+        if count > WIDE_ITEM_CELLS {
+            self.wide.push(index);
+            return;
+        }
+        for y in bottom..=top {
+            for x in first..=last {
+                self.cells[y * self.cols + x].push(index);
+            }
+        }
+    }
+
+    /// Fill each item's candidate list with the items sharing a cell with it,
+    /// sorted and without repeats, so the pair scan below visits candidates in
+    /// the same order a full scan would and reports findings in the same order.
+    fn collect_neighbours(&mut self) {
+        for bucket in &self.cells {
+            for (at, &item) in bucket.iter().enumerate() {
+                for &other in &bucket[at + 1..] {
+                    if let Some(list) = self.near.get_mut(item) {
+                        list.push(other);
+                    }
+                    if let Some(list) = self.near.get_mut(other) {
+                        list.push(item);
+                    }
+                }
+            }
+        }
+        let wide = self.wide.clone();
+        for &item in &wide {
+            for other in 0..self.near.len() {
+                if other == item {
+                    continue;
+                }
+                if let Some(list) = self.near.get_mut(item) {
+                    list.push(other);
+                }
+                if let Some(list) = self.near.get_mut(other) {
+                    list.push(item);
+                }
+            }
+        }
+        for list in &mut self.near {
+            list.sort_unstable();
+            list.dedup();
+        }
+    }
+
+    /// The pairs the exact test still has to look at, counted once each.
+    fn pair_count(&self) -> usize {
+        self.near
+            .iter()
+            .enumerate()
+            .map(|(item, list)| list.iter().filter(|other| **other > item).count())
+            .sum()
+    }
+}
+
+/// How many pairs the copper broad phase hands to the exact clearance test on
+/// this board, and how many copper items it holds. The large-board bench uses
+/// the first to check the broad phase stays a small multiple of the second.
+pub fn copper_pair_candidates(project: &Project) -> (usize, usize) {
+    let items = copper(project);
+    let margin = widest_clearance(project, &items);
+    let grid = Grid::new(&items, margin);
+    (grid.pair_count(), items.len())
+}
+
+fn touching(a: &Copper, b: &Copper) -> bool {
+    if a.net != b.net {
+        return false;
+    }
+    if a.bridge.is_some() && a.bridge == b.bridge {
+        return true;
+    }
+    if a.layer == b.layer && (overlapping(a, b) || overlapping(b, a)) {
+        return true;
+    }
+    a.layer == b.layer
+        && segment_distance(a.start, a.end, b.start, b.end) - a.contact_radius - b.contact_radius
+            <= 1e-6
+        && !a.hole.as_ref().is_some_and(|hole| hole_contains(hole, b))
+        && !b.hole.as_ref().is_some_and(|hole| hole_contains(hole, a))
+}
+pub(crate) fn gap(a: &Copper, b: &Copper) -> f64 {
+    match (&a.outline, &b.outline) {
+        (Some(a_points), Some(b_points)) => {
+            let mut distance = f64::INFINITY;
+            if a_points.first().is_some_and(|p| inside(*p, b_points))
+                || b_points.first().is_some_and(|p| inside(*p, a_points))
+            {
+                return -a.outline_error - b.outline_error;
+            }
+            for a_edge in a_points.windows(2) {
+                for b_edge in b_points.windows(2) {
+                    distance =
+                        distance.min(segment_distance(a_edge[0], a_edge[1], b_edge[0], b_edge[1]));
+                }
+            }
+            distance - a.outline_error - b.outline_error
+        }
+        (Some(points), None) => {
+            polygon_segment(points, b.start, b.end) - b.radius - a.outline_error
+        }
+        (None, Some(points)) => {
+            polygon_segment(points, a.start, a.end) - a.radius - b.outline_error
+        }
+        (None, None) => segment_distance(a.start, a.end, b.start, b.end) - a.radius - b.radius,
+    }
+}
+fn inside(point: Point, points: &[Point]) -> bool {
+    let mut result = false;
+    for edge in points.windows(2) {
+        let (a, b) = (edge[0], edge[1]);
+        if (a.y > point.y) != (b.y > point.y)
+            && point.x < (b.x - a.x) * (point.y - a.y) / (b.y - a.y) + a.x
+        {
+            result = !result;
+        }
+    }
+    result
+}
+fn polygon_segment(points: &[Point], start: Point, end: Point) -> f64 {
+    if inside(start, points) || inside(end, points) {
+        return 0.0;
+    }
+    points
+        .windows(2)
+        .map(|edge| segment_distance(edge[0], edge[1], start, end))
+        .fold(f64::INFINITY, f64::min)
+}
+fn root(parent: &[usize], mut node: usize) -> usize {
+    for _ in 0..parent.len() {
+        let Some(next) = parent.get(node).copied() else {
+            return node;
+        };
+        if next == node {
+            return node;
+        }
+        node = next;
+    }
+    node
+}
+fn copper_components(items: &[Copper]) -> Vec<usize> {
+    let grid = Grid::new(items, 0.0);
+    let mut parents: Vec<_> = (0..items.len()).collect();
+    for (i, candidates) in grid.near.iter().enumerate() {
+        let Some(a) = items.get(i) else { continue };
+        for &j in candidates.iter().filter(|other| **other > i) {
+            let Some(b) = items.get(j) else { continue };
+            if touching(a, b) {
+                let ra = root(&parents, i);
+                let rb = root(&parents, j);
+                if let Some(p) = parents.get_mut(rb) {
+                    *p = ra;
+                }
+            }
+        }
+    }
+    parents
+}
+/// True when `a` would touch `b` if `b` lay on `a`'s layer; the shape and drill tests
+/// are the ones `touching` uses, only the layer test is waived.
+fn touches_on_any_layer(a: &Copper, b: &Copper) -> bool {
+    let mut moved = b.clone();
+    moved.layer = a.layer;
+    touching(a, &moved)
+}
+
+/// The name of the pad under a copper item, such as `J6.8`, when its footprint can be found.
+fn pad_label(project: &Project, item: &Copper) -> String {
+    let named = project
+        .board
+        .footprints
+        .iter()
+        .filter(|f| f.id == item.id)
+        .find_map(|f| {
+            let pad = f.pads.iter().find(|pad| {
+                f.pad_position(&pad.number)
+                    .is_some_and(|at| at.distance(item.start) < 1e-6)
+            })?;
+            let reference = project.component(f.component)?.reference.clone();
+            Some(format!("{reference}.{}", pad.number))
+        });
+    named.unwrap_or_else(|| "a pad".to_string())
+}
+
+/// Tracks whose end lies on a pad of their own net that has no copper on the track's layer.
+///
+/// A plated pad has copper on every layer and a via joins layers, so an end that touches
+/// either one on the track's layer is fine. Only an end that touches pads of its net, none of
+/// them on the track's layer and no via on that layer, cannot make the connection it claims.
+fn track_layer_findings(project: &Project, items: &[Copper]) -> Vec<Finding> {
+    let via_ids: BTreeSet<Id> = project.board.vias.iter().map(|v| v.id).collect();
+    let is_pad = |c: &Copper| {
+        c.pad
+            && !via_ids.contains(&c.id)
+            && !matches!(&c.bridge, Some((_, label)) if label == "net tie")
+    };
+    let mut found = Vec::new();
+    for track in &project.board.tracks {
+        if track.net == 0 {
+            continue;
+        }
+        for end in [track.start, track.end] {
+            let probe = Copper {
+                id: track.id,
+                net: track.net,
+                start: end,
+                end,
+                radius: track.width / 2.0,
+                contact_radius: track.width / 2.0,
+                conservative: false,
+                outline: None,
+                outline_error: 0.0,
+                layer: track.layer,
+                pad: false,
+                clearance: None,
+                bridge: None,
+                hole: None,
+                cutouts: vec![],
+            };
+            let under: Vec<&Copper> = items
+                .iter()
+                .filter(|c| c.net == track.net && is_pad(c) && touches_on_any_layer(&probe, c))
+                .collect();
+            if under.is_empty() || under.iter().any(|c| c.layer == track.layer) {
+                continue;
+            }
+            let joined_by_via = items
+                .iter()
+                .any(|c| via_ids.contains(&c.id) && c.layer == track.layer && touching(&probe, c));
+            if joined_by_via {
+                continue;
+            }
+            let Some(nearest) = under
+                .iter()
+                .min_by(|a, b| a.start.distance(end).total_cmp(&b.start.distance(end)))
+            else {
+                continue;
+            };
+            let mut layers: Vec<&str> = under.iter().map(|c| c.layer.name()).collect();
+            layers.sort_unstable();
+            layers.dedup();
+            found.push(Finding {
+                code: "track_on_different_layer_pad",
+                severity: project.rule_severity("track_on_different_layer_pad", "error"),
+                message: format!(
+                    "{} track on {} ends on pad {}, which has copper on {} only",
+                    project.net_name(track.net),
+                    track.layer.name(),
+                    pad_label(project, nearest),
+                    layers.join(" and "),
+                ),
+                objects: vec![track.id, nearest.id],
+                hint: None,
+            });
+        }
+    }
+    found
+}
+fn airwires_from(items: &[Copper]) -> Vec<Airwire> {
+    let parents = copper_components(items);
+    let mut groups: BTreeMap<Id, BTreeMap<usize, Vec<&Copper>>> = BTreeMap::new();
+    for (i, item) in items
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| c.pad && c.net != 0)
+    {
+        groups
+            .entry(item.net)
+            .or_default()
+            .entry(root(&parents, i))
+            .or_default()
+            .push(item);
+    }
+    let mut result = vec![];
+    for (net, islands) in groups {
+        if islands.is_empty() {
+            continue;
+        }
+        // Each pair of islands is measured once, and each unreached island
+        // keeps its nearest reached one, so a board with many islands does not
+        // re-measure every pair on every connection. Distances and island
+        // order break ties the way the plain rescan did, so the airwires are
+        // the same ones it produced.
+        let count = islands.len();
+        // Squared distances: only their order matters here, and the square
+        // root is the most expensive part of measuring a pair.
+        let squared = |a: &Copper, b: &Copper| {
+            let (dx, dy) = (a.start.x - b.start.x, a.start.y - b.start.y);
+            dx * dx + dy * dy
+        };
+        let mut nearest = vec![vec![None; count]; count];
+        for (i, a_items) in islands.values().enumerate() {
+            for (j, b_items) in islands.values().enumerate().skip(i + 1) {
+                let mut best: Option<(f64, &Copper, &Copper)> = None;
+                for a in a_items {
+                    for b in b_items {
+                        let d = squared(a, b);
+                        if best.as_ref().is_none_or(|(seen, _, _)| d < *seen) {
+                            best = Some((d, a, b));
+                        }
+                    }
+                }
+                if let Some((d, a, b)) = best {
+                    nearest[i][j] = Some((d, a, b));
+                    nearest[j][i] = Some((d, a, b));
+                }
+            }
+        }
+        // Prim's walk over the island graph. Each unreached island keeps the
+        // nearest reached island, ties going to the lower index, so the next
+        // connection is chosen exactly as the plain rescan chose it, without
+        // looking at every pair again.
+        let mut chosen = vec![false; count];
+        let mut best: Vec<Option<(f64, usize)>> = vec![None; count];
+        let welcome = |island: usize, best: &mut Vec<Option<(f64, usize)>>, chosen: &[bool]| {
+            for (other, entry) in nearest[island].iter().enumerate() {
+                if chosen.get(other).copied().unwrap_or(true) {
+                    continue;
+                }
+                let Some((distance, _, _)) = entry else {
+                    continue;
+                };
+                let keep = match best.get(other).copied().flatten() {
+                    Some((seen, from)) => *distance < seen || (*distance == seen && island < from),
+                    None => true,
+                };
+                if keep {
+                    best[other] = Some((*distance, island));
+                }
+            }
+        };
+        chosen[0] = true;
+        welcome(0, &mut best, &chosen);
+        while chosen.iter().filter(|at| **at).count() < count {
+            let mut pick: Option<(f64, usize, usize)> = None;
+            for (other, entry) in best.iter().enumerate() {
+                if chosen.get(other).copied().unwrap_or(true) {
+                    continue;
+                }
+                let Some((distance, from)) = entry else {
+                    continue;
+                };
+                if pick.is_none_or(|(best_distance, best_from, _)| {
+                    *distance < best_distance || (*distance == best_distance && *from < best_from)
+                }) {
+                    pick = Some((*distance, *from, other));
+                }
+            }
+            let Some((_, from, other)) = pick else {
+                break;
+            };
+            let Some((_, a, b)) = nearest
+                .get(from)
+                .and_then(|row| row.get(other))
+                .copied()
+                .flatten()
+            else {
+                break;
+            };
+            chosen[other] = true;
+            result.push(Airwire {
+                net,
+                from: a.start,
+                to: b.start,
+                from_object: a.id,
+                to_object: b.id,
+            });
+            welcome(other, &mut best, &chosen);
+        }
+    }
+    result
+}
+/// A point on the same copper island as `at` that has copper on `layer`.
+///
+/// A surface-mount pad carries copper on its own side alone, so a router
+/// asked to work on the other layer cannot finish on it. The usual answer on
+/// a real board is a via beside the pad with a short stub joining the two.
+/// That via is on the same island as the pad and it does reach both layers,
+/// so it is where the route should actually end.
+///
+/// # Rules
+/// - Returns `at` unchanged when the copper there already reaches `layer`.
+/// - Otherwise returns the nearest point of the same island that does, which
+///   is a via, a through-hole pad or a track already on that layer.
+/// - Returns `None` when the island never reaches `layer`, so a caller can
+///   tell "no need to move" from "cannot be done".
+/// - Only the island is searched. Copper of the same net sitting on another
+///   island is not connected to `at` and routing to it would join nothing.
+///
+/// # Dependencies
+/// - crates/rules/src/lib.rs (`copper`, `copper_components`, `root`)
+///
+/// # Do not
+/// - Return a point on another island. The whole value here is that the
+///   anchor and the endpoint are already the same piece of copper.
+pub fn layer_anchor(project: &Project, at: Point, net: Id, layer: Layer) -> Option<Point> {
+    let items = copper(project);
+    let near = |c: &Copper| segment_distance(at, at, c.start, c.end) - c.contact_radius <= 1e-6;
+    let mine = items
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| c.net == net && near(c))
+        .map(|(i, _)| i)
+        .collect::<Vec<_>>();
+    if mine.is_empty() {
+        return None;
+    }
+    if mine
+        .iter()
+        .any(|&i| items.get(i).is_some_and(|c| c.layer == layer))
+    {
+        return Some(at);
+    }
+    let parents = copper_components(&items);
+    let roots: BTreeSet<usize> = mine.iter().map(|&i| root(&parents, i)).collect();
+    items
+        .iter()
+        .enumerate()
+        .filter(|(i, c)| c.layer == layer && c.net == net && roots.contains(&root(&parents, *i)))
+        .map(|(_, c)| c.start)
+        .min_by(|a, b| at.distance(*a).total_cmp(&at.distance(*b)))
+}
+
+/// Airwires for nets that have copper on both ends but no track between them.
+pub fn airwires(project: &Project) -> Vec<Airwire> {
+    airwires_from(&copper(project))
+}
+const ESD_DEVICE_FAR_CODE: &str = "esd_device_far_from_connector";
+
+fn esd_check_enabled(project: &Project) -> bool {
+    matches!(
+        project
+            .rule_severity
+            .get(ESD_DEVICE_FAR_CODE)
+            .map(String::as_str),
+        Some("error") | Some("warning")
+    )
+}
+
+fn word_tvs(text: &str) -> bool {
+    text.to_lowercase()
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .any(|w| w == "tvs")
+}
+
+/// True when the component is an ESD transient-voltage suppressor.
+pub fn is_tvs(component: &Component) -> bool {
+    if component.kind == "tvs" {
+        return true;
+    }
+    if word_tvs(&component.value) {
+        return true;
+    }
+    component.fields.iter().any(|f| word_tvs(&f.value))
+}
+
+fn component_footprint(project: &Project, component: Id) -> Option<&Footprint> {
+    project
+        .board
+        .footprints
+        .iter()
+        .find(|f| f.component == component)
+}
+
+fn esd_device_far_findings(project: &Project) -> Vec<Finding> {
+    if !esd_check_enabled(project) || project.board.footprints.is_empty() {
+        return vec![];
+    }
+    let limit = project.esd_max_distance_mm;
+    let mut result = vec![];
+    for connector in project.components.iter().filter(|c| c.kind == "connector") {
+        let Some(conn_fp) = component_footprint(project, connector.id) else {
+            continue;
+        };
+        for pin in &connector.pins {
+            let Some(net) = pin.net else {
+                continue;
+            };
+            if !project
+                .components
+                .iter()
+                .any(|c| is_tvs(c) && c.pins.iter().any(|p| p.net == Some(net)))
+            {
+                continue;
+            }
+            let Some(conn_pad) = conn_fp.pad_position(&pin.number) else {
+                continue;
+            };
+            for tvs in project.components.iter().filter(|c| is_tvs(c)) {
+                let Some(tvs_fp) = component_footprint(project, tvs.id) else {
+                    continue;
+                };
+                for tvs_pin in tvs.pins.iter().filter(|p| p.net == Some(net)) {
+                    let Some(tvs_pad) = tvs_fp.pad_position(&tvs_pin.number) else {
+                        continue;
+                    };
+                    let distance = conn_pad.distance(tvs_pad);
+                    if distance > limit + 1e-9 {
+                        result.push(Finding {
+                            code: ESD_DEVICE_FAR_CODE,
+                            severity: project.rule_severity(ESD_DEVICE_FAR_CODE, "off"),
+                            message: format!(
+                                "{} is {:.1} mm from {} pin {} on {}; limit is {:.1} mm. \
+                                 Move the protection part next to the connector pad.",
+                                tvs.reference,
+                                distance,
+                                connector.reference,
+                                pin.number,
+                                project.net_name(net),
+                                limit,
+                            ),
+                            objects: vec![connector.id, tvs.id],
+                            hint: None,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    result
+}
+
+fn pin_flagged_no_connect(project: &Project, component: Id, pin: &str) -> bool {
+    project
+        .no_connects
+        .iter()
+        .any(|f| f.pin.component == component && f.pin.pin == pin)
+}
+
+fn net_has_power_driver(project: &Project, net: Id) -> bool {
+    if project
+        .labels
+        .iter()
+        .any(|l| l.net == net && l.kind == "power")
+    {
+        return true;
+    }
+    project.components.iter().any(|c| {
+        if c.kind == "connector" && c.pins.iter().any(|p| p.net == Some(net)) {
+            return true;
+        }
+        c.pins
+            .iter()
+            .any(|p| p.net == Some(net) && p.electrical_type == "power_out")
+    })
+}
+
+fn net_has_pullup_to_power(project: &Project, net: Id) -> bool {
+    project.components.iter().any(|c| {
+        let acts_as_passive =
+            c.kind == "resistor" || c.pins.iter().any(|p| p.electrical_type == "passive");
+        if !acts_as_passive {
+            return false;
+        }
+        let touches_bus = c.pins.iter().any(|p| p.net == Some(net));
+        if !touches_bus {
+            return false;
+        }
+        c.pins.iter().any(|p| {
+            p.net
+                .filter(|n| *n != net)
+                .is_some_and(|other| net_has_power_driver(project, other))
+        })
+    })
+}
+
+fn net_has_schematic_wiring(project: &Project, net: Id) -> bool {
+    if project.wires.iter().any(|w| w.net == net) {
+        return true;
+    }
+    if project.drawn_wires.iter().any(|w| w.net == Some(net)) {
+        return true;
+    }
+    if project
+        .components
+        .iter()
+        .flat_map(|c| &c.pins)
+        .any(|p| p.net == Some(net))
+    {
+        return true;
+    }
+    project.ports.iter().any(|p| p.net == net)
+}
+
+fn net_needs_power_not_driven(
+    project: &Project,
+    net: Id,
+    on_net: &[(Id, &str, &pcbcraft_doc::Pin)],
+) -> bool {
+    if net_has_power_driver(project, net) {
+        return false;
+    }
+    on_net.iter().any(|(component, _, pin)| {
+        pin.electrical_type == "power_in"
+            && !pin_flagged_no_connect(project, *component, &pin.number)
+    })
+}
+
+/// MCU peripheral and pin-mux conflict checks when a firmware design is attached.
+pub fn peripheral(project: &Project) -> Vec<Finding> {
+    peripheral::peripheral(project)
+}
+
+/// Electrical rule checks: pin conflicts, undriven inputs, decoupling and pull-ups.
+pub fn erc(project: &Project) -> Vec<Finding> {
+    // A board imported without a schematic has no pins to check.
+    if project.board_only {
+        return vec![];
+    }
+    let mut result = vec![];
+    for c in &project.components {
+        for p in &c.pins {
+            if p.net.is_none() && !pin_flagged_no_connect(project, c.id, &p.number) {
+                result.push(Finding {
+                    code: "unassigned_pin",
+                    severity: project.rule_severity("unassigned_pin", "warning"),
+                    message: format!("{} pin {} has no net", c.reference, p.number),
+                    objects: vec![c.id],
+                    hint: None,
+                });
+            }
+        }
+    }
+    for net in &project.nets {
+        let pins = project
+            .components
+            .iter()
+            .flat_map(|c| &c.pins)
+            .filter(|p| p.net == Some(net.id))
+            .count();
+        if pins < 2 {
+            result.push(Finding {
+                code: "single_pin_net",
+                severity: project.rule_severity("single_pin_net", "warning"),
+                message: format!("{} has {pins} connected pins", net.name),
+                objects: vec![net.id],
+                hint: None,
+            });
+            continue;
+        }
+        // A pin carries its net directly, and wires and labels are drawing.
+        // Nothing in the model ties the two together, so a netlist import can
+        // connect a whole board and leave a sheet with nothing on it. The
+        // schematic is what a person reads to decide the circuit is right, so
+        // a connection it does not show is a connection nobody can review.
+        //
+        // Two labels of one net join their pins as surely as a wire does, and
+        // a power symbol is a label. One label names a net without joining
+        // anything to it, which is why the count has to reach two.
+        if project.rule_disabled("net_not_drawn") {
+            continue;
+        }
+        let drawn = project.wires.iter().any(|w| w.net == net.id)
+            || project.drawn_wires.iter().any(|w| w.net == Some(net.id))
+            || project.labels.iter().filter(|l| l.net == net.id).count() >= 2;
+        if !drawn {
+            result.push(Finding {
+                code: "net_not_drawn",
+                severity: project.rule_severity("net_not_drawn", "warning"),
+                message: format!(
+                    "{} joins {pins} pins with nothing on the schematic showing it",
+                    net.name
+                ),
+                objects: vec![net.id],
+                hint: Some(
+                    "Draw a wire between the pins, or label each of them with the net name.".into(),
+                ),
+            });
+        }
+    }
+    for net in &project.nets {
+        let undriven_power = project.components.iter().any(|c| {
+            c.pins.iter().any(|p| {
+                p.net == Some(net.id)
+                    && p.electrical_type == "power_in"
+                    && !pin_flagged_no_connect(project, c.id, &p.number)
+            })
+        });
+        if undriven_power && !net_has_power_driver(project, net.id) {
+            result.push(Finding {
+                code: "power_not_driven",
+                severity: project.rule_severity("power_not_driven", "warning"),
+                message: format!(
+                    "{} has a power input but no power source; drive it from a power output, \
+                     a power symbol or a connector pin",
+                    net.name
+                ),
+                objects: vec![net.id],
+                hint: None,
+            });
+        }
+    }
+    for net in &project.nets {
+        let mut on_net = vec![];
+        for c in &project.components {
+            for p in &c.pins {
+                if p.net == Some(net.id) {
+                    on_net.push((c.id, c.reference.as_str(), p));
+                }
+            }
+        }
+        if on_net.is_empty() {
+            continue;
+        }
+        let power_not_driven_net = net_needs_power_not_driven(project, net.id, &on_net);
+        let mut types = BTreeSet::new();
+        for (_, _, p) in &on_net {
+            types.insert(p.electrical_type.as_str());
+        }
+        let type_list: Vec<_> = types.iter().copied().collect();
+        for i in 0..type_list.len() {
+            for j in i..type_list.len() {
+                let ta = type_list[i];
+                let tb = type_list[j];
+                if power_not_driven_net
+                    && ta != "no_connect"
+                    && tb != "no_connect"
+                    && (ta == "power_in" || tb == "power_in")
+                {
+                    continue;
+                }
+                let level = project.pin_matrix_level(ta, tb);
+                if level == "ok" {
+                    continue;
+                }
+                let count_a = on_net
+                    .iter()
+                    .filter(|(_, _, p)| p.electrical_type == ta)
+                    .count();
+                let count_b = on_net
+                    .iter()
+                    .filter(|(_, _, p)| p.electrical_type == tb)
+                    .count();
+                if ta == tb {
+                    if count_a < 2 {
+                        continue;
+                    }
+                } else if count_a == 0 || count_b == 0 {
+                    continue;
+                }
+                let Some((id_a, ref_a, pin_a)) =
+                    on_net.iter().find(|(_, _, p)| p.electrical_type == ta)
+                else {
+                    continue;
+                };
+                let pin_b = if ta == tb {
+                    on_net
+                        .iter()
+                        .find(|(id, _, p)| p.electrical_type == tb && *id != *id_a)
+                } else {
+                    on_net.iter().find(|(_, _, p)| p.electrical_type == tb)
+                };
+                let Some((id_b, ref_b, pin_b)) = pin_b else {
+                    continue;
+                };
+                let hint = if ta == "output" && tb == "output" {
+                    "keep one driver or add a resistor"
+                } else if level == "error" {
+                    "separate the nets or change one pin type"
+                } else {
+                    "confirm this pairing is intentional"
+                };
+                result.push(Finding {
+                    code: "pin_conflict",
+                    severity: project.rule_severity("pin_conflict", level.as_str()),
+                    message: format!(
+                        "{ref_a} pin {} ({ta}) and {ref_b} pin {} ({tb}) drive the same net; {hint}",
+                        pin_a.number, pin_b.number
+                    ),
+                    objects: vec![*id_a, *id_b],
+                    hint: None,
+                });
+            }
+        }
+        let drives = ["output", "bidirectional", "power_out", "passive"];
+        let has_driver = on_net
+            .iter()
+            .any(|(_, _, p)| drives.contains(&p.electrical_type.as_str()));
+        if !has_driver {
+            for (id, reference, pin) in &on_net {
+                if pin.electrical_type == "power_in" {
+                    continue;
+                }
+                if pin.electrical_type == "input" {
+                    result.push(Finding {
+                        code: "undriven_input",
+                        severity: project.rule_severity("undriven_input", "warning"),
+                        message: format!(
+                            "{reference} pin {} (input) sits on {} with no driver; tie it to an \
+                             output or a passive partner",
+                            pin.number, net.name
+                        ),
+                        objects: vec![*id],
+                        hint: None,
+                    });
+                }
+            }
+        }
+    }
+    result.extend(decoupling::missing_decoupling(project));
+    result.extend(esd_device_far_findings(project));
+    for net in &project.nets {
+        let open_count = project
+            .components
+            .iter()
+            .flat_map(|c| &c.pins)
+            .filter(|p| {
+                p.net == Some(net.id)
+                    && matches!(
+                        p.electrical_type.as_str(),
+                        "open_collector" | "open_emitter"
+                    )
+            })
+            .count();
+        let passive_on_net = project
+            .components
+            .iter()
+            .flat_map(|c| &c.pins)
+            .any(|p| p.net == Some(net.id) && p.electrical_type == "passive");
+        let needs_pullup = open_count >= 2 || (open_count >= 1 && !passive_on_net);
+        if needs_pullup && !net_has_pullup_to_power(project, net.id) {
+            result.push(Finding {
+                code: "missing_pullup",
+                severity: project.rule_severity("missing_pullup", "warning"),
+                message: format!(
+                    "{} has open-drain pins without a pull-up to a power net; add a resistor \
+                     to a driven power rail",
+                    net.name
+                ),
+                objects: vec![net.id],
+                hint: None,
+            });
+        }
+    }
+    for label in &project.labels {
+        if label.kind == "junction" || label.kind == "bus" {
+            continue;
+        }
+        if !net_has_schematic_wiring(project, label.net) {
+            result.push(Finding {
+                code: "dangling_label",
+                severity: project.rule_severity("dangling_label", "warning"),
+                message: format!(
+                    "Label on {} is not wired to anything; connect it or remove it",
+                    project.net_name(label.net)
+                ),
+                objects: vec![label.id],
+                hint: None,
+            });
+        }
+    }
+    result.retain(|f| {
+        !project.rule_disabled(f.code)
+            && !project.rule_excluded(f.code, &f.objects)
+            && !project.rule_region_excluded(f.code, &f.objects)
+    });
+    result
+}
+/// True when a point is inside an implicitly closed polygon.
+fn point_in_polygon(p: Point, polygon: &[Point]) -> bool {
+    let mut inside = false;
+    let edges = polygon
+        .iter()
+        .zip(polygon.iter().skip(1))
+        .chain(std::iter::once((&polygon[polygon.len() - 1], &polygon[0])));
+    for (a, b) in edges {
+        if (a.y > p.y) != (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x {
+            inside = !inside;
+        }
+    }
+    inside
+}
+/// Signed clearance from a copper segment to the board edge: positive when
+/// both ends are inside, measured to the traced outline when one is set and
+/// to the plain rectangle otherwise.
+fn board_edge_distance(board: &Board, a: Point, b: Point) -> f64 {
+    if board.outline.is_none() {
+        return [
+            a.x,
+            b.x,
+            a.y,
+            b.y,
+            board.width - a.x,
+            board.width - b.x,
+            board.height - a.y,
+            board.height - b.y,
+        ]
+        .into_iter()
+        .fold(f64::INFINITY, f64::min);
+    }
+    let ring = board.edge_ring(VALIDATION_CHORD_ERROR);
+    let distance = (0..ring.len())
+        .map(|i| {
+            let p = ring[i];
+            let q = ring[(i + 1) % ring.len()];
+            segment_distance(a, b, p, q)
+        })
+        .fold(f64::INFINITY, f64::min);
+    let arc_slack = if board.outline_arcs.iter().any(Option::is_some) {
+        VALIDATION_CHORD_ERROR
+    } else {
+        0.0
+    };
+    if point_in_polygon(a, &ring) && point_in_polygon(b, &ring) {
+        distance - arc_slack
+    } else {
+        -distance
+    }
+}
+
+/// How far outside the board a drawn figure may sit before it counts as off
+/// the board. A figure drawn on the edge is the normal card outline; only a
+/// real overshoot is a finding.
+const ART_EDGE_TOLERANCE: f64 = 0.01;
+
+fn art_path(shape: &ArtShape) -> Vec<Point> {
+    match shape {
+        ArtShape::Line { start, end } => vec![*start, *end],
+        ArtShape::Rect {
+            x,
+            y,
+            width,
+            height,
+            rotate,
+        } => {
+            let center = Point::new(x + width / 2.0, y + height / 2.0);
+            let mut ring: Vec<Point> = [
+                Point::new(*x, *y),
+                Point::new(x + width, *y),
+                Point::new(x + width, y + height),
+                Point::new(*x, y + height),
+            ]
+            .into_iter()
+            .map(|c| center.offset(Point::new(c.x - center.x, c.y - center.y).rotate(*rotate)))
+            .collect();
+            ring.push(ring[0]);
+            ring
+        }
+        ArtShape::Circle { center, radius } => (0..=48)
+            .map(|i| {
+                let turn = std::f64::consts::TAU * i as f64 / 48.0;
+                Point::new(
+                    center.x + turn.cos() * radius,
+                    center.y + turn.sin() * radius,
+                )
+            })
+            .collect(),
+        ArtShape::Poly { points } => {
+            let mut ring = points.clone();
+            if let Some(first) = ring.first().copied() {
+                ring.push(first);
+            }
+            ring
+        }
+        ArtShape::Text { at, .. } => vec![*at],
+    }
+}
+
+fn art_encloses(shape: &ArtShape) -> bool {
+    matches!(
+        shape,
+        ArtShape::Rect { .. } | ArtShape::Circle { .. } | ArtShape::Poly { .. }
+    )
+}
+
+fn art_figure_name(index: usize, shape: &ArtShape) -> String {
+    let kind = match shape {
+        ArtShape::Line { .. } => "line",
+        ArtShape::Rect { .. } => "rectangle",
+        ArtShape::Circle { .. } => "circle",
+        ArtShape::Poly { .. } => "outline",
+        ArtShape::Text { .. } => "text",
+    };
+    format!("{kind} {}", index + 1)
+}
+
+fn rings_overlap(a: &[Point], b: &[Point]) -> bool {
+    if a.len() < 3 || b.len() < 3 {
+        return false;
+    }
+    a.iter().any(|p| point_in_polygon(*p, b))
+        || b.iter().any(|p| point_in_polygon(*p, a))
+        || b.windows(2)
+            .any(|edge| polygon_segment(a, edge[0], edge[1]) <= 1e-9)
+}
+
+/// Findings for every pick and place machine saved in the design: a part with no
+/// suitable nozzle, a feeder bank that is too small, more nozzle types than the
+/// machine runs unattended.
+///
+/// # Rules
+/// - One finding per problem from `plan_placement`; the machine name starts the sentence.
+/// - A design with no pick and place profile gives no findings.
+///
+/// # Dependencies
+/// - crates/doc/src/placement_machine.rs
+///
+/// # Do not
+/// - Plan again here; the writer in crates/io/src/neoden_yy1.rs uses the same plan.
+fn placement_machine_findings(project: &Project) -> Vec<Finding> {
+    let mut out = vec![];
+    for machine in project
+        .machine_profiles
+        .iter()
+        .filter(|m| m.kind == "pick_place")
+    {
+        let plan = pcbcraft_doc::plan_placement(project, &machine.pick_place, None);
+        for problem in plan.problems {
+            out.push(Finding {
+                code: problem.code,
+                severity: project.rule_severity(problem.code, "warning"),
+                message: format!("{}: {}", machine.name, problem.message),
+                objects: problem.components,
+                hint: None,
+            });
+        }
+    }
+    out
+}
+fn panel_findings(project: &Project) -> Vec<Finding> {
+    if !project.panel.enabled {
+        return Vec::new();
+    }
+    let settings = &project.panel;
+    let Ok(layout) = panel_layout(project) else {
+        return Vec::new();
+    };
+    let mut result = Vec::new();
+    if layout.panel_width > PANEL_ASSEMBLER_MAX_MM + 1e-6
+        || layout.panel_height > PANEL_ASSEMBLER_MAX_MM + 1e-6
+    {
+        result.push(Finding {
+            code: "panel_too_large_for_assembler",
+            severity: project.rule_severity("panel_too_large_for_assembler", "error"),
+            message: format!(
+                "Panel is {:.1} by {:.1} mm; assembly panels must fit within {:.0} by {:.0} mm",
+                layout.panel_width,
+                layout.panel_height,
+                PANEL_ASSEMBLER_MAX_MM,
+                PANEL_ASSEMBLER_MAX_MM
+            ),
+            objects: vec![],
+            hint: None,
+        });
+    }
+    if project.board.fiducials.len() < PANEL_FIDUCIAL_COUNT {
+        result.push(Finding {
+            code: "panel_missing_fiducials",
+            severity: project.rule_severity("panel_missing_fiducials", "error"),
+            message: format!(
+                "Panel needs {} fiducials in the rails; this board has {}",
+                PANEL_FIDUCIAL_COUNT,
+                project.board.fiducials.len()
+            ),
+            objects: vec![],
+            hint: None,
+        });
+    }
+    if settings.separation == PanelSeparation::Tab
+        && settings.tab_channel + 1e-6 < PANEL_TAB_CHANNEL_MIN_MM
+    {
+        result.push(Finding {
+            code: "panel_tab_too_narrow",
+            severity: project.rule_severity("panel_tab_too_narrow", "error"),
+            message: format!(
+                "Tab channel is {:.3} mm; routed tabs need at least {:.1} mm",
+                settings.tab_channel, PANEL_TAB_CHANNEL_MIN_MM
+            ),
+            objects: vec![],
+            hint: None,
+        });
+    }
+    if settings.separation != PanelSeparation::VScore {
+        return result;
+    }
+    let Ok(score_lines) = panel_score_lines(project) else {
+        return result;
+    };
+    let board = &project.board;
+    for copy in &layout.copies {
+        let shift = |p: Point| Point::new(p.x + copy.x, p.y + copy.y);
+        for track in &board.tracks {
+            let start = shift(track.start);
+            let end = shift(track.end);
+            let radius = track.width / 2.0;
+            for (a, b) in &score_lines {
+                let gap = segment_distance(start, end, *a, *b) - radius;
+                if gap + 1e-6 < PANEL_SCORE_COPPER_MIN_MM {
+                    result.push(Finding {
+                        code: "panel_copper_near_score",
+                        severity: project.rule_severity("panel_copper_near_score", "error"),
+                        message: format!(
+                            "Copper on copy ({}, {}) is {:.3} mm from a V-score line; keep at least {:.2} mm",
+                            copy.row,
+                            copy.column,
+                            gap.max(0.0),
+                            PANEL_SCORE_COPPER_MIN_MM
+                        ),
+                        objects: vec![track.id],
+            hint: None,
+        });
+                    break;
+                }
+            }
+        }
+        for footprint in &board.footprints {
+            let mut too_close = false;
+            for pad in &footprint.pads {
+                if let Some(position) = footprint.pad_position(&pad.number) {
+                    let centre = shift(position);
+                    let clearance = pad.bounding_radius();
+                    for (a, b) in &score_lines {
+                        if point_segment(centre, *a, *b) - clearance + 1e-6
+                            < PANEL_SCORE_COMPONENT_MIN_MM
+                        {
+                            too_close = true;
+                            break;
+                        }
+                    }
+                }
+                if too_close {
+                    break;
+                }
+            }
+            if too_close {
+                result.push(Finding {
+                    code: "panel_component_near_score",
+                    severity: project.rule_severity("panel_component_near_score", "error"),
+                    message: format!(
+                        "A part on copy ({}, {}) sits within {:.1} mm of a V-score line",
+                        copy.row, copy.column, PANEL_SCORE_COMPONENT_MIN_MM
+                    ),
+                    objects: vec![footprint.id],
+                    hint: None,
+                });
+            }
+        }
+    }
+    result
+}
+
+/// Clearance, board edge and cutout findings for the copper in `items`. When
+/// `only` is set, just the findings that involve one of those object ids.
+fn copper_findings(
+    project: &Project,
+    items: &[Copper],
+    only: Option<&BTreeSet<Id>>,
+) -> Vec<Finding> {
+    let mut result = vec![];
+    let board = &project.board;
+    let wanted = |id: Id| only.is_none_or(|set| set.contains(&id));
+    // The exact clearance test below is unchanged; the grid only decides which
+    // pairs it is asked about, and asks in the same order a full scan would.
+    let grid = Grid::new(items, widest_clearance(project, items));
+    for (i, a) in items.iter().enumerate() {
+        let candidates = grid.near.get(i).map(Vec::as_slice).unwrap_or_default();
+        for &j in candidates.iter().filter(|other| **other > i) {
+            let Some(b) = items.get(j) else { continue };
+            if !wanted(a.id) && !wanted(b.id) {
+                continue;
+            }
+            if a.bridge.is_some() && a.bridge == b.bridge {
+                // A declared net tie's own pads touch on purpose; the pair is
+                // the bridge, never a short.
+                continue;
+            }
+            if (a.net != b.net || a.net == 0) && a.layer == b.layer {
+                let mid = |c: &Copper| {
+                    Point::new((c.start.x + c.end.x) / 2.0, (c.start.y + c.end.y) / 2.0)
+                };
+                let required = project
+                    .required_clearance_at(a.net, b.net, mid(a), mid(b), a.layer, b.layer)
+                    .max(a.clearance.unwrap_or(0.0))
+                    .max(b.clearance.unwrap_or(0.0));
+                if segment_distance(a.start, a.end, b.start, b.end) - a.radius - b.radius > required
+                {
+                    continue;
+                }
+                let separation = gap(a, b);
+                if separation + 1e-6 < required {
+                    let code = if a.conservative || b.conservative {
+                        "pad_clearance_bound"
+                    } else if separation <= 0.0 {
+                        "copper_short"
+                    } else {
+                        "clearance"
+                    };
+                    result.push(Finding {
+                        code,
+                        severity: project.rule_severity(code, "error"),
+                        message: format!(
+                            "{} / {}: {:.3} mm clearance bound, {:.3} mm required",
+                            project.net_name(a.net),
+                            project.net_name(b.net),
+                            separation,
+                            required
+                        ),
+                        objects: vec![a.id, b.id],
+                        hint: None,
+                    });
+                }
+            }
+        }
+        if !wanted(a.id) {
+            continue;
+        }
+        let edge = if let Some(points) = &a.outline {
+            points
+                .iter()
+                .enumerate()
+                .map(|(i, p)| {
+                    let q = points[(i + 1) % points.len()];
+                    board_edge_distance(board, *p, q)
+                })
+                .fold(f64::INFINITY, f64::min)
+                - a.outline_error
+        } else {
+            board_edge_distance(board, a.start, a.end) - a.radius
+        };
+        if edge + 1e-6 < board.clearance {
+            result.push(Finding {
+                code: "board_edge",
+                severity: project.rule_severity("board_edge", "error"),
+                message: format!("Copper is {:.3} mm from the board edge", edge),
+                objects: vec![a.id],
+                hint: None,
+            });
+        }
+        for cut in &board.cutouts {
+            let clearance = if let Some(points) = &a.outline {
+                polygon_segment(points, cut.center, cut.center) - cut.radius - a.outline_error
+            } else {
+                point_segment(cut.center, a.start, a.end) - cut.radius - a.radius
+            };
+            if clearance + 1e-6 < board.clearance {
+                result.push(Finding {
+                    code: "cutout_clearance",
+                    severity: project.rule_severity("cutout_clearance", "error"),
+                    message: format!("Copper violates cutout clearance ({clearance:.3} mm)"),
+                    objects: vec![a.id, cut.id],
+                    hint: None,
+                });
+            }
+        }
+    }
+    result
+}
+/// Copper findings (clearance, short, board edge, cutout) that involve any of
+/// the given track, via, pad or zone ids, without running the other checks.
+/// Used to test a proposed edit before committing it.
+pub fn copper_conflicts(project: &Project, ids: &[Id]) -> Vec<Finding> {
+    let only: BTreeSet<Id> = ids.iter().copied().collect();
+    let mut found = copper_findings(project, &copper(project), Some(&only));
+    found.retain(|f| !project.rule_disabled(f.code));
+    found
+}
+/// Geometric and fabrication checks: clearance, track width, vias, panel and silkscreen.
+pub fn drc(project: &Project) -> Vec<Finding> {
+    let mut result = vec![];
+    let items = copper(project);
+    let board = &project.board;
+    result.extend(copper_findings(project, &items, None));
+    for track in &board.tracks {
+        if let Some(class) = project.net_class(track.net) {
+            if let Some(min) = class.min_width.filter(|min| track.width < *min) {
+                result.push(Finding {
+                    code: "track_width",
+                    severity: project.rule_severity("track_width", "error"),
+                    message: format!(
+                        "{} track is {:.3} mm wide, {} allows at least {:.3} mm",
+                        project.net_name(track.net),
+                        track.width,
+                        class.name,
+                        min
+                    ),
+                    objects: vec![track.id],
+                    hint: None,
+                });
+            }
+            if let Some(max) = class.max_width.filter(|max| track.width > *max) {
+                result.push(Finding {
+                    code: "track_width",
+                    severity: project.rule_severity("track_width", "error"),
+                    message: format!(
+                        "{} track is {:.3} mm wide, {} allows at most {:.3} mm",
+                        project.net_name(track.net),
+                        track.width,
+                        class.name,
+                        max
+                    ),
+                    objects: vec![track.id],
+                    hint: None,
+                });
+            }
+        }
+        if project.rule_disabled("track_width_advice") {
+            continue;
+        }
+        if let Some(advice) = width_advice::width_advice_on_layer(project, track.net, track.layer)
+            && track.width + 1e-6 < advice.width_mm
+            && let Some(current) = project.effective_current(track.net)
+        {
+            result.push(Finding {
+                code: "track_width_advice",
+                severity: project.rule_severity("track_width_advice", "warning"),
+                message: format!(
+                    "{} track is {:.3} mm wide, {} advice asks at least {:.3} mm for {current:.2} A",
+                    project.net_name(track.net),
+                    track.width,
+                    advice.method,
+                    advice.width_mm,
+                ),
+                objects: vec![track.id],
+                hint: None,
+            });
+        }
+    }
+    for via in &board.vias {
+        if via.net == 0 && !project.rule_disabled("unassigned_via") {
+            result.push(Finding {
+                code: "unassigned_via",
+                severity: project.rule_severity("unassigned_via", "warning"),
+                message: format!(
+                    "Via at {:.1}, {:.1} has no net; assign it to a net",
+                    via.position.x, via.position.y
+                ),
+                objects: vec![via.id],
+                hint: Some("Select the via and pick its net in Properties.".into()),
+            });
+        }
+        if via.net != 0
+            && !project.rule_disabled("via_current_advice")
+            && let Some(advice) = via_current::via_capacity(project, via)
+            && let Some(target) = project.effective_current(via.net)
+            && target + 1e-6 > advice.current
+        {
+            result.push(Finding {
+                    code: "via_current_advice",
+                    severity: project.rule_severity("via_current_advice", "warning"),
+                    message: format!(
+                        "{} via at {:.1}, {:.1} carries {:.2} A, capacity is {:.2} A for a {:.2} mm drill",
+                        project.net_name(via.net),
+                        via.position.x,
+                        via.position.y,
+                        target,
+                        advice.current,
+                        via.drill,
+                    ),
+                    objects: vec![via.id],
+                    hint: None,
+                });
+        }
+    }
+    for wire in airwires_from(&items) {
+        result.push(Finding {
+            code: "unrouted",
+            severity: project.rule_severity("unrouted", "warning"),
+            message: format!(
+                "{} has disconnected copper islands",
+                project.net_name(wire.net)
+            ),
+            objects: vec![wire.from_object, wire.to_object],
+            hint: None,
+        });
+    }
+    result.extend(track_layer_findings(project, &items));
+    for c in &project.components {
+        if !board.footprints.iter().any(|f| f.component == c.id) {
+            result.push(Finding {
+                code: "missing_footprint",
+                severity: project.rule_severity("missing_footprint", "warning"),
+                message: format!("{} has no PCB footprint; sync the board", c.reference),
+                objects: vec![c.id],
+                hint: None,
+            });
+        }
+    }
+    let mut lengths: BTreeMap<Id, f64> = BTreeMap::new();
+    for track in &board.tracks {
+        *lengths.entry(track.net).or_insert(0.0) += track.length();
+    }
+    let mut via_counts: BTreeMap<Id, (u32, Vec<Id>)> = BTreeMap::new();
+    for via in &board.vias {
+        if via.net == 0 {
+            continue;
+        }
+        let entry = via_counts.entry(via.net).or_insert((0, Vec::new()));
+        entry.0 += 1;
+        entry.1.push(via.id);
+    }
+    for class in &project.net_classes {
+        let Some(limit) = class.max_vias else {
+            continue;
+        };
+        for net in &class.nets {
+            let (count, ids) = via_counts
+                .get(net)
+                .map(|(count, ids)| (*count, ids.clone()))
+                .unwrap_or((0, Vec::new()));
+            if count <= limit {
+                continue;
+            }
+            result.push(Finding {
+                code: "via_count",
+                severity: project.rule_severity("via_count", "error"),
+                message: format!(
+                    "{} has {count} vias, {} allows at most {limit}",
+                    project.net_name(*net),
+                    class.name
+                ),
+                objects: ids,
+                hint: None,
+            });
+        }
+    }
+    for pair in &board.diff_pairs {
+        for a in board
+            .tracks
+            .iter()
+            .filter(|t| t.net == pair.net_p && t.layer == Layer::Front)
+        {
+            for b in board
+                .tracks
+                .iter()
+                .filter(|t| t.net == pair.net_n && t.layer == Layer::Front)
+            {
+                let separation = segment_distance(a.start, a.end, b.start, b.end)
+                    - a.width / 2.0
+                    - b.width / 2.0;
+                let required = project
+                    .required_clearance_at(pair.net_p, pair.net_n, a.end, b.end, a.layer, b.layer);
+                if separation + 1e-6 >= pair.gap.max(required) {
+                    continue;
+                }
+                result.push(Finding {
+                    code: "diffpair_gap",
+                    severity: project.rule_severity("diffpair_gap", "error"),
+                    message: format!(
+                        "{} / {}: {} couples at {:.3} mm, {:.3} mm gap wanted",
+                        project.net_name(pair.net_p),
+                        project.net_name(pair.net_n),
+                        pair.name,
+                        separation,
+                        pair.gap
+                    ),
+                    objects: vec![a.id, b.id],
+                    hint: None,
+                });
+            }
+        }
+        if let Some(tolerance) = pair.length_tolerance
+            && (lengths.contains_key(&pair.net_p) || lengths.contains_key(&pair.net_n))
+        {
+            let skew = (lengths.get(&pair.net_p).copied().unwrap_or(0.0)
+                - lengths.get(&pair.net_n).copied().unwrap_or(0.0))
+            .abs();
+            if skew > tolerance + 1e-9 {
+                result.push(Finding {
+                    code: "diffpair_skew",
+                    severity: project.rule_severity("diffpair_skew", "error"),
+                    message: format!(
+                        "{}: {} sides differ by {:.3} mm, at most {:.3} mm allowed",
+                        pair.name,
+                        project.net_name(pair.net_p),
+                        skew,
+                        tolerance
+                    ),
+                    objects: vec![pair.net_p, pair.net_n],
+                    hint: None,
+                });
+            }
+        }
+        result.extend(pair_properties::pair_property_findings(project, pair));
+    }
+    result.extend(diffpair_impedance::findings(project));
+    for pair in &board.diff_pairs {
+        if !pair.equal_vias {
+            continue;
+        }
+        let count_p = via_counts
+            .get(&pair.net_p)
+            .map(|(count, _)| *count)
+            .unwrap_or(0);
+        let count_n = via_counts
+            .get(&pair.net_n)
+            .map(|(count, _)| *count)
+            .unwrap_or(0);
+        if count_p == count_n {
+            continue;
+        }
+        let heavier = if count_p > count_n {
+            pair.net_p
+        } else {
+            pair.net_n
+        };
+        let objects = via_counts
+            .get(&heavier)
+            .map(|(_, ids)| ids.clone())
+            .unwrap_or_default();
+        result.push(Finding {
+            code: "diffpair_via_count",
+            severity: project.rule_severity("diffpair_via_count", "error"),
+            message: format!(
+                "{}: {} has {count_p} vias and {} has {count_n}, equal count wanted",
+                pair.name,
+                project.net_name(pair.net_p),
+                project.net_name(pair.net_n)
+            ),
+            objects,
+            hint: None,
+        });
+    }
+    for group in &board.length_groups {
+        let routed: Vec<(Id, f64)> = group
+            .nets
+            .iter()
+            .filter_map(|n| lengths.get(n).map(|l| (*n, *l)))
+            .collect();
+        if routed.len() < 2 {
+            continue;
+        }
+        let longest = routed
+            .iter()
+            .fold(routed[0], |a, b| if b.1 > a.1 { *b } else { a });
+        let shortest = routed
+            .iter()
+            .fold(routed[0], |a, b| if b.1 < a.1 { *b } else { a });
+        let spread = longest.1 - shortest.1;
+        if spread <= group.tolerance + 1e-9 {
+            continue;
+        }
+        result.push(Finding {
+            code: "length_group_skew",
+            severity: project.rule_severity("length_group_skew", "error"),
+            message: format!(
+                "{}: {} is {:.3} mm longer than {}, at most {:.3} mm allowed",
+                group.name,
+                project.net_name(longest.0),
+                spread,
+                project.net_name(shortest.0),
+                group.tolerance
+            ),
+            objects: vec![longest.0, shortest.0],
+            hint: None,
+        });
+    }
+    let classified: BTreeSet<Id> = project
+        .net_classes
+        .iter()
+        .flat_map(|c| c.nets.clone())
+        .collect();
+    for class in &project.net_classes {
+        let Some(target) = class.target_length else {
+            continue;
+        };
+        let tolerance = class.length_tolerance.unwrap_or(0.0);
+        for net in &class.nets {
+            let own = project
+                .nets
+                .iter()
+                .any(|n| n.id == *net && n.target_length.is_some());
+            if own {
+                // A net with its own target is judged against that, not the class.
+                continue;
+            }
+            let Some(length) = lengths.get(net) else {
+                continue;
+            };
+            if (length - target).abs() <= tolerance + 1e-9 {
+                continue;
+            }
+            result.push(Finding {
+                code: "track_length",
+                severity: project.rule_severity("track_length", "error"),
+                message: format!(
+                    "{} routed to {:.3} mm, {} targets {:.3} mm within {:.3} mm",
+                    project.net_name(*net),
+                    length,
+                    class.name,
+                    target,
+                    tolerance
+                ),
+                objects: vec![*net],
+                hint: None,
+            });
+        }
+    }
+    for net in &project.nets {
+        let Some(target) = net.target_length else {
+            continue;
+        };
+        if classified.contains(&net.id) {
+            // A classified net without its own target already followed its class.
+            continue;
+        }
+        let tolerance = net.length_tolerance.unwrap_or(0.0);
+        let length = lengths.get(&net.id).copied().unwrap_or(0.0);
+        if (length - target).abs() <= tolerance + 1e-9 {
+            continue;
+        }
+        result.push(Finding {
+            code: "track_length",
+            severity: project.rule_severity("track_length", "error"),
+            message: format!(
+                "{} routed to {:.3} mm, {} targets {:.3} mm within {:.3} mm",
+                net.name, length, net.name, target, tolerance
+            ),
+            objects: vec![net.id],
+            hint: None,
+        });
+    }
+    for net in &project.nets {
+        if project.rule_disabled("impedance_target_incomplete") {
+            continue;
+        }
+        let Some(target) = project.net_effective_impedance_target(net) else {
+            continue;
+        };
+        if !project.net_effective_reference_layers(net).is_empty() {
+            continue;
+        }
+        result.push(Finding {
+            code: "impedance_target_incomplete",
+            severity: project.rule_severity("impedance_target_incomplete", "warning"),
+            message: format!(
+                "{} targets {:.1} ohm but names no reference layer",
+                net.name, target
+            ),
+            objects: vec![net.id],
+            hint: None,
+        });
+    }
+    result.extend(panel_findings(project));
+    result.extend(placement_machine_findings(project));
+    result.extend(via_findings(project));
+    result.extend(fab_findings(project, board));
+    result.extend(courtyard::courtyard_findings(project));
+    result.extend(silk::silk_findings(project));
+    result.extend(silk_line::silk_line_findings(project));
+    result.extend(pad_kinds::pad_kind_findings(project));
+    result.extend(mask_dam::mask_dam_findings(project));
+    result.extend(drill::drill_findings(project));
+    result.extend(drill::drill_spacing_findings(project));
+    result.extend(hole_copper::hole_to_copper_findings(project));
+    result.extend(hole_copper::npth_size_findings(project));
+    // Drawn machine layers sit beside the copper.
+    // not run through a via or a pad, a mask figure must not cover an exposed
+    // pad, and no figure may leave the board. Drawn silk and reference art are
+    // left alone: silk over pads belongs to its own check.
+    for layer in &board.user_layers {
+        let cutting = matches!(layer.kind, ArtKind::Cut | ArtKind::Perforation);
+        let masking = layer.kind == ArtKind::Mask;
+        if !cutting && !masking {
+            continue;
+        }
+        for (index, shape) in layer.shapes.iter().enumerate() {
+            let path = art_path(shape);
+            let figure = art_figure_name(index, shape);
+            let outside = path
+                .iter()
+                .map(|p| board_edge_distance(board, *p, *p))
+                .fold(f64::INFINITY, f64::min);
+            if outside < -ART_EDGE_TOLERANCE {
+                result.push(Finding {
+                    code: "art_off_board",
+                    severity: project.rule_severity("art_off_board", "warning"),
+                    message: format!(
+                        "{figure} on {} reaches {:.2} mm past the board edge; the mill holds plus or minus 0.2 mm and a score line 0.4 to 0.5 mm",
+                        layer.name,
+                        -outside
+                    ),
+                    objects: vec![layer.id],
+            hint: None,
+        });
+            }
+            if cutting {
+                // Vias are read from the board, not from the copper list that
+                // names each plated item twice: one cut crosses every layer.
+                for v in &board.vias {
+                    let required = v.diameter / 2.0 + board.clearance;
+                    let distance = path
+                        .windows(2)
+                        .map(|s| point_segment(v.position, s[0], s[1]))
+                        .fold(f64::INFINITY, f64::min);
+                    if distance + 1e-9 >= required {
+                        continue;
+                    }
+                    result.push(Finding {
+                        code: "cut_hits_via",
+                        severity: project.rule_severity("cut_hits_via", "error"),
+                        message: format!(
+                            "{figure} on {} passes {:.2} mm from the via at {:.2}, {:.2}; {:.2} mm is needed",
+                            layer.name, distance, v.position.x, v.position.y, required
+                        ),
+                        objects: vec![layer.id, v.id],
+            hint: None,
+        });
+                }
+                // Pads are cut against their true copper outline, the same
+                // rotated ring the clearance pass measures them by.
+                for f in &board.footprints {
+                    for pad in &f.pads {
+                        let outline: Vec<Point> = pad
+                            .outline_points()
+                            .into_iter()
+                            .map(|p| f.position.offset(p.rotate(-f.rotation)))
+                            .collect();
+                        let distance = path
+                            .windows(2)
+                            .map(|s| polygon_segment(&outline, s[0], s[1]))
+                            .fold(f64::INFINITY, f64::min);
+                        if distance + 1e-9 >= board.clearance {
+                            continue;
+                        }
+                        let owner = project
+                            .component(f.component)
+                            .map(|c| c.reference.clone())
+                            .unwrap_or_else(|| format!("footprint {}", f.id));
+                        result.push(Finding {
+                            code: "cut_hits_via",
+                            severity: project.rule_severity("cut_hits_via", "error"),
+                            message: format!(
+                                "{figure} on {} passes {:.2} mm from pad {} of {owner}; {:.2} mm is needed",
+                                layer.name, distance, pad.number, board.clearance
+                            ),
+                            objects: vec![layer.id, f.id],
+            hint: None,
+        });
+                    }
+                }
+            }
+            if masking && art_encloses(shape) {
+                for f in &board.footprints {
+                    for pad in &f.pads {
+                        // A pad without geometry comes from a built-in
+                        // template and carries an opening. Layers that name
+                        // only the far side leave the top opening clear.
+                        let exposed = pad.geometry.as_ref().is_none_or(|g| {
+                            g.layers.iter().any(|l| l == "F.Mask" || l == "*.Mask")
+                        });
+                        if !exposed {
+                            continue;
+                        }
+                        let outline: Vec<Point> = pad
+                            .outline_points()
+                            .into_iter()
+                            .map(|p| f.position.offset(p.rotate(-f.rotation)))
+                            .collect();
+                        if !rings_overlap(&path, &outline) {
+                            continue;
+                        }
+                        let owner = project
+                            .component(f.component)
+                            .map(|c| c.reference.clone())
+                            .unwrap_or_else(|| format!("footprint {}", f.id));
+                        // A drawn layer carries no side, so the message says
+                        // the top side it is assumed to print on.
+                        result.push(Finding {
+                            code: "mask_covers_pad",
+                            severity: project.rule_severity("mask_covers_pad", "warning"),
+                            message: format!(
+                                "{figure} on {} covers the opening of pad {} of {owner} on the top side",
+                                layer.name, pad.number
+                            ),
+                            objects: vec![layer.id, f.id],
+            hint: None,
+        });
+                    }
+                }
+            }
+        }
+    }
+    for zone in &board.zones {
+        if !zone.filled {
+            continue;
+        }
+        let fill = match pcbcraft_doc::zone_fill(project, zone) {
+            Ok(fill) => fill,
+            Err(message) => {
+                result.push(Finding {
+                    code: "pour_fill",
+                    severity: project.rule_severity("pour_fill", "error"),
+                    message,
+                    objects: vec![zone.id],
+                    hint: None,
+                });
+                continue;
+            }
+        };
+        if !fill.starved.is_empty() {
+            let mut objects = vec![zone.id];
+            objects.extend(fill.starved.iter().copied());
+            result.push(Finding {
+                code: "thermal_starved",
+                severity: project.rule_severity("thermal_starved", "warning"),
+                message: format!(
+                    "{}: {} copper inside zone {} has fewer than two thermal spokes, so it is barely joined to the pour",
+                    project.net_name(zone.net),
+                    fill.starved.len(),
+                    zone.id
+                ),
+                objects,
+            hint: None,
+        });
+        }
+        if fill.unconnected {
+            result.push(Finding {
+                code: "zone_unconnected",
+                severity: project.rule_severity("zone_unconnected", "info"),
+                message: format!(
+                    "{}: zone {} touches no copper of its net and is kept whole as a shield",
+                    project.net_name(zone.net),
+                    zone.id
+                ),
+                objects: vec![zone.id],
+                hint: None,
+            });
+        } else {
+            let remaining = fill.islands.saturating_sub(fill.removed);
+            if remaining > 0 {
+                let dropped = if fill.removed > 0 {
+                    format!(", {} removed by the pour settings", fill.removed)
+                } else {
+                    String::new()
+                };
+                result.push(Finding {
+                    code: "zone_island",
+                    severity: project.rule_severity("zone_island", "warning"),
+                    message: format!(
+                        "{}: zone {} has {} detached piece(s) left in the pour{dropped}",
+                        project.net_name(zone.net),
+                        zone.id,
+                        remaining,
+                    ),
+                    objects: vec![zone.id],
+                    hint: None,
+                });
+            } else if fill.removed > 0 {
+                result.push(Finding {
+                    code: "zone_island_removed",
+                    severity: project.rule_severity("zone_island_removed", "info"),
+                    message: format!(
+                        "{}: zone {} had {} detached piece(s), all removed by the pour settings",
+                        project.net_name(zone.net),
+                        zone.id,
+                        fill.removed
+                    ),
+                    objects: vec![zone.id],
+                    hint: None,
+                });
+            }
+        }
+    }
+    match pcbcraft_doc::keepout_hits(project) {
+        Ok(hits) => {
+            for hit in hits {
+                result.push(Finding {
+                    code: "keepout",
+                    severity: project.rule_severity("keepout", "error"),
+                    message: format!(
+                        "{} {} {} enters keepout area {}",
+                        project.net_name(hit.net),
+                        hit.kind.label(),
+                        hit.object,
+                        hit.area
+                    ),
+                    objects: vec![hit.object, hit.area],
+                    hint: None,
+                });
+            }
+        }
+        Err(message) => result.push(Finding {
+            code: "pour_fill",
+            severity: project.rule_severity("pour_fill", "error"),
+            message,
+            objects: vec![],
+            hint: None,
+        }),
+    }
+    for (i, role) in board.copper_layer_roles.iter().enumerate() {
+        let Some(role) = role.as_deref() else {
+            continue;
+        };
+        if role != "ground" && role != "power" {
+            continue;
+        }
+        let Ok(layer) = Layer::from_index(i as u8) else {
+            continue;
+        };
+        let layer_name = project.layer_name(layer);
+        for zone in &board.zones {
+            if zone.layer == layer && !zone.filled {
+                result.push(Finding {
+                    code: "plane_layer_pour",
+                    severity: project.rule_severity("plane_layer_pour", "warning"),
+                    message: format!(
+                        "{layer_name} is a {role} plane but zone {} is still an outline",
+                        zone.id
+                    ),
+                    objects: vec![zone.id],
+                    hint: None,
+                });
+            }
+        }
+    }
+    for zone in &board.zones {
+        if !zone.filled || project.copper_layer_is_plane(zone.layer) {
+            continue;
+        }
+        if !project.is_inner_copper_layer(zone.layer) {
+            continue;
+        }
+        result.push(Finding {
+            code: "inner_pour_role",
+            severity: project.rule_severity("inner_pour_role", "info"),
+            message: format!(
+                "filled pour on {} has no ground or power role; record one with board.set_copper_layer_role",
+                project.layer_name(zone.layer)
+            ),
+            objects: vec![zone.id],
+            hint: None,
+        });
+    }
+    result.extend(stub::stub_length_findings(project, &items));
+    result.extend(stub::backdrill_findings(project));
+    result.extend(acute::acute_angle_findings(project));
+    result.extend(track_radius::track_radius_findings(project));
+    result.extend(parallel_crosstalk::parallel_crosstalk_findings(project));
+    result.extend(impedance_target::impedance_target_findings(project));
+    result.extend(return_path::return_path_findings(project));
+    result.retain(|f| {
+        !project.rule_disabled(f.code)
+            && !project.rule_excluded(f.code, &f.objects)
+            && !project.rule_region_excluded(f.code, &f.objects)
+    });
+    result
+}
+
+fn pad_drill_diameter(pad: &Pad) -> Option<f64> {
+    pad.geometry
+        .as_ref()
+        .and_then(|g| g.drill.as_ref())
+        .map(|d| d.size.x.min(d.size.y))
+}
+
+fn via_annular_ring(rules: &FabRules, via: &Via) -> f64 {
+    let tool = rules.drill_tool(via.drill);
+    (via.diameter - tool) / 2.0
+}
+
+/// Thinnest ring around a plated pad hole; see `Pad::min_annular_ring`.
+fn pad_annular_ring(rules: &FabRules, pad: &Pad) -> Option<f64> {
+    pad.min_annular_ring(rules.plating_allowance.unwrap_or(0.0))
+}
+
+/// Deepest hole, as a ratio of span depth to drill, a mechanical drill makes.
+const MECHANICAL_ASPECT_LIMIT: f64 = 8.0;
+
+/// Warning when the via depth to drill ratio is too high to plate reliably.
+pub fn via_aspect_warning(project: &Project, via: &pcbcraft_doc::Via) -> Option<String> {
+    let board = &project.board;
+    let depth = if project.via_kind(via) == ViaKind::Through && board.layer_records.is_empty() {
+        Some(board.thickness)
+    } else {
+        project.via_depth(via)
+    };
+    let depth = depth?;
+    if via.drill > 0.0
+        && project.via_kind(via) != ViaKind::Micro
+        && depth / via.drill > MECHANICAL_ASPECT_LIMIT + 1e-9
+    {
+        return Some(format!(
+            "Via at {:.2}, {:.2} is {:.2} mm deep with a {:.2} mm drill; a ratio above {MECHANICAL_ASPECT_LIMIT:.0} to 1 is hard to plate",
+            via.position.x, via.position.y, depth, via.drill
+        ));
+    }
+    None
+}
+/// Message for a via that sits inside a pad on an outer face without being
+/// filled and capped (type VII); none when it is capped or not in a pad.
+///
+/// Solder would wick down an open or merely tented barrel and starve the joint,
+/// so a via in a pad must be filled and capped with copper.
+///
+/// # Rules
+/// - A via counts only when its span reaches an outer layer, and is inside the pad when its centre is within the pad outline.
+///
+/// # Dependencies
+/// - crates/doc/src/via_protection.rs `Project::via_protection_type`.
+///
+/// # Do not
+/// - Report a buried via; it never meets a pad.
+pub fn via_in_pad_message(project: &Project, via: &pcbcraft_doc::Via) -> Option<String> {
+    let (upper, lower) = project.via_span(via);
+    let last = project.copper_layer_count().saturating_sub(1);
+    if upper.index() != 0 && lower.index() < last {
+        return None;
+    }
+    if project.via_protection_type(via) == pcbcraft_doc::ViaProtectionType::VII {
+        return None;
+    }
+    for f in &project.board.footprints {
+        for pad in &f.pads {
+            let outline: Vec<Point> = pad
+                .outline_points()
+                .into_iter()
+                .map(|v| f.position.offset(v.rotate(-f.rotation)))
+                .collect();
+            if outline.len() >= 3 && pcbcraft_geom::point_in_polygon(via.position, &outline) {
+                return Some(format!(
+                    "Via at {:.2}, {:.2} sits inside a pad and must be filled and capped (type VII)",
+                    via.position.x, via.position.y
+                ));
+            }
+        }
+    }
+    None
+}
+
+/// Checks on where each via starts and ends in the stack.
+fn via_findings(project: &Project) -> Vec<Finding> {
+    let mut result = vec![];
+    let allowed = project.allowed_via_spans();
+    let board = &project.board;
+    for via in &board.vias {
+        let span = project.via_span(via);
+        let (upper, lower) = span;
+        if !allowed.contains(&span) {
+            result.push(Finding {
+                code: "via_span_not_allowed",
+                severity: project.rule_severity("via_span_not_allowed", "error"),
+                message: format!(
+                    "Via at {:.2}, {:.2} runs from {} to {}, which this board does not allow",
+                    via.position.x,
+                    via.position.y,
+                    project.layer_name(upper),
+                    project.layer_name(lower)
+                ),
+                objects: vec![via.id],
+                hint: None,
+            });
+        }
+        if let Some(message) = via_in_pad_message(project, via) {
+            result.push(Finding {
+                code: "via_in_pad_not_capped",
+                severity: project.rule_severity("via_in_pad_not_capped", "warning"),
+                message,
+                objects: vec![via.id],
+                hint: None,
+            });
+        }
+        if let Some(message) = via_aspect_warning(project, via) {
+            result.push(Finding {
+                code: "via_aspect_ratio",
+                severity: project.rule_severity("via_aspect_ratio", "warning"),
+                message,
+                objects: vec![via.id],
+                hint: None,
+            });
+        }
+    }
+    for (i, a) in board.vias.iter().enumerate() {
+        if project.via_kind(a) != ViaKind::Micro {
+            continue;
+        }
+        for b in board.vias.iter().skip(i + 1) {
+            if project.via_kind(b) != ViaKind::Micro
+                || a.position.distance(b.position) > a.diameter.max(b.diameter) / 2.0
+            {
+                continue;
+            }
+            let (a_up, a_low) = project.via_span(a);
+            let (b_up, b_low) = project.via_span(b);
+            if a_low == b_up || b_low == a_up {
+                result.push(Finding {
+                    code: "stacked_microvia",
+                    severity: project.rule_severity("stacked_microvia", "info"),
+                    message: format!(
+                        "Two micro vias are stacked at {:.2}, {:.2}; stacked micro vias are a known reliability risk",
+                        a.position.x, a.position.y
+                    ),
+                    objects: vec![a.id, b.id],
+            hint: None,
+        });
+            }
+        }
+    }
+    result
+}
+
+fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
+    let Some(rules) = board.rules.as_ref() else {
+        return vec![];
+    };
+    let mut result = vec![];
+    if let Some(min) = rules.min_track {
+        for track in &board.tracks {
+            if track.width + 1e-6 < min {
+                result.push(Finding {
+                    code: "min_track",
+                    severity: project.rule_severity("min_track", "error"),
+                    message: format!(
+                        "{} track is {:.3} mm wide, fabrication needs at least {:.3} mm",
+                        project.net_name(track.net),
+                        track.width,
+                        min
+                    ),
+                    objects: vec![track.id],
+                    hint: None,
+                });
+            }
+        }
+    }
+    if let Some(min) = rules.min_drill {
+        for via in &board.vias {
+            if via.drill > 0.0 && via.drill + 1e-6 < min {
+                result.push(Finding {
+                    code: "min_drill",
+                    severity: project.rule_severity("min_drill", "error"),
+                    message: format!(
+                        "Via drill {:.3} mm is below the {:.3} mm fabrication minimum",
+                        via.drill, min
+                    ),
+                    objects: vec![via.id],
+                    hint: None,
+                });
+            }
+        }
+        for fp in &board.footprints {
+            for pad in &fp.pads {
+                if let Some(drill) = pad_drill_diameter(pad)
+                    && drill + 1e-6 < min
+                {
+                    result.push(Finding {
+                        code: "min_drill",
+                        severity: project.rule_severity("min_drill", "error"),
+                        message: format!(
+                            "Pad drill {:.3} mm is below the {:.3} mm fabrication minimum",
+                            drill, min
+                        ),
+                        objects: vec![fp.id],
+                        hint: None,
+                    });
+                }
+            }
+        }
+    }
+    if let Some(min) = rules.min_ring_via {
+        for via in &board.vias {
+            if via.drill <= 0.0 {
+                continue;
+            }
+            let ring = via_annular_ring(rules, via);
+            if ring + 1e-6 < min {
+                result.push(Finding {
+                    code: "annular_ring",
+                    severity: project.rule_severity("annular_ring", "error"),
+                    message: format!(
+                        "Via annular ring {:.3} mm is below the {:.3} mm via minimum",
+                        ring, min
+                    ),
+                    objects: vec![via.id],
+                    hint: None,
+                });
+            }
+        }
+    }
+    if let Some(min) = rules.min_ring_pth {
+        for fp in &board.footprints {
+            for pad in &fp.pads {
+                let Some(ring) = pad_annular_ring(rules, pad) else {
+                    continue;
+                };
+                if ring + 1e-6 < min {
+                    result.push(Finding {
+                        code: "annular_ring",
+                        severity: project.rule_severity("annular_ring", "error"),
+                        message: format!(
+                            "Pad annular ring {:.3} mm is below the {:.3} mm plated-hole minimum",
+                            ring, min
+                        ),
+                        objects: vec![fp.id],
+                        hint: None,
+                    });
+                }
+            }
+        }
+    }
+    if let Some(edge) = rules.edge_routed {
+        let items = copper(project);
+        for a in &items {
+            let edge_dist = if let Some(points) = &a.outline {
+                points
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| {
+                        let q = points[(i + 1) % points.len()];
+                        board_edge_distance(board, *p, q)
+                    })
+                    .fold(f64::INFINITY, f64::min)
+                    - a.outline_error
+            } else {
+                board_edge_distance(board, a.start, a.end) - a.radius
+            };
+            if edge_dist + 1e-6 < edge {
+                result.push(Finding {
+                    code: "copper_to_edge",
+                    severity: project.rule_severity("copper_to_edge", "error"),
+                    message: format!("Copper is {:.3} mm from the routed edge", edge_dist),
+                    objects: vec![a.id],
+                    hint: None,
+                });
+            }
+        }
+    }
+    result.extend(vscore_edge::vscore_edge_findings(project));
+    if let Some(max_ratio) = rules.max_aspect_ratio {
+        let mut smallest = f64::INFINITY;
+        for via in &board.vias {
+            if via.drill > 0.0 {
+                smallest = smallest.min(via.drill);
+            }
+        }
+        for fp in &board.footprints {
+            for pad in &fp.pads {
+                if let Some(d) = pad_drill_diameter(pad) {
+                    smallest = smallest.min(d);
+                }
+            }
+        }
+        for hole in &board.holes {
+            smallest = smallest.min(hole.diameter);
+        }
+        if smallest.is_finite() && board.thickness / smallest > max_ratio + 1e-6 {
+            result.push(Finding {
+                code: "aspect_ratio",
+                severity: project.rule_severity("aspect_ratio", "error"),
+                message: format!(
+                    "Board {:.3} mm thick over {:.3} mm drill exceeds {:.1}:1",
+                    board.thickness, smallest, max_ratio
+                ),
+                objects: vec![],
+                hint: None,
+            });
+        }
+    }
+    if let Some(min) = rules.min_space {
+        let items = copper(project);
+        // The grid lists the pairs that can be closer than `min`, in the order a full scan
+        // visits them, so a board with thousands of items is not compared pair by pair.
+        let grid = Grid::new(&items, min.max(0.0));
+        for (i, a) in items.iter().enumerate() {
+            let candidates = grid.near.get(i).map(Vec::as_slice).unwrap_or_default();
+            for &j in candidates.iter().filter(|other| **other > i) {
+                let Some(b) = items.get(j) else { continue };
+                if a.net == b.net || a.layer != b.layer {
+                    continue;
+                }
+                let separation = gap(a, b);
+                if separation + 1e-6 < min {
+                    result.push(Finding {
+                        code: "min_space",
+                        severity: project.rule_severity("min_space", "error"),
+                        message: format!(
+                            "{} / {} spacing {:.3} mm is below the {:.3} mm fabrication minimum",
+                            project.net_name(a.net),
+                            project.net_name(b.net),
+                            separation,
+                            min
+                        ),
+                        objects: vec![a.id, b.id],
+                        hint: None,
+                    });
+                }
+            }
+        }
+    }
+    if let Some(min) = rules.min_track {
+        for zone in &board.zones {
+            if !zone.filled || zone.is_generated() {
+                continue;
+            }
+            let settings = zone.pour_settings();
+            let keeps = settings
+                .min_width
+                .unwrap_or_else(|| pcbcraft_doc::fill::default_pour_min_width(project));
+            if keeps + 1e-6 < min {
+                result.push(Finding {
+                    code: "copper_sliver",
+                    severity: project.rule_severity("copper_sliver", "error"),
+                    message: format!(
+                        "Pour on {} keeps copper as narrow as {:.3} mm; fabrication needs at least {:.3} mm",
+                        project.net_name(zone.net),
+                        keeps,
+                        min
+                    ),
+                    objects: vec![zone.id],
+                    hint: None,
+                });
+            }
+        }
+    }
+    for layer in &board.user_layers {
+        if layer.kind != ArtKind::Silk {
+            continue;
+        }
+        for shape in &layer.shapes {
+            if let ArtShape::Text { size, .. } = shape
+                && let Some(min) = rules.silk_text_height
+                && *size + 1e-6 < min
+            {
+                result.push(Finding {
+                    code: "silk_text_height",
+                    severity: project.rule_severity("silk_text_height", "error"),
+                    message: format!(
+                        "Silk text height {:.3} mm is below the {:.3} mm minimum",
+                        size, min
+                    ),
+                    objects: vec![layer.id],
+                    hint: None,
+                });
+            }
+        }
+    }
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pcbcraft_doc::{
+        Component, FabRules, Footprint, Label, LayerRecord, LibraryFootprint, LibrarySymbol, Net,
+        NoConnectFlag, Pad, Pin, PinRef, Track, Via, component_template,
+    };
+    use pcbcraft_library::{Drill, FootprintDefinition, FootprintPad, SymbolDefinition};
+
+    fn ic_pad_definition() -> FootprintPad {
+        FootprintPad {
+            number: "1".into(),
+            pad_type: "smd".into(),
+            shape: "circle".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            size: Point::new(1.0, 1.0),
+            layers: vec!["F.Cu".into()],
+            drill: None,
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        }
+    }
+
+    fn library_ic(id: Id, reference: &str, pins: Vec<Pin>) -> Result<Component, String> {
+        let sym_pins: Vec<pcbcraft_library::SymbolPin> = pins
+            .iter()
+            .map(|p| pcbcraft_library::SymbolPin {
+                number: p.number.clone(),
+                name: p.name.clone(),
+                position: p.offset,
+                angle: p.direction.unwrap_or(0.0),
+                length: 2.5,
+                electrical_type: p.electrical_type.clone(),
+                unit: p.unit,
+                body_style: 0,
+                graphical_style: "line".into(),
+                visible: Default::default(),
+            })
+            .collect();
+        let component = Component {
+            id,
+            reference: reference.into(),
+            value: "MCU".into(),
+            kind: "library".into(),
+            position: Point::new(20.0, 20.0),
+            rotation: 0.0,
+            pins,
+            units: vec![],
+            library_symbol: Some(LibrarySymbol {
+                library: "test".into(),
+                unit: 1,
+                definition: SymbolDefinition {
+                    name: "TestIC".into(),
+                    reference: "U".into(),
+                    value: "MCU".into(),
+                    description: String::new(),
+                    keywords: String::new(),
+                    footprint: String::new(),
+                    set: String::new(),
+                    pins: sym_pins,
+                    graphics: vec![],
+                    extends: None,
+                    raw_source: String::new(),
+                    unsupported: vec![],
+                    retained: Default::default(),
+                },
+            }),
+            library_footprint: None,
+            fields: vec![],
+            sheet: 0,
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
+        };
+        Ok(component)
+    }
+
+    fn library_ic_with_footprint(
+        id: Id,
+        reference: &str,
+        pins: Vec<Pin>,
+    ) -> Result<Component, String> {
+        let mut component = library_ic(id, reference, pins)?;
+        let pad = ic_pad_definition();
+        component.library_footprint = Some(LibraryFootprint {
+            library: "test".into(),
+            definition: FootprintDefinition {
+                name: "U1".into(),
+                description: String::new(),
+                keywords: String::new(),
+                pads: vec![pad.clone()],
+                graphics: vec![],
+                rules: None,
+                model: None,
+                raw_source: String::new(),
+                unsupported: vec![],
+                box_body: Default::default(),
+                retained: Default::default(),
+            },
+        });
+        Ok(component)
+    }
+
+    fn placed_library_footprint(
+        id: Id,
+        component: Id,
+        position: Point,
+        def_pad: &FootprintPad,
+        net: Id,
+    ) -> Footprint {
+        Footprint {
+            id,
+            component,
+            position,
+            rotation: 0.0,
+            locked: None,
+            side: None,
+            pads: vec![Pad {
+                number: def_pad.number.clone(),
+                offset: def_pad.position,
+                diameter: def_pad.size.x.min(def_pad.size.y),
+                net: Some(net),
+                castellated: None,
+                geometry: Some(def_pad.clone()),
+            }],
+            preserved: Default::default(),
+        }
+    }
+
+    fn simple_footprint(id: Id, component: Id, position: Point, pad_net: Id) -> Footprint {
+        Footprint {
+            id,
+            component,
+            position,
+            rotation: 0.0,
+            locked: None,
+            side: None,
+            pads: vec![Pad {
+                number: "1".into(),
+                offset: Point::default(),
+                diameter: 1.0,
+                net: Some(pad_net),
+                castellated: None,
+                geometry: None,
+            }],
+            preserved: Default::default(),
+        }
+    }
+
+    fn fixture() -> Project {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "signal".into(),
+            ..Default::default()
+        });
+        for (id, x) in [(2, 10.0), (3, 30.0)] {
+            if let Some(mut c) =
+                component_template("resistor", id, format!("R{id}"), Point::new(x, 10.0))
+            {
+                for pin in &mut c.pins {
+                    pin.net = Some(1);
+                }
+                p.components.push(c);
+            }
+            p.board.footprints.push(Footprint {
+                id: id + 10,
+                component: id,
+                position: Point::new(x, 10.0),
+                rotation: 0.0,
+                locked: None,
+                side: None,
+                pads: vec![Pad {
+                    number: "1".into(),
+                    offset: Point::default(),
+                    diameter: 1.0,
+                    net: Some(1),
+                    castellated: None,
+                    geometry: None,
+                }],
+
+                preserved: pcbcraft_doc::PreservedSource::default(),
+            });
+        }
+        p
+    }
+
+    fn test_copper(id: Id, point: Point, layer: Layer, net: Id, pad: bool) -> Copper {
+        Copper {
+            id,
+            net,
+            start: point,
+            end: point,
+            radius: if pad { 0.8 } else { 0.1 },
+            contact_radius: if pad { 0.8 } else { 0.1 },
+            conservative: false,
+            outline: None,
+            outline_error: 0.0,
+            layer,
+            pad,
+            clearance: None,
+            bridge: None,
+            hole: None,
+            cutouts: vec![],
+        }
+    }
+    fn esd_placed_fixture(connector_x: f64, tvs_x: f64, enable: bool) -> Result<Project, String> {
+        let mut p = Project {
+            esd_max_distance_mm: 10.0,
+            ..Project::default()
+        };
+        if enable {
+            p.rule_severity
+                .insert("esd_device_far_from_connector".into(), "warning".into());
+        }
+        p.nets.push(Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        let mut connector =
+            component_template("connector", 2, "J1".into(), Point::new(connector_x, 0.0))
+                .ok_or("connector template missing")?;
+        connector.pins[0].net = Some(1);
+        p.components.push(connector);
+        let mut tvs = component_template("tvs", 3, "D1".into(), Point::new(tvs_x, 0.0))
+            .ok_or("tvs template missing")?;
+        tvs.pins[0].net = Some(1);
+        p.components.push(tvs);
+        for (component, x) in [(2_u64, connector_x), (3, tvs_x)] {
+            p.board.footprints.push(Footprint {
+                id: component + 10,
+                component,
+                position: Point::new(x, 0.0),
+                rotation: 0.0,
+                locked: None,
+                side: None,
+                pads: vec![
+                    Pad {
+                        number: "1".into(),
+                        offset: Point::default(),
+                        diameter: 1.0,
+                        net: Some(1),
+                        castellated: None,
+                        geometry: None,
+                    },
+                    Pad {
+                        number: "2".into(),
+                        offset: Point::new(2.0, 0.0),
+                        diameter: 1.0,
+                        net: None,
+                        castellated: None,
+                        geometry: None,
+                    },
+                ],
+                preserved: Default::default(),
+            });
+        }
+        Ok(p)
+    }
+    #[test]
+    fn is_tvs_matches_kind_and_value_word() -> Result<(), String> {
+        let mut by_kind = component_template("tvs", 1, "D1".into(), Point::default())
+            .ok_or("tvs template missing")?;
+        assert!(is_tvs(&by_kind));
+        by_kind.kind = "resistor".into();
+        by_kind.value = "SM712 TVS".into();
+        assert!(is_tvs(&by_kind));
+        by_kind.value = "stvsomething".into();
+        assert!(!is_tvs(&by_kind));
+        by_kind.value = "1k".into();
+        by_kind.fields.push(pcbcraft_doc::ComponentField {
+            key: "Note".into(),
+            value: "Use a TVS here".into(),
+        });
+        assert!(is_tvs(&by_kind));
+        Ok(())
+    }
+    #[test]
+    fn erc_reports_esd_device_far_from_connector_when_placed() -> Result<(), String> {
+        let p = esd_placed_fixture(0.0, 25.0, true)?;
+        p.validate()?;
+        assert!(
+            erc(&p)
+                .iter()
+                .any(|f| f.code == "esd_device_far_from_connector")
+        );
+        Ok(())
+    }
+    #[test]
+    fn erc_clears_esd_device_when_close() -> Result<(), String> {
+        let p = esd_placed_fixture(0.0, 3.0, true)?;
+        p.validate()?;
+        assert!(
+            !erc(&p)
+                .iter()
+                .any(|f| f.code == "esd_device_far_from_connector")
+        );
+        Ok(())
+    }
+    #[test]
+    fn erc_esd_off_by_default() -> Result<(), String> {
+        let p = esd_placed_fixture(0.0, 25.0, false)?;
+        p.validate()?;
+        assert!(
+            !erc(&p)
+                .iter()
+                .any(|f| f.code == "esd_device_far_from_connector")
+        );
+        Ok(())
+    }
+    #[test]
+    fn erc_esd_ignores_schematic_only_designs() -> Result<(), String> {
+        let mut p = esd_placed_fixture(0.0, 25.0, true)?;
+        p.board.footprints.clear();
+        p.validate()?;
+        assert!(
+            !erc(&p)
+                .iter()
+                .any(|f| f.code == "esd_device_far_from_connector")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn erc_suppresses_unassigned_pin_warnings_for_no_connect_flags() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "signal".into(),
+            ..Default::default()
+        });
+        let mut c = component_template("resistor", 2, "R2".into(), Point::new(10.0, 10.0))
+            .ok_or("resistor template missing")?;
+        c.pins[0].net = Some(1);
+        p.components.push(c);
+        let (component, pin) = p
+            .components
+            .first()
+            .and_then(|c| c.pins.get(1).map(|pin| (c.id, pin.number.clone())))
+            .ok_or("template pins missing")?;
+        assert!(erc(&p).iter().any(|f| f.code == "unassigned_pin"));
+        p.no_connects.push(NoConnectFlag {
+            id: 9,
+            pin: PinRef {
+                component,
+                pin,
+                unit: None,
+            },
+        });
+        p.validate()?;
+        assert!(!erc(&p).iter().any(|f| f.code == "unassigned_pin"));
+        Ok(())
+    }
+
+    fn pin_on_net(
+        p: &mut Project,
+        component: Id,
+        reference: &str,
+        number: &str,
+        electrical_type: &str,
+        net: Id,
+    ) -> Result<(), String> {
+        let Some(c) = p.components.iter_mut().find(|c| c.id == component) else {
+            return Err("component id missing in test setup".into());
+        };
+        c.reference = reference.into();
+        if let Some(pin) = c.pins.iter_mut().find(|pin| pin.number == number) {
+            pin.net = Some(net);
+            pin.electrical_type = electrical_type.into();
+        } else {
+            c.pins.push(pcbcraft_doc::Pin {
+                number: number.into(),
+                name: number.into(),
+                offset: Point::default(),
+                net: Some(net),
+                electrical_type: electrical_type.into(),
+                direction: None,
+                unit: 1,
+                appearances: vec![],
+            });
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn erc_flags_two_outputs_on_one_net_and_undriven_input() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "BUS".into(),
+            ..Default::default()
+        });
+        p.nets.push(Net {
+            id: 2,
+            name: "IN".into(),
+            ..Default::default()
+        });
+        let mut u1 = component_template("resistor", 10, "U1".into(), Point::new(0.0, 0.0))
+            .ok_or("template missing")?;
+        u1.pins.clear();
+        p.components.push(u1);
+        let mut u2 = component_template("resistor", 11, "U2".into(), Point::new(10.0, 0.0))
+            .ok_or("template missing")?;
+        u2.pins.clear();
+        p.components.push(u2);
+        let mut u3 = component_template("resistor", 12, "U3".into(), Point::new(20.0, 0.0))
+            .ok_or("template missing")?;
+        u3.pins.clear();
+        p.components.push(u3);
+        pin_on_net(&mut p, 10, "U1", "3", "output", 1)?;
+        pin_on_net(&mut p, 11, "U2", "7", "output", 1)?;
+        pin_on_net(&mut p, 12, "U3", "1", "input", 2)?;
+        p.validate()?;
+        let findings = erc(&p);
+        let conflict = findings
+            .iter()
+            .find(|f| f.code == "pin_conflict")
+            .ok_or("expected pin_conflict")?;
+        assert_eq!(conflict.severity, "error");
+        assert!(
+            conflict
+                .message
+                .contains("U1 pin 3 (output) and U2 pin 7 (output)"),
+            "{}",
+            conflict.message
+        );
+        assert!(
+            findings.iter().any(|f| f.code == "undriven_input"),
+            "input alone should report undriven_input"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn erc_power_input_fed_by_power_output_is_clean() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "VCC".into(),
+            ..Default::default()
+        });
+        let mut j1 = component_template("connector", 10, "J1".into(), Point::default())
+            .ok_or("template missing")?;
+        j1.pins.clear();
+        p.components.push(j1);
+        let mut j2 = component_template("connector", 11, "J2".into(), Point::new(10.0, 0.0))
+            .ok_or("template missing")?;
+        j2.pins.clear();
+        p.components.push(j2);
+        pin_on_net(&mut p, 10, "J1", "1", "power_in", 1)?;
+        pin_on_net(&mut p, 11, "J2", "1", "power_out", 1)?;
+        p.validate()?;
+        let findings = erc(&p);
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.code == "pin_conflict" || f.code == "undriven_input"),
+            "{findings:?}"
+        );
+        assert!(
+            !findings.iter().any(|f| f.code == "power_not_driven"),
+            "{findings:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn erc_reports_undriven_power_input_once() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "VDD".into(),
+            ..Default::default()
+        });
+        let mut u1 = component_template("resistor", 10, "U1".into(), Point::default())
+            .ok_or("template missing")?;
+        u1.pins.clear();
+        p.components.push(u1);
+        let mut u2 = component_template("resistor", 11, "U2".into(), Point::new(10.0, 0.0))
+            .ok_or("template missing")?;
+        u2.pins.clear();
+        p.components.push(u2);
+        pin_on_net(&mut p, 10, "U1", "1", "power_in", 1)?;
+        pin_on_net(&mut p, 11, "U2", "1", "power_in", 1)?;
+        p.pin_matrix.insert(
+            pcbcraft_doc::pin_matrix_key("power_in", "power_in"),
+            "error".into(),
+        );
+        p.validate()?;
+        let findings = erc(&p);
+        let power: Vec<_> = findings
+            .iter()
+            .filter(|f| f.code == "power_not_driven")
+            .collect();
+        assert_eq!(power.len(), 1, "{findings:?}");
+        assert!(
+            !findings.iter().any(|f| f.code == "pin_conflict"),
+            "matrix must defer to power_not_driven: {findings:?}"
+        );
+        assert!(
+            !findings.iter().any(|f| f.code == "undriven_input"),
+            "{findings:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn erc_power_not_driven_cleared_by_connector_pin() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "VCC".into(),
+            ..Default::default()
+        });
+        let mut u1 = component_template("resistor", 10, "U1".into(), Point::default())
+            .ok_or("template missing")?;
+        u1.pins.clear();
+        p.components.push(u1);
+        let mut j1 = component_template("connector", 11, "J1".into(), Point::new(10.0, 0.0))
+            .ok_or("template missing")?;
+        j1.pins.clear();
+        p.components.push(j1);
+        pin_on_net(&mut p, 10, "U1", "1", "power_in", 1)?;
+        pin_on_net(&mut p, 11, "J1", "1", "passive", 1)?;
+        p.validate()?;
+        assert!(
+            !erc(&p).iter().any(|f| f.code == "power_not_driven"),
+            "any connector pin on the net counts as a power source"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn erc_power_not_driven_exclusion_hides_the_single_finding() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "VDD".into(),
+            ..Default::default()
+        });
+        let mut u1 = component_template("resistor", 10, "U1".into(), Point::default())
+            .ok_or("template missing")?;
+        u1.pins.clear();
+        p.components.push(u1);
+        let mut u2 = component_template("resistor", 11, "U2".into(), Point::new(10.0, 0.0))
+            .ok_or("template missing")?;
+        u2.pins.clear();
+        p.components.push(u2);
+        pin_on_net(&mut p, 10, "U1", "1", "power_in", 1)?;
+        pin_on_net(&mut p, 11, "U2", "1", "passive", 1)?;
+        p.validate()?;
+        assert!(erc(&p).iter().any(|f| f.code == "power_not_driven"));
+        p.rule_exclusions.insert("power_not_driven".into(), vec![1]);
+        assert!(
+            !erc(&p).iter().any(|f| f.code == "power_not_driven"),
+            "one exclusion on the net silences the only finding"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn erc_reports_missing_decoupling_without_cap_on_power_net() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "VDD".into(),
+            ..Default::default()
+        });
+        p.components.push(library_ic(
+            2,
+            "U1",
+            vec![Pin {
+                number: "1".into(),
+                name: "VDD".into(),
+                offset: Point::default(),
+                net: Some(1),
+                electrical_type: "power_in".into(),
+                direction: Some(0.0),
+                unit: 1,
+                appearances: Default::default(),
+            }],
+        )?);
+        p.validate()?;
+        assert!(erc(&p).iter().any(|f| f.code == "missing_decoupling"));
+        Ok(())
+    }
+    #[test]
+    fn erc_clears_missing_decoupling_when_capacitor_shares_the_net() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "VDD".into(),
+            ..Default::default()
+        });
+        p.components.push(library_ic(
+            2,
+            "U1",
+            vec![Pin {
+                number: "1".into(),
+                name: "VDD".into(),
+                offset: Point::default(),
+                net: Some(1),
+                electrical_type: "power_in".into(),
+                direction: Some(0.0),
+                unit: 1,
+                appearances: Default::default(),
+            }],
+        )?);
+        let mut cap = component_template("capacitor", 3, "C1".into(), Point::new(30.0, 20.0))
+            .ok_or("capacitor template missing")?;
+        for pin in &mut cap.pins {
+            pin.net = Some(1);
+        }
+        p.components.push(cap);
+        p.validate()?;
+        assert!(!erc(&p).iter().any(|f| f.code == "missing_decoupling"));
+        Ok(())
+    }
+    #[test]
+    fn erc_applies_decoupling_distance_when_ic_is_placed() -> Result<(), String> {
+        let mut p = Project::default();
+        p.decoupling.max_distance_mm = 3.0;
+        let vdd = 101;
+        let ic = 201;
+        let cap_id = 202;
+        p.nets.push(Net {
+            id: vdd,
+            name: "VDD".into(),
+            ..Default::default()
+        });
+        let pad = ic_pad_definition();
+        p.components.push(library_ic_with_footprint(
+            ic,
+            "U1",
+            vec![Pin {
+                number: "1".into(),
+                name: "VDD".into(),
+                offset: Point::default(),
+                net: Some(vdd),
+                electrical_type: "power_in".into(),
+                direction: Some(0.0),
+                unit: 1,
+                appearances: Default::default(),
+            }],
+        )?);
+        let mut cap = component_template("capacitor", cap_id, "C1".into(), Point::new(30.0, 20.0))
+            .ok_or("capacitor template missing")?;
+        for pin in &mut cap.pins {
+            pin.net = Some(vdd);
+        }
+        p.components.push(cap);
+        p.board.footprints.push(placed_library_footprint(
+            301,
+            ic,
+            Point::new(0.0, 0.0),
+            &pad,
+            vdd,
+        ));
+        p.board
+            .footprints
+            .push(simple_footprint(302, cap_id, Point::new(10.0, 0.0), vdd));
+        p.validate()?;
+        assert!(erc(&p).iter().any(|f| f.code == "missing_decoupling"));
+        p.board.footprints[1].position = Point::new(2.0, 0.0);
+        p.validate()?;
+        assert!(!erc(&p).iter().any(|f| f.code == "missing_decoupling"));
+        Ok(())
+    }
+    #[test]
+    fn erc_reports_missing_pullup_for_two_open_collectors() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "SDA".into(),
+            ..Default::default()
+        });
+        p.components.push(library_ic(
+            2,
+            "U1",
+            vec![
+                Pin {
+                    number: "1".into(),
+                    name: "SDA".into(),
+                    offset: Point::new(-5.0, 0.0),
+                    net: Some(1),
+                    electrical_type: "open_collector".into(),
+                    direction: Some(0.0),
+                    unit: 1,
+                    appearances: Default::default(),
+                },
+                Pin {
+                    number: "2".into(),
+                    name: "SCL".into(),
+                    offset: Point::new(5.0, 0.0),
+                    net: Some(1),
+                    electrical_type: "open_collector".into(),
+                    direction: Some(0.0),
+                    unit: 1,
+                    appearances: Default::default(),
+                },
+            ],
+        )?);
+        p.validate()?;
+        assert!(erc(&p).iter().any(|f| f.code == "missing_pullup"));
+        Ok(())
+    }
+    #[test]
+    fn erc_clears_missing_pullup_when_resistor_reaches_power_net() -> Result<(), String> {
+        let mut p = Project::default();
+        let sda = 101;
+        let vcc = 102;
+        p.nets.push(Net {
+            id: sda,
+            name: "SDA".into(),
+            ..Default::default()
+        });
+        p.nets.push(Net {
+            id: vcc,
+            name: "VCC".into(),
+            ..Default::default()
+        });
+        p.components.push(library_ic(
+            201,
+            "U1",
+            vec![
+                Pin {
+                    number: "1".into(),
+                    name: "SDA".into(),
+                    offset: Point::new(-5.0, 0.0),
+                    net: Some(sda),
+                    electrical_type: "open_collector".into(),
+                    direction: Some(0.0),
+                    unit: 1,
+                    appearances: Default::default(),
+                },
+                Pin {
+                    number: "2".into(),
+                    name: "SCL".into(),
+                    offset: Point::new(5.0, 0.0),
+                    net: Some(sda),
+                    electrical_type: "open_collector".into(),
+                    direction: Some(0.0),
+                    unit: 1,
+                    appearances: Default::default(),
+                },
+            ],
+        )?);
+        let mut pull = component_template("resistor", 202, "R1".into(), Point::new(40.0, 20.0))
+            .ok_or("resistor template missing")?;
+        pull.pins[0].net = Some(sda);
+        pull.pins[1].net = Some(vcc);
+        p.components.push(pull);
+        p.labels.push(Label {
+            id: 203,
+            kind: "power".into(),
+            net: vcc,
+            position: Point::new(50.0, 10.0),
+            rotation: 0.0,
+            text: String::new(),
+            style: String::new(),
+        });
+        p.validate()?;
+        assert!(!erc(&p).iter().any(|f| f.code == "missing_pullup"));
+        Ok(())
+    }
+    #[test]
+    fn erc_reports_power_not_driven_until_power_label_or_output() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "VDD".into(),
+            ..Default::default()
+        });
+        p.components.push(library_ic(
+            2,
+            "U1",
+            vec![Pin {
+                number: "1".into(),
+                name: "VDD".into(),
+                offset: Point::default(),
+                net: Some(1),
+                electrical_type: "power_in".into(),
+                direction: Some(0.0),
+                unit: 1,
+                appearances: Default::default(),
+            }],
+        )?);
+        p.validate()?;
+        assert!(erc(&p).iter().any(|f| f.code == "power_not_driven"));
+        p.labels.push(Label {
+            id: 3,
+            kind: "power".into(),
+            net: 1,
+            position: Point::new(10.0, 10.0),
+            rotation: 0.0,
+            text: String::new(),
+            style: String::new(),
+        });
+        p.validate()?;
+        assert!(!erc(&p).iter().any(|f| f.code == "power_not_driven"));
+        Ok(())
+    }
+    /// Two parts on one net, with nothing drawn between them.
+    fn two_pins_one_net() -> Result<Project, String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        for (id, reference) in [(2, "U1"), (3, "U2")] {
+            p.components.push(library_ic(
+                id,
+                reference,
+                vec![Pin {
+                    number: "1".into(),
+                    name: "IO".into(),
+                    offset: Point::default(),
+                    net: Some(1),
+                    electrical_type: "passive".into(),
+                    direction: Some(0.0),
+                    unit: 1,
+                    appearances: Default::default(),
+                }],
+            )?);
+        }
+        p.validate()?;
+        Ok(p)
+    }
+
+    fn says_not_drawn(p: &Project) -> bool {
+        erc(p).iter().any(|f| f.code == "net_not_drawn")
+    }
+
+    #[test]
+    fn erc_reports_a_net_the_schematic_never_shows() -> Result<(), String> {
+        // A netlist import sets pin.net and draws nothing, so a board can be
+        // fully connected while its sheet looks empty. Nothing used to say so.
+        let p = two_pins_one_net()?;
+        assert!(p.wires.is_empty() && p.labels.is_empty());
+        assert!(
+            says_not_drawn(&p),
+            "two pins on one net with nothing drawn is reported"
+        );
+        let found = erc(&p)
+            .into_iter()
+            .find(|f| f.code == "net_not_drawn")
+            .ok_or("no finding")?;
+        assert!(
+            found.message.contains("SIG") && found.message.contains('2'),
+            "the net and the pin count are named: {}",
+            found.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_drawn_net_is_left_alone() -> Result<(), String> {
+        let mut p = two_pins_one_net()?;
+        p.wires.push(pcbcraft_doc::Wire {
+            id: 4,
+            net: 1,
+            from: pcbcraft_doc::PinRef {
+                component: 2,
+                pin: "1".into(),
+                unit: None,
+            },
+            to: pcbcraft_doc::PinRef {
+                component: 3,
+                pin: "1".into(),
+                unit: None,
+            },
+        });
+        p.validate()?;
+        assert!(!says_not_drawn(&p), "a wire shows the connection");
+
+        // Labels do the same job. One names a net without joining anything,
+        // so it takes two before the sheet shows a connection.
+        let mut p = two_pins_one_net()?;
+        p.labels.push(Label {
+            id: 5,
+            kind: "label".into(),
+            net: 1,
+            position: Point::default(),
+            rotation: 0.0,
+            text: String::new(),
+            style: String::new(),
+        });
+        p.validate()?;
+        assert!(says_not_drawn(&p), "one label joins nothing");
+        p.labels.push(Label {
+            id: 6,
+            kind: "label".into(),
+            net: 1,
+            position: Point::new(10.0, 0.0),
+            rotation: 0.0,
+            text: String::new(),
+            style: String::new(),
+        });
+        p.validate()?;
+        assert!(!says_not_drawn(&p), "a label on each pin shows it");
+        Ok(())
+    }
+
+    #[test]
+    fn a_single_pin_net_is_reported_once() -> Result<(), String> {
+        let mut p = two_pins_one_net()?;
+        p.components.truncate(1);
+        p.validate()?;
+        let codes: Vec<&str> = erc(&p).iter().map(|f| f.code).collect();
+        assert!(codes.contains(&"single_pin_net"));
+        assert!(
+            !codes.contains(&"net_not_drawn"),
+            "one pin is single_pin_net's business, not this check's: {codes:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn erc_reports_dangling_label_with_no_wires_or_pins() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "CLK".into(),
+            ..Default::default()
+        });
+        p.labels.push(Label {
+            id: 2,
+            kind: "label".into(),
+            net: 1,
+            position: Point::new(10.0, 10.0),
+            rotation: 0.0,
+            text: String::new(),
+            style: String::new(),
+        });
+        p.validate()?;
+        assert!(erc(&p).iter().any(|f| f.code == "dangling_label"));
+        Ok(())
+    }
+    #[test]
+    fn vias_join_front_and_back_copper_of_their_net() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "signal".into(),
+            ..Default::default()
+        });
+        p.board.tracks.push(Track {
+            id: 2,
+            net: 1,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(12.0, 10.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
+        p.board.tracks.push(Track {
+            id: 3,
+            net: 1,
+            start: Point::new(12.2, 10.0),
+            end: Point::new(14.0, 10.0),
+            width: 0.25,
+            layer: Layer::Back,
+            arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
+        p.board.vias.push(Via {
+            id: 4,
+            net: 1,
+            position: Point::new(12.1, 10.0),
+            diameter: 1.4,
+            drill: 0.4,
+            preserved: pcbcraft_doc::PreservedSource::default(),
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+            covering_bottom: None,
+            backdrill: None,
+        });
+        p.validate()?;
+        let items = copper(&p);
+        let front = items
+            .iter()
+            .find(|c| c.id == 4 && c.layer == Layer::Front)
+            .ok_or("front via copper missing")?;
+        let back = items
+            .iter()
+            .find(|c| c.id == 4 && c.layer == Layer::Back)
+            .ok_or("back via copper missing")?;
+        assert!(
+            touching(front, back),
+            "a plated via conducts on both layers"
+        );
+        let front_track = items
+            .iter()
+            .find(|c| c.id == 2)
+            .ok_or("front track missing")?;
+        assert!(
+            touching(front, front_track),
+            "the via pad must touch front copper it overlaps"
+        );
+        let back_track = items
+            .iter()
+            .find(|c| c.id == 3)
+            .ok_or("back track missing")?;
+        assert!(
+            touching(back, back_track),
+            "the via pad must touch back copper it overlaps"
+        );
+        Ok(())
+    }
+    #[test]
+    fn zones_conduct_same_net_copper_inside_their_outline() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        p.nets.push(Net {
+            id: 2,
+            name: "other".into(),
+            ..Default::default()
+        });
+        let square = vec![
+            Point::new(0.0, 0.0),
+            Point::new(50.0, 0.0),
+            Point::new(50.0, 30.0),
+            Point::new(0.0, 30.0),
+            Point::new(0.0, 0.0),
+        ];
+        p.board.zones.push(pcbcraft_doc::CopperZone {
+            id: 4,
+            net: 1,
+            layer: Layer::Front,
+            outline: square,
+            cutouts: vec![],
+            filled: true,
+
+            kind: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+            pour: None,
+        });
+        p.board.tracks.push(Track {
+            id: 5,
+            net: 1,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(20.0, 10.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
+        p.board.tracks.push(Track {
+            id: 6,
+            net: 1,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(20.0, 10.0),
+            width: 0.25,
+            layer: Layer::Back,
+            arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
+        p.board.tracks.push(Track {
+            id: 7,
+            net: 2,
+            start: Point::new(30.0, 20.0),
+            end: Point::new(40.0, 20.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
+        p.validate()?;
+        let items = copper(&p);
+        let zone = items
+            .iter()
+            .find(|c| c.id == 4)
+            .ok_or("zone copper missing")?;
+        let inside = items
+            .iter()
+            .find(|c| c.id == 5)
+            .ok_or("front track missing")?;
+        let other_layer = items
+            .iter()
+            .find(|c| c.id == 6)
+            .ok_or("back track missing")?;
+        let other_net = items
+            .iter()
+            .find(|c| c.id == 7)
+            .ok_or("other-net track missing")?;
+        assert!(
+            touching(zone, inside),
+            "same-net same-layer copper inside the outline conducts"
+        );
+        assert!(
+            !touching(zone, other_layer),
+            "the zone is confined to its own layer"
+        );
+        assert!(
+            !touching(zone, other_net),
+            "the zone never conducts to another net"
+        );
+        p.board.zones[0].cutouts.push(vec![
+            Point::new(25.0, 5.0),
+            Point::new(45.0, 5.0),
+            Point::new(45.0, 25.0),
+            Point::new(25.0, 25.0),
+            Point::new(25.0, 5.0),
+        ]);
+        p.board.tracks.push(Track {
+            id: 8,
+            net: 1,
+            start: Point::new(30.0, 10.0),
+            end: Point::new(40.0, 10.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
+        p.validate()?;
+        let items = copper(&p);
+        let zone = items
+            .iter()
+            .find(|c| c.id == 4)
+            .ok_or("zone copper missing")?;
+        let in_cutout = items
+            .iter()
+            .find(|c| c.id == 8)
+            .ok_or("cutout track missing")?;
+        assert!(
+            !touching(zone, in_cutout) && !touching(in_cutout, zone),
+            "copper inside a zone cutout never conducts through the zone"
+        );
+        Ok(())
+    }
+    #[test]
+    fn a_stitched_via_grid_bridges_copper_across_layers() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        p.board.tracks.push(Track {
+            id: 2,
+            net: 1,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(12.0, 10.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
+        p.board.tracks.push(Track {
+            id: 3,
+            net: 1,
+            start: Point::new(12.2, 10.0),
+            end: Point::new(14.0, 10.0),
+            width: 0.25,
+            layer: Layer::Back,
+            arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
+        p.validate()?;
+        for column in 0..5 {
+            p.board.vias.push(Via {
+                id: 4 + column,
+                net: 1,
+                position: Point::new(12.0 + column as f64 * 0.5, 10.0),
+                diameter: 1.4,
+                drill: 0.4,
+                preserved: pcbcraft_doc::PreservedSource::default(),
+                from_layer: None,
+                to_layer: None,
+                covering: None,
+                covering_bottom: None,
+                backdrill: None,
+            });
+        }
+        p.validate()?;
+        let items = copper(&p);
+        let front_track = items
+            .iter()
+            .find(|c| c.id == 2)
+            .ok_or("front track missing")?;
+        let back_track = items
+            .iter()
+            .find(|c| c.id == 3)
+            .ok_or("back track missing")?;
+        let bridges = items
+            .iter()
+            .filter(|c| c.id >= 4 && c.id <= 8 && c.layer == Layer::Front)
+            .zip(
+                items
+                    .iter()
+                    .filter(|c| c.id >= 4 && c.id <= 8 && c.layer == Layer::Back),
+            )
+            .any(|(front, back)| touching(front, front_track) && touching(back, back_track));
+        assert!(
+            bridges,
+            "a stitched grid must contain a via bridging front and back copper of its net"
+        );
+        Ok(())
+    }
+    #[test]
+    fn a_split_segment_still_conducts_across_the_break() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        p.board.tracks.push(Track {
+            id: 2,
+            net: 1,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(15.0, 10.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
+        p.board.tracks.push(Track {
+            id: 3,
+            net: 1,
+            start: Point::new(15.0, 10.0),
+            end: Point::new(20.0, 10.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
+        p.validate()?;
+        let items = copper(&p);
+        let head = items.iter().find(|c| c.id == 2).ok_or("head missing")?;
+        let tail = items.iter().find(|c| c.id == 3).ok_or("tail missing")?;
+        assert!(
+            touching(head, tail) && touching(tail, head),
+            "segments sharing an endpoint conduct through the split"
+        );
+        Ok(())
+    }
+    #[test]
+    fn plated_pad_bridges_front_and_back_but_identity_and_net_must_match() {
+        let mut front = test_copper(10, Point::new(10.0, 10.0), Layer::Front, 1, true);
+        front.bridge = Some((10, "1".into()));
+        let mut back = front.clone();
+        back.layer = Layer::Back;
+        assert!(touching(&front, &back));
+        let mut smd = front.clone();
+        smd.bridge = None;
+        assert!(!touching(&smd, &back));
+        let mut different_pad = back.clone();
+        different_pad.bridge = Some((10, "2".into()));
+        assert!(!touching(&front, &different_pad));
+        let mut different_net = back;
+        different_net.net = 2;
+        assert!(!touching(&front, &different_net));
+    }
+    #[test]
+    fn hole_only_stubs_do_not_touch_annulus_but_center_routes_cross_it() {
+        let center = Point::new(10.0, 10.0);
+        let mut pad = test_copper(10, center, Layer::Front, 1, true);
+        pad.hole = Some(Hole {
+            start: center,
+            end: center,
+            radius: 0.4,
+        });
+        let mut stub = test_copper(11, center, Layer::Front, 1, false);
+        stub.end = Point::new(10.1, 10.0);
+        assert!(!touching(&pad, &stub));
+        assert!(!touching(&stub, &pad));
+        stub.end = Point::new(12.0, 10.0);
+        assert!(touching(&pad, &stub));
+        // A slot wholly contains a short trace even when the trace is far
+        // from the slot centre; test capsule containment rather than a circle.
+        pad.hole = Some(Hole {
+            start: Point::new(9.5, 10.0),
+            end: Point::new(10.5, 10.0),
+            radius: 0.25,
+        });
+        stub.start = Point::new(10.3, 10.0);
+        stub.end = Point::new(10.4, 10.0);
+        assert!(!touching(&pad, &stub));
+    }
+    #[test]
+    fn front_track_to_plated_pad_to_back_track_connects_physical_pads() -> Result<(), String> {
+        let mut p = fixture();
+        let mut bridge = component_template("resistor", 4, "R4".into(), Point::new(20.0, 10.0))
+            .ok_or("missing template")?;
+        for pin in &mut bridge.pins {
+            pin.net = Some(1);
+        }
+        p.components.push(bridge);
+        let g = pcbcraft_library::FootprintPad {
+            number: "1".into(),
+            pad_type: "thru_hole".into(),
+            shape: "circle".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            size: Point::new(1.6, 1.6),
+            layers: vec!["*.Cu".into(), "*.Mask".into()],
+            drill: Some(pcbcraft_library::Drill {
+                size: Point::new(0.8, 0.8),
+                offset: Point::default(),
+            }),
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        p.board.footprints.push(Footprint {
+            id: 14,
+            component: 4,
+            position: Point::new(20.0, 10.0),
+            rotation: 0.0,
+            locked: None,
+            side: None,
+            pads: vec![Pad {
+                number: "1".into(),
+                offset: Point::default(),
+                diameter: 1.6,
+                net: Some(1),
+                castellated: None,
+                geometry: Some(g),
+            }],
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
+        // Endpoints are front SMD; their separate front approach demonstrates
+        // that the only cross-layer join comes from the plated package pad.
+        for (id, start, end, layer) in [
+            (
+                20,
+                Point::new(10.0, 10.0),
+                Point::new(20.0, 10.0),
+                Layer::Front,
+            ),
+            (
+                21,
+                Point::new(20.0, 10.0),
+                Point::new(30.0, 10.0),
+                Layer::Back,
+            ),
+            (
+                22,
+                Point::new(30.0, 10.0),
+                Point::new(30.0, 11.0),
+                Layer::Front,
+            ),
+        ] {
+            p.board.tracks.push(Track {
+                id,
+                net: 1,
+                start,
+                end,
+                width: 0.2,
+                layer,
+                arc: None,
+
+                preserved: pcbcraft_doc::PreservedSource::default(),
+            });
+        }
+        // Make the far endpoint a plated pad as well, so its back approach
+        // meets that package's copper instead of an unsupported layer jump.
+        let mut geometry = p
+            .board
+            .footprints
+            .last()
+            .and_then(|f| f.pads.first())
+            .and_then(|p| p.geometry.clone())
+            .ok_or("missing bridge geometry")?;
+        geometry.size = Point::new(1.0, 1.0);
+        geometry.drill = Some(pcbcraft_library::Drill {
+            size: Point::new(0.4, 0.4),
+            offset: Point::default(),
+        });
+        let far = p.board.footprints.get_mut(1).ok_or("missing far pad")?;
+        far.pads[0].geometry = Some(geometry);
+        assert!(airwires(&p).is_empty());
+        p.board
+            .footprints
+            .last_mut()
+            .and_then(|f| f.pads.first_mut())
+            .and_then(|p| p.geometry.as_mut())
+            .ok_or("missing bridge")?
+            .pad_type = "smd".into();
+        assert!(!airwires(&p).is_empty());
+        Ok(())
+    }
+    #[test]
+    fn real_0805_copper_clearance_uses_pad_outlines() -> Result<(), String> {
+        let definition = pcbcraft_library::read_footprint(include_str!(
+            "../../library/tests/fixtures/R_0805_2012Metric.kicad_mod"
+        ))
+        .map_err(|e| e.to_string())?;
+        let mut p = Project::default();
+        let mut c = component_template("resistor", 1, "R1".into(), Point::default())
+            .ok_or("missing template")?;
+        for (i, pin) in c.pins.iter_mut().enumerate() {
+            pin.net = Some(2 + i as u64);
+        }
+        c.library_footprint = Some(pcbcraft_doc::LibraryFootprint {
+            library: "Resistor_SMD".into(),
+            definition: definition.clone(),
+        });
+        p.components.push(c);
+        p.nets = vec![
+            Net {
+                id: 2,
+                name: "IN".into(),
+                ..Default::default()
+            },
+            Net {
+                id: 3,
+                name: "OUT".into(),
+                ..Default::default()
+            },
+        ];
+        let pads = definition
+            .pads
+            .iter()
+            .enumerate()
+            .map(|(i, g)| Pad {
+                number: g.number.clone(),
+                offset: g.position,
+                diameter: g.size.x.min(g.size.y),
+                net: Some(2 + i as u64),
+                castellated: None,
+                geometry: Some(g.clone()),
+            })
+            .collect();
+        p.board.footprints.push(Footprint {
+            id: 4,
+            component: 1,
+            position: Point::new(20.0, 20.0),
+            rotation: 0.0,
+            locked: None,
+            side: None,
+            pads,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
+        p.validate()?;
+        let found = drc(&p);
+        assert!(
+            found.is_empty(),
+            "standard 0805 pads are not a short at 0.2mm clearance: {found:?}"
+        );
+        p.board.clearance = 0.9;
+        assert!(drc(&p).iter().any(|f| f.code == "pad_clearance_bound"));
+        p.board.clearance = 0.2;
+        p.board.tracks.push(Track {
+            id: 5,
+            net: 2,
+            start: Point::new(19.0875, 20.0),
+            end: Point::new(20.9125, 20.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
+        assert!(
+            drc(&p)
+                .iter()
+                .any(|f| f.code == "pad_clearance_bound" && f.objects.contains(&5))
+        );
+        Ok(())
+    }
+    fn four_layer_project() -> Project {
+        let mut p = Project::default();
+        for name in ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"] {
+            p.board.layer_records.push(LayerRecord {
+                name: name.into(),
+                kind: "copper".into(),
+                thickness: 0.035,
+                copper_role: None,
+                ..Default::default()
+            });
+        }
+        p
+    }
+
+    fn thru_hole_pad_geometry() -> FootprintPad {
+        FootprintPad {
+            number: "1".into(),
+            pad_type: "thru_hole".into(),
+            shape: "circle".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            size: Point::new(1.6, 1.6),
+            layers: vec!["*.Cu".into(), "*.Mask".into()],
+            drill: Some(Drill {
+                size: Point::new(0.8, 0.8),
+                offset: Point::default(),
+            }),
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        }
+    }
+
+    #[test]
+    fn through_via_joins_top_inner_and_bottom_copper() -> Result<(), String> {
+        let mut p = four_layer_project();
+        p.nets.push(Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        let pad_geom = thru_hole_pad_geometry();
+        for (id, x) in [(2, 10.0), (3, 30.0)] {
+            if let Some(mut c) =
+                component_template("resistor", id, format!("R{id}"), Point::new(x, 10.0))
+            {
+                c.pins.truncate(1);
+                for pin in &mut c.pins {
+                    pin.net = Some(1);
+                }
+                c.library_footprint = Some(LibraryFootprint {
+                    library: "test".into(),
+                    definition: FootprintDefinition {
+                        name: "TH".into(),
+                        pads: vec![pad_geom.clone()],
+                        ..Default::default()
+                    },
+                });
+                p.components.push(c);
+            }
+            p.board.footprints.push(Footprint {
+                id: id + 10,
+                component: id,
+                position: Point::new(x, 10.0),
+                rotation: 0.0,
+                locked: None,
+                side: None,
+                pads: vec![Pad {
+                    number: "1".into(),
+                    offset: Point::default(),
+                    diameter: 1.6,
+                    net: Some(1),
+                    castellated: None,
+                    geometry: Some(pad_geom.clone()),
+                }],
+                preserved: Default::default(),
+            });
+        }
+        let inner = Layer::from_index(1).map_err(|e| e.to_string())?;
+        p.board.tracks.push(Track {
+            id: 20,
+            net: 1,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(20.0, 10.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+            preserved: Default::default(),
+        });
+        p.board.vias.push(Via {
+            id: 4,
+            net: 1,
+            position: Point::new(20.0, 10.0),
+            diameter: 1.4,
+            drill: 0.4,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+            backdrill: Default::default(),
+            covering_bottom: Default::default(),
+            preserved: Default::default(),
+        });
+        p.board.tracks.push(Track {
+            id: 21,
+            net: 1,
+            start: Point::new(20.0, 10.0),
+            end: Point::new(30.0, 10.0),
+            width: 0.25,
+            layer: inner,
+            arc: None,
+            preserved: Default::default(),
+        });
+        p.validate()?;
+        assert!(
+            airwires(&p).is_empty(),
+            "top copper, a through via and an inner track connect both pads"
+        );
+        p.board.vias.clear();
+        assert_eq!(
+            airwires(&p).len(),
+            1,
+            "without the via the inner span stays unrouted"
+        );
+        Ok(())
+    }
+
+    /// A four-layer board with two plated through-hole pads of one net at
+    /// x 10 and x 30, and nothing routed between them.
+    fn two_through_hole_pads() -> Project {
+        let mut p = four_layer_project();
+        p.nets.push(Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        let pad_geom = thru_hole_pad_geometry();
+        for (id, x) in [(2, 10.0), (3, 30.0)] {
+            if let Some(mut c) =
+                component_template("resistor", id, format!("R{id}"), Point::new(x, 10.0))
+            {
+                c.pins.truncate(1);
+                for pin in &mut c.pins {
+                    pin.net = Some(1);
+                }
+                c.library_footprint = Some(LibraryFootprint {
+                    library: "test".into(),
+                    definition: FootprintDefinition {
+                        name: "TH".into(),
+                        pads: vec![pad_geom.clone()],
+                        ..Default::default()
+                    },
+                });
+                p.components.push(c);
+            }
+            p.board.footprints.push(Footprint {
+                id: id + 10,
+                component: id,
+                position: Point::new(x, 10.0),
+                rotation: 0.0,
+                locked: None,
+                side: None,
+                pads: vec![Pad {
+                    number: "1".into(),
+                    offset: Point::default(),
+                    diameter: 1.6,
+                    net: Some(1),
+                    castellated: None,
+                    geometry: Some(pad_geom.clone()),
+                }],
+                preserved: Default::default(),
+            });
+        }
+        p
+    }
+
+    #[test]
+    fn layer_anchor_finds_the_via_beside_a_one_sided_pad() -> Result<(), String> {
+        // A surface-mount pad reaches one side only. The way off it is the
+        // via beside it, joined by a short stub, and that is what a router
+        // working on the other layer has to aim at.
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        let mut geom = thru_hole_pad_geometry();
+        geom.pad_type = "smd".into();
+        geom.drill = None;
+        geom.layers = vec!["F.Cu".into(), "F.Mask".into()];
+        let mut c = component_template("resistor", 2, "R2".into(), Point::new(10.0, 10.0))
+            .ok_or("template")?;
+        c.pins.truncate(1);
+        for pin in &mut c.pins {
+            pin.net = Some(1);
+        }
+        c.library_footprint = Some(LibraryFootprint {
+            library: "test".into(),
+            definition: FootprintDefinition {
+                name: "SMD".into(),
+                pads: vec![geom.clone()],
+                ..Default::default()
+            },
+        });
+        p.components.push(c);
+        p.board.footprints.push(Footprint {
+            id: 12,
+            component: 2,
+            position: Point::new(10.0, 10.0),
+            rotation: 0.0,
+            locked: None,
+            side: None,
+            pads: vec![Pad {
+                number: "1".into(),
+                offset: Point::default(),
+                diameter: 1.6,
+                net: Some(1),
+                castellated: None,
+                geometry: Some(geom),
+            }],
+            preserved: Default::default(),
+        });
+        p.validate()?;
+
+        let pad = Point::new(10.0, 10.0);
+        assert_eq!(
+            layer_anchor(&p, pad, 1, Layer::Front),
+            Some(pad),
+            "the pad is already on the front, so nothing moves"
+        );
+        assert_eq!(
+            layer_anchor(&p, pad, 1, Layer::Back),
+            None,
+            "with nothing but the pad there is no way to the back"
+        );
+
+        // Now give it the escape: a stub to a via, the way a board does it.
+        p.board.tracks.push(Track {
+            id: 20,
+            net: 1,
+            start: pad,
+            end: Point::new(11.5, 10.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+            preserved: Default::default(),
+        });
+        p.board.vias.push(Via {
+            id: 21,
+            net: 1,
+            position: Point::new(11.5, 10.0),
+            diameter: 0.6,
+            drill: 0.3,
+            preserved: Default::default(),
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+            covering_bottom: None,
+            backdrill: None,
+        });
+        p.validate()?;
+        assert_eq!(
+            layer_anchor(&p, pad, 1, Layer::Back),
+            Some(Point::new(11.5, 10.0)),
+            "the via beside the pad is the way to the back"
+        );
+        assert_eq!(
+            layer_anchor(&p, pad, 1, Layer::Front),
+            Some(pad),
+            "the front still needs no move"
+        );
+
+        // Copper of the same net on another island is not an anchor. Routing
+        // to it would join nothing to this pad.
+        let mut lonely = p.clone();
+        lonely.board.tracks.clear();
+        lonely.validate()?;
+        assert_eq!(
+            layer_anchor(&lonely, pad, 1, Layer::Back),
+            None,
+            "without the stub the via is a different island"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_track_on_any_copper_layer_of_four_touches_plated_through_hole_pads() -> Result<(), String>
+    {
+        for index in 0..4u8 {
+            let mut p = two_through_hole_pads();
+            assert_eq!(airwires(&p).len(), 1, "nothing routed yet");
+            let layer = Layer::from_index(index).map_err(|e| e.to_string())?;
+            p.board.tracks.push(Track {
+                id: 20,
+                net: 1,
+                start: Point::new(10.0, 10.0),
+                end: Point::new(30.0, 10.0),
+                width: 0.25,
+                layer,
+                arc: None,
+                preserved: Default::default(),
+            });
+            p.validate()?;
+            assert!(
+                airwires(&p).is_empty(),
+                "a track on copper layer {} joins the two plated pads",
+                index + 1
+            );
+            assert!(
+                !drc(&p).iter().any(|f| f.code == "unrouted"),
+                "the checks report no unrouted net when layer {} carries the track",
+                index + 1
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn inner_track_clearance_finding_on_same_layer_only() -> Result<(), String> {
+        let mut p = four_layer_project();
+        p.board.clearance = 0.2;
+        p.nets.push(Net {
+            id: 1,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        p.nets.push(Net {
+            id: 2,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        let inner_a = Layer::from_index(1).map_err(|e| e.to_string())?;
+        let inner_b = Layer::from_index(2).map_err(|e| e.to_string())?;
+        // A poured zone retreats from foreign copper, so it cannot come
+        // closer than the clearance; two tracks can.
+        p.board.tracks.push(Track {
+            id: 10,
+            net: 1,
+            start: Point::new(10.0, 20.0),
+            end: Point::new(30.0, 20.0),
+            width: 0.25,
+            layer: inner_a,
+            arc: None,
+            preserved: Default::default(),
+        });
+        p.board.tracks.push(Track {
+            id: 11,
+            net: 2,
+            start: Point::new(10.0, 20.3),
+            end: Point::new(30.0, 20.3),
+            width: 0.25,
+            layer: inner_a,
+            arc: None,
+            preserved: Default::default(),
+        });
+        p.validate()?;
+        let clearance_on_inner = |p: &Project| {
+            drc(p).iter().any(|f| {
+                (f.code == "clearance" || f.code == "copper_short")
+                    && f.objects.contains(&11)
+                    && f.objects.contains(&10)
+            })
+        };
+        assert!(
+            clearance_on_inner(&p),
+            "inner tracks of different nets on the same layer are checked for clearance: {:?}",
+            drc(&p)
+        );
+        if let Some(t) = p.board.tracks.iter_mut().find(|t| t.id == 11) {
+            t.layer = inner_b;
+        }
+        p.validate()?;
+        assert!(
+            !clearance_on_inner(&p),
+            "moving the track to another inner layer removes the clearance finding"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn routing_connects_islands_but_back_layer_does_not() {
+        let mut p = fixture();
+        assert_eq!(airwires(&p).len(), 1);
+        p.board.tracks.push(Track {
+            id: 20,
+            net: 1,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(30.0, 10.0),
+            width: 0.25,
+            layer: Layer::Back,
+            arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
+        assert_eq!(airwires(&p).len(), 1);
+        if let Some(t) = p.board.tracks.first_mut() {
+            t.layer = Layer::Front;
+        }
+        assert!(airwires(&p).is_empty());
+    }
+    #[test]
+    fn foreign_net_crossing_is_a_short() {
+        let mut p = fixture();
+        p.nets.push(Net {
+            id: 4,
+            name: "gnd".into(),
+            ..Default::default()
+        });
+        p.board.tracks.push(Track {
+            id: 20,
+            net: 1,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(30.0, 10.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
+        p.board.tracks.push(Track {
+            id: 21,
+            net: 4,
+            start: Point::new(20.0, 5.0),
+            end: Point::new(20.0, 15.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
+        assert!(drc(&p).iter().any(|f| f.code == "copper_short"));
+    }
+
+    fn shaped_pad_beside_foreign_track(
+        geometry: pcbcraft_library::FootprintPad,
+        track: (Point, Point),
+        clearance: f64,
+    ) -> Vec<Finding> {
+        let mut p = fixture();
+        p.nets.push(Net {
+            id: 4,
+            name: "gnd".into(),
+            ..Default::default()
+        });
+        p.board.clearance = clearance;
+        if let Some(pad) = p
+            .board
+            .footprints
+            .first_mut()
+            .and_then(|f| f.pads.first_mut())
+        {
+            pad.diameter = geometry.size.x.min(geometry.size.y);
+            pad.geometry = Some(geometry);
+        }
+        p.board.tracks.push(Track {
+            id: 30,
+            net: 4,
+            start: track.0,
+            end: track.1,
+            width: 0.2,
+            layer: Layer::Front,
+            arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
+        drc(&p)
+            .into_iter()
+            .filter(|f| f.objects.contains(&30) && f.code != "unrouted")
+            .collect()
+    }
+    fn square_pad(shape: &str) -> pcbcraft_library::FootprintPad {
+        pcbcraft_library::FootprintPad {
+            number: "1".into(),
+            pad_type: "smd".into(),
+            shape: shape.into(),
+            position: Point::default(),
+            rotation: 0.0,
+            size: Point::new(2.0, 2.0),
+            layers: vec!["F.Cu".into()],
+            drill: None,
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        }
+    }
+    #[test]
+    fn clearance_to_a_chamfered_pad_is_measured_from_the_chamfer_edge() {
+        // The pad is a 2 mm square at (10, 10) with its bottom-right corner cut
+        // 0.5 mm along each side. A track leaves diagonally from just outside
+        // that corner: 0.112 mm from the square's corner, 0.466 mm from the cut.
+        let mut chamfered = square_pad("chamfered");
+        chamfered.chamfer = Some(pcbcraft_library::PadChamfer {
+            ratio: 0.25,
+            corners: pcbcraft_library::ChamferCorners {
+                bottom_right: true,
+                ..Default::default()
+            },
+        });
+        let track = (Point::new(11.15, 11.15), Point::new(12.15, 12.15));
+        assert!(
+            shaped_pad_beside_foreign_track(chamfered.clone(), track, 0.2).is_empty(),
+            "the cut corner leaves room the bounding square would not"
+        );
+        let squared = shaped_pad_beside_foreign_track(square_pad("rect"), track, 0.2);
+        assert!(
+            squared.iter().any(|f| f.message.contains("0.112 mm")),
+            "the uncut square really is too close: {squared:?}"
+        );
+        let tight = shaped_pad_beside_foreign_track(chamfered, track, 0.5);
+        assert!(
+            tight.iter().any(|f| f.message.contains("0.466 mm")),
+            "the reported separation is the distance to the chamfer: {tight:?}"
+        );
+    }
+    #[test]
+    fn custom_polygon_pad_clearance_follows_its_notch() {
+        // A 2 mm square pad at (10, 10) with a 0.7 mm notch cut from its
+        // upper-right corner.
+        let mut l = square_pad("custom");
+        l.size = Point::new(0.4, 0.4);
+        l.polygon = vec![
+            Point::new(-1.0, -1.0),
+            Point::new(0.3, -1.0),
+            Point::new(0.3, -0.3),
+            Point::new(1.0, -0.3),
+            Point::new(1.0, 1.0),
+            Point::new(-1.0, 1.0),
+        ];
+        // Track in the notch, 0.4 mm from both inner edges, so 0.3 mm of copper gap.
+        let track = (Point::new(10.7, 9.3), Point::new(10.7, 9.0));
+        assert!(shaped_pad_beside_foreign_track(l.clone(), track, 0.2).is_empty());
+        let tight = shaped_pad_beside_foreign_track(l.clone(), track, 0.35);
+        assert!(
+            tight.iter().any(|f| f.message.contains("0.300 mm")),
+            "{tight:?}"
+        );
+        let mut p = fixture();
+        if let Some(pad) = p
+            .board
+            .footprints
+            .first_mut()
+            .and_then(|f| f.pads.first_mut())
+        {
+            pad.diameter = 0.4;
+            pad.geometry = Some(l);
+            assert!((pad.contact_radius() - 0.2).abs() < 1e-12);
+        }
+    }
+
+    /// A small deterministic generator, so the equivalence test below covers
+    /// thousands of boards without a random-number dependency.
+    fn scatter(seed: u64) -> Project {
+        let mut state = seed | 1;
+        let mut next = |limit: f64| -> f64 {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            ((state >> 33) as f64 / (u32::MAX as f64)) * limit
+        };
+        let mut p = Project::default();
+        for id in 1..=3 {
+            p.nets.push(Net {
+                id,
+                name: format!("net {id}"),
+                ..Default::default()
+            });
+        }
+        for id in 10..40 {
+            let net = 1 + (next(3.0) as Id);
+            let start = Point::new(next(40.0), next(40.0));
+            let along = next(6.0);
+            let end = Point::new(start.x + along, start.y + next(2.0) - 1.0);
+            let layer = if next(2.0) < 1.0 {
+                Layer::Front
+            } else {
+                Layer::Back
+            };
+            p.board.tracks.push(Track {
+                id,
+                net,
+                start,
+                end,
+                width: 0.2 + next(0.6),
+                layer,
+                arc: None,
+                preserved: Default::default(),
+            });
+        }
+        for id in 100..108 {
+            let radius = 0.3 + next(0.8);
+            p.board.footprints.push(Footprint {
+                id,
+                component: 0,
+                position: Point::new(next(40.0), next(40.0)),
+                rotation: 0.0,
+                locked: None,
+                pads: vec![Pad {
+                    number: "1".into(),
+                    offset: Point::default(),
+                    diameter: radius * 2.0,
+                    net: Some(1 + (next(3.0) as Id)),
+                    castellated: None,
+                    geometry: None,
+                }],
+                preserved: Default::default(),
+                side: Default::default(),
+            });
+        }
+        p
+    }
+
+    /// The grid never skips a pair the exact clearance test would report, and
+    /// the checks that report such pairs produce the same findings a full scan
+    /// of every pair would.
+    #[test]
+    fn broad_phase_finds_the_same_findings_as_the_pair_scan() -> Result<(), String> {
+        for seed in 1..=64 {
+            let p = scatter(seed);
+            let items = copper(&p);
+            let margin = widest_clearance(&p, &items);
+            let grid = Grid::new(&items, margin);
+            let mut reported = BTreeSet::new();
+            for (i, list) in grid.near.iter().enumerate() {
+                for &j in list {
+                    reported.insert((i.min(j), i.max(j)));
+                }
+            }
+            // Every pair the exact test would report is in the candidate set.
+            for (i, a) in items.iter().enumerate() {
+                for (j, b) in items.iter().enumerate().skip(i + 1) {
+                    if a.bridge.is_some() && a.bridge == b.bridge {
+                        continue;
+                    }
+                    if (a.net == b.net && a.net != 0) || a.layer != b.layer {
+                        continue;
+                    }
+                    let mid = |c: &Copper| {
+                        Point::new((c.start.x + c.end.x) / 2.0, (c.start.y + c.end.y) / 2.0)
+                    };
+                    let required = p
+                        .required_clearance_at(a.net, b.net, mid(a), mid(b), a.layer, b.layer)
+                        .max(a.clearance.unwrap_or(0.0))
+                        .max(b.clearance.unwrap_or(0.0));
+                    let violation = gap(a, b) + 1e-6 < required;
+                    if violation {
+                        assert!(
+                            reported.contains(&(i, j)),
+                            "seed {seed}: the grid skipped copper {i} and {j}"
+                        );
+                    }
+                }
+            }
+            // And the findings themselves match the pair scan: every violating
+            // pair appears in the report, with the same order of objects.
+            let findings = drc(&p);
+            for (i, list) in grid.near.iter().enumerate() {
+                for &j in list {
+                    if j <= i {
+                        continue;
+                    }
+                    let (a, b) = (&items[i], &items[j]);
+                    let mid = |c: &Copper| {
+                        Point::new((c.start.x + c.end.x) / 2.0, (c.start.y + c.end.y) / 2.0)
+                    };
+                    let required = p
+                        .required_clearance_at(a.net, b.net, mid(a), mid(b), a.layer, b.layer)
+                        .max(a.clearance.unwrap_or(0.0))
+                        .max(b.clearance.unwrap_or(0.0));
+                    if a.bridge.is_some() && a.bridge == b.bridge {
+                        continue;
+                    }
+                    if (a.net == b.net && a.net != 0) || a.layer != b.layer {
+                        continue;
+                    }
+                    if gap(a, b) + 1e-6 < required {
+                        assert!(
+                            findings.iter().any(|f| f.objects == vec![a.id, b.id]),
+                            "seed {seed}: no finding names copper {} and {}",
+                            a.id,
+                            b.id
+                        );
+                    }
+                }
+            }
+            // Airwires: one per extra island per net, as a full pair scan finds.
+            let airwires = airwires(&p);
+            let mut parent: Vec<usize> = (0..items.len()).collect();
+            for (i, a) in items.iter().enumerate() {
+                for (j, b) in items.iter().enumerate().skip(i + 1) {
+                    if touching(a, b) {
+                        let (ra, rb) = (root(&parent, i), root(&parent, j));
+                        if let Some(slot) = parent.get_mut(rb) {
+                            *slot = ra;
+                        }
+                    }
+                }
+            }
+            let mut islands: BTreeMap<Id, BTreeSet<usize>> = BTreeMap::new();
+            for (i, item) in items
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| c.pad && c.net != 0)
+            {
+                islands
+                    .entry(item.net)
+                    .or_default()
+                    .insert(root(&parent, i));
+            }
+            let expected: usize = islands
+                .values()
+                .map(|set| set.len().saturating_sub(1))
+                .sum();
+            assert_eq!(
+                airwires.len(),
+                expected,
+                "seed {seed}: the grid should find the same islands a full scan does"
+            );
+        }
+        Ok(())
+    }
+
+    fn panel_settings_vscore() -> pcbcraft_doc::PanelSettings {
+        pcbcraft_doc::PanelSettings {
+            enabled: true,
+            columns: 2,
+            rows: 1,
+            pitch_x: 0.0,
+            pitch_y: 2.0,
+            rail: 5.0,
+            separation: PanelSeparation::VScore,
+            tab_channel: 1.6,
+        }
+    }
+    fn panel_project(settings: pcbcraft_doc::PanelSettings) -> Project {
+        let mut p = fixture();
+        p.board.width = 60.0;
+        p.board.height = 40.0;
+        for (index, fid) in [(1, 5.0), (2, 30.0), (3, 55.0)] {
+            p.board.fiducials.push(pcbcraft_doc::Fiducial {
+                id: 500 + index,
+                position: Point::new(fid, 2.0),
+                diameter: 1.0,
+                layer: Layer::Front,
+            });
+        }
+        p.panel = settings;
+        p
+    }
+    #[test]
+    fn panel_checks_skip_when_panel_disabled() {
+        let mut settings = panel_settings_vscore();
+        settings.enabled = false;
+        let p = panel_project(settings);
+        assert!(
+            drc(&p).iter().all(|f| !f.code.starts_with("panel_")),
+            "disabled panel must not run fabrication checks"
+        );
+    }
+    #[test]
+    fn panel_too_large_for_assembler_flags_oversized_grids() {
+        let mut settings = panel_settings_vscore();
+        settings.columns = 5;
+        settings.rows = 5;
+        settings.pitch_x = 2.0;
+        settings.pitch_y = 2.0;
+        let findings = drc(&panel_project(settings));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.code == "panel_too_large_for_assembler"),
+            "{findings:?}"
+        );
+        let mut ok = panel_settings_vscore();
+        ok.columns = 2;
+        ok.rows = 2;
+        assert!(
+            !drc(&panel_project(ok))
+                .iter()
+                .any(|f| f.code == "panel_too_large_for_assembler")
+        );
+    }
+    #[test]
+    fn panel_missing_fiducials_counts_rail_marks() {
+        let mut p = panel_project(panel_settings_vscore());
+        p.board.fiducials.clear();
+        let missing = drc(&p);
+        assert!(
+            missing.iter().any(|f| f.code == "panel_missing_fiducials"),
+            "{missing:?}"
+        );
+        assert!(
+            !drc(&panel_project(panel_settings_vscore()))
+                .iter()
+                .any(|f| f.code == "panel_missing_fiducials")
+        );
+    }
+    #[test]
+    fn panel_tab_too_narrow_honours_channel_width() {
+        let mut narrow = panel_settings_vscore();
+        narrow.separation = PanelSeparation::Tab;
+        narrow.tab_channel = 1.0;
+        assert!(
+            drc(&panel_project(narrow))
+                .iter()
+                .any(|f| f.code == "panel_tab_too_narrow")
+        );
+        let mut ok = panel_settings_vscore();
+        ok.separation = PanelSeparation::Tab;
+        ok.tab_channel = 1.8;
+        assert!(
+            !drc(&panel_project(ok))
+                .iter()
+                .any(|f| f.code == "panel_tab_too_narrow")
+        );
+    }
+    #[test]
+    fn panel_copper_near_score_measures_v_score_clearance() {
+        let mut p = panel_project(panel_settings_vscore());
+        p.board.tracks.push(Track {
+            id: 90,
+            net: 1,
+            start: Point::new(59.5, 10.0),
+            end: Point::new(59.9, 10.0),
+            width: 0.2,
+            layer: Layer::Front,
+            arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
+        assert!(
+            drc(&p).iter().any(|f| f.code == "panel_copper_near_score"),
+            "track hugging the score line should fail"
+        );
+        let mut ok = panel_project(panel_settings_vscore());
+        ok.board.tracks.push(Track {
+            id: 91,
+            net: 1,
+            start: Point::new(50.0, 10.0),
+            end: Point::new(55.0, 10.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
+        assert!(!drc(&ok).iter().any(|f| f.code == "panel_copper_near_score"));
+    }
+    #[test]
+    fn panel_component_near_score_measures_part_body_clearance() {
+        let mut p = panel_project(panel_settings_vscore());
+        if let Some(f) = p.board.footprints.first_mut() {
+            f.position = Point::new(59.0, 10.0);
+        }
+        assert!(
+            drc(&p)
+                .iter()
+                .any(|f| f.code == "panel_component_near_score")
+        );
+        let ok = panel_project(panel_settings_vscore());
+        assert!(
+            !drc(&ok)
+                .iter()
+                .any(|f| f.code == "panel_component_near_score")
+        );
+    }
+    #[test]
+    fn drc_reports_a_via_with_no_net_and_stays_quiet_once_it_has_one() {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        p.board.vias.push(pcbcraft_doc::Via {
+            id: 7,
+            net: 0,
+            position: Point::new(12.0, 18.5),
+            diameter: 0.8,
+            drill: 0.4,
+            preserved: Default::default(),
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+            covering_bottom: None,
+            backdrill: None,
+        });
+        let found = drc(&p);
+        let hit: Vec<_> = found
+            .iter()
+            .filter(|f| f.code == "unassigned_via")
+            .collect();
+        assert_eq!(hit.len(), 1, "one net-less via, one finding");
+        assert_eq!(hit[0].objects, vec![7]);
+        p.board.vias[0].net = 1;
+        assert!(!drc(&p).iter().any(|f| f.code == "unassigned_via"));
+    }
+    #[test]
+    fn drc_clearance_when_track_crosses_footprint_unplated_drill() -> Result<(), String> {
+        let thru = |number: &str, x: f64| pcbcraft_library::FootprintPad {
+            number: number.into(),
+            pad_type: "thru_hole".into(),
+            shape: "circle".into(),
+            position: Point::new(x, 0.0),
+            rotation: 0.0,
+            size: Point::new(1.6, 1.6),
+            layers: vec!["*.Cu".into(), "*.Mask".into()],
+            drill: Some(pcbcraft_library::Drill {
+                size: Point::new(0.8, 0.8),
+                offset: Point::default(),
+            }),
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        let peg = pcbcraft_library::FootprintPad {
+            number: String::new(),
+            pad_type: "unplated".into(),
+            shape: "circle".into(),
+            position: Point::new(0.0, 0.0),
+            rotation: 0.0,
+            size: Point::default(),
+            layers: vec![],
+            drill: Some(pcbcraft_library::Drill {
+                size: Point::new(3.0, 3.0),
+                offset: Point::default(),
+            }),
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        let definition = pcbcraft_library::FootprintDefinition {
+            name: "PegOnly".into(),
+            description: String::new(),
+            keywords: String::new(),
+            pads: vec![thru("1", -2.54), thru("2", 2.54), peg.clone()],
+            graphics: vec![],
+            model: None,
+            rules: None,
+            box_body: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+            retained: vec![],
+        };
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        let mut component =
+            component_template("resistor", 2, "R1".into(), Point::default()).ok_or("template")?;
+        component.library_footprint = Some(pcbcraft_doc::LibraryFootprint {
+            library: "test".into(),
+            definition: definition.clone(),
+        });
+        p.components.push(component);
+        p.board.footprints.push(Footprint {
+            id: 4,
+            component: 2,
+            position: Point::new(30.0, 20.0),
+            rotation: 0.0,
+            locked: None,
+            side: None,
+            pads: vec![
+                Pad {
+                    number: "1".into(),
+                    offset: Point::new(-2.54, 0.0),
+                    diameter: 1.6,
+                    net: None,
+                    castellated: None,
+                    geometry: Some(definition.pads[0].clone()),
+                },
+                Pad {
+                    number: "2".into(),
+                    offset: Point::new(2.54, 0.0),
+                    diameter: 1.6,
+                    net: None,
+                    castellated: None,
+                    geometry: Some(definition.pads[1].clone()),
+                },
+                Pad {
+                    number: String::new(),
+                    offset: peg.position,
+                    diameter: 0.0,
+                    net: None,
+                    castellated: None,
+                    geometry: Some(peg),
+                },
+            ],
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
+        p.board.tracks.push(Track {
+            id: 5,
+            net: 1,
+            start: Point::new(20.0, 20.0),
+            end: Point::new(40.0, 20.0),
+            width: 0.2,
+            layer: Layer::Front,
+            arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
+        p.validate()?;
+        let findings = drc(&p);
+        assert!(
+            findings.iter().any(|f| {
+                (f.code == "clearance" || f.code == "copper_short")
+                    && f.objects.contains(&4)
+                    && f.objects.contains(&5)
+            }),
+            "a track through a peg drill is a clearance finding: {findings:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn slot_clearance_is_measured_along_its_length() -> Result<(), String> {
+        let mut p = fixture();
+        p.board.clearance = 0.2;
+        p.board.holes.push(pcbcraft_doc::Hole {
+            id: 40,
+            position: Point::new(14.0, 10.0),
+            diameter: 2.0,
+            end: Some(Point::new(20.0, 10.0)),
+        });
+        p.board.tracks.push(Track {
+            id: 41,
+            net: 1,
+            start: Point::new(21.1, 8.0),
+            end: Point::new(21.1, 12.0),
+            width: 0.2,
+            layer: Layer::Front,
+            arc: None,
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
+        p.validate()?;
+        let findings = drc(&p);
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.objects.contains(&40) && f.code != "board_edge"),
+            "a track beside a slot's end centre is a clearance violation: {findings:?}"
+        );
+        p.board.tracks[0].start = Point::new(15.0, 12.0);
+        p.board.tracks[0].end = Point::new(19.0, 12.0);
+        let slot_only: Vec<Finding> = drc(&p)
+            .into_iter()
+            .filter(|f| f.objects.contains(&40))
+            .collect();
+        assert!(
+            slot_only.is_empty(),
+            "copper clear of the slot's side has room: {slot_only:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn copper_sliver_reports_a_pour_narrower_than_the_fab_minimum() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        p.board.rules = Some(FabRules {
+            min_track: Some(0.2),
+            ..FabRules::default()
+        });
+        p.board.zones.push(pcbcraft_doc::CopperZone {
+            id: 4,
+            net: 1,
+            layer: Layer::Front,
+            outline: vec![
+                Point::new(0.0, 0.0),
+                Point::new(50.0, 0.0),
+                Point::new(50.0, 30.0),
+                Point::new(0.0, 30.0),
+                Point::new(0.0, 0.0),
+            ],
+            cutouts: vec![],
+            filled: true,
+            kind: None,
+            pour: Some(pcbcraft_doc::ZonePour {
+                min_width: Some(0.1),
+                ..Default::default()
+            }),
+            preserved: Default::default(),
+        });
+        let findings = drc(&p);
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.code == "copper_sliver" && f.objects.contains(&4)),
+            "narrow pour neck: {findings:?}"
+        );
+        if let Some(zone) = p.board.zones.first_mut() {
+            zone.pour = Some(pcbcraft_doc::ZonePour {
+                min_width: Some(0.25),
+                ..Default::default()
+            });
+        }
+        assert!(
+            !drc(&p).iter().any(|f| f.code == "copper_sliver"),
+            "wide enough pour stays quiet"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn annular_ring_uses_separate_via_and_pth_limits() -> Result<(), String> {
+        let mut p = fixture();
+        p.board.rules = Some(FabRules {
+            min_ring_via: Some(0.2),
+            min_ring_pth: Some(0.35),
+            ..FabRules::default()
+        });
+        p.board.vias.push(Via {
+            id: 99,
+            net: 1,
+            position: Point::new(5.0, 5.0),
+            diameter: 0.8,
+            drill: 0.4,
+            preserved: pcbcraft_doc::PreservedSource::default(),
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+            covering_bottom: None,
+            backdrill: None,
+        });
+        let fp_id = p.board.footprints[0].id;
+        if let Some(pad) = p.board.footprints[0].pads.first_mut() {
+            pad.diameter = 1.0;
+            pad.geometry = Some(FootprintPad {
+                number: "1".into(),
+                pad_type: "thru_hole".into(),
+                shape: "circle".into(),
+                size: Point::new(1.0, 1.0),
+                position: Point::default(),
+                rotation: 0.0,
+                layers: vec!["F.Cu".into(), "B.Cu".into()],
+                drill: Some(Drill {
+                    size: Point::new(0.4, 0.4),
+                    offset: Point::default(),
+                }),
+                roundrect_ratio: None,
+                chamfer: None,
+                polygon: vec![],
+                raw_source: String::new(),
+            });
+        }
+        let findings = drc(&p);
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.code == "annular_ring" && f.objects.contains(&99)),
+            "via ring passes the via limit"
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.code == "annular_ring" && f.objects.contains(&fp_id)),
+            "the same ring fails the plated-hole limit"
+        );
+        Ok(())
+    }
+
+    /// A project with one drawn layer holding a single figure, for the drawn
+    /// layer checks.
+    fn drawn_layer(kind: ArtKind, shape: ArtShape) -> Project {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "signal".into(),
+            ..Default::default()
+        });
+        p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+            side: Default::default(),
+            id: 40,
+            name: "Card Outline".into(),
+            kind,
+            dotted: false,
+            dot_pitch: 1.0,
+            dot_size: 0.5,
+            visible: true,
+            shapes: vec![shape],
+        });
+        p
+    }
+    fn codes(p: &Project) -> Vec<&'static str> {
+        drc(p).into_iter().map(|f| f.code).collect()
+    }
+    fn test_via(p: &mut Project) {
+        p.board.vias.push(Via {
+            id: 20,
+            net: 1,
+            position: Point::new(20.0, 20.0),
+            diameter: 0.8,
+            drill: 0.4,
+            preserved: pcbcraft_doc::PreservedSource::default(),
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+            covering_bottom: None,
+            backdrill: None,
+        });
+    }
+    /// A project holding one surface pad at (20, 20) that names `layers` and
+    /// carries a 2 mm square copper outline.
+    fn masked_pad(layers: &[&str]) -> Project {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "signal".into(),
+            ..Default::default()
+        });
+        p.board.footprints.push(Footprint {
+            id: 11,
+            component: 1,
+            position: Point::new(20.0, 20.0),
+            rotation: 0.0,
+            locked: None,
+            side: None,
+            pads: vec![Pad {
+                number: "1".into(),
+                offset: Point::default(),
+                diameter: 2.0,
+                net: Some(1),
+                castellated: None,
+                geometry: Some(pcbcraft_library::FootprintPad {
+                    number: "1".into(),
+                    pad_type: "smd".into(),
+                    shape: "rect".into(),
+                    position: Point::default(),
+                    rotation: 0.0,
+                    size: Point::new(2.0, 2.0),
+                    layers: layers.iter().map(|l| (*l).to_string()).collect(),
+                    drill: None,
+                    roundrect_ratio: None,
+                    chamfer: None,
+                    polygon: vec![],
+                    raw_source: String::new(),
+                }),
+            }],
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
+        p
+    }
+    #[test]
+    fn cut_line_through_a_via_is_a_finding() -> Result<(), String> {
+        let mut p = drawn_layer(
+            ArtKind::Cut,
+            ArtShape::Line {
+                start: Point::new(18.0, 20.0),
+                end: Point::new(22.0, 20.0),
+            },
+        );
+        test_via(&mut p);
+        let found = drc(&p);
+        let hit = found
+            .iter()
+            .find(|f| f.code == "cut_hits_via")
+            .ok_or("a cut across a via should be reported")?;
+        assert_eq!(hit.severity, "error");
+        assert_eq!(hit.objects, vec![40, 20]);
+        assert!(
+            hit.message.contains("line 1 on Card Outline"),
+            "the finding names the figure and its layer: {}",
+            hit.message
+        );
+        Ok(())
+    }
+    #[test]
+    fn cut_line_clear_of_a_via_is_clean() {
+        let mut p = drawn_layer(
+            ArtKind::Cut,
+            ArtShape::Line {
+                start: Point::new(10.0, 30.0),
+                end: Point::new(20.0, 30.0),
+            },
+        );
+        test_via(&mut p);
+        assert!(!codes(&p).contains(&"cut_hits_via"));
+    }
+    #[test]
+    fn perforation_through_a_rotated_rect_pad_uses_the_true_outline() -> Result<(), String> {
+        let pad = |shape: ArtShape| {
+            let mut p = masked_pad(&["F.Cu", "F.Mask"]);
+            if let Some(pad) = p
+                .board
+                .footprints
+                .first_mut()
+                .and_then(|f| f.pads.first_mut())
+                && let Some(g) = pad.geometry.as_mut()
+            {
+                g.rotation = 45.0;
+            }
+            p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+                side: Default::default(),
+                id: 40,
+                name: "Snap Line".into(),
+                kind: ArtKind::Perforation,
+                dotted: true,
+                dot_pitch: 1.0,
+                dot_size: 0.5,
+                visible: true,
+                shapes: vec![shape],
+            });
+            p
+        };
+        // Straight through the middle of the diamond.
+        let through = pad(ArtShape::Line {
+            start: Point::new(19.0, 20.0),
+            end: Point::new(21.0, 20.0),
+        });
+        assert!(
+            codes(&through).contains(&"cut_hits_via"),
+            "a perforation through the pad is reported"
+        );
+        // Across the empty corner of the bounding square: 0.41 mm from the
+        // rotated edge, so the true outline leaves room the square would not.
+        let graze = pad(ArtShape::Line {
+            start: Point::new(21.0, 21.0),
+            end: Point::new(21.3, 21.3),
+        });
+        assert!(
+            !codes(&graze).contains(&"cut_hits_via"),
+            "the empty corner of the square is outside the true outline"
+        );
+        Ok(())
+    }
+    #[test]
+    fn cut_through_a_mounting_hole_is_clean() {
+        let mut p = drawn_layer(
+            ArtKind::Cut,
+            ArtShape::Line {
+                start: Point::new(18.0, 20.0),
+                end: Point::new(22.0, 20.0),
+            },
+        );
+        p.board.holes.push(pcbcraft_doc::Hole {
+            id: 25,
+            position: Point::new(20.0, 20.0),
+            diameter: 3.0,
+            end: None,
+        });
+        assert!(
+            !codes(&p).contains(&"cut_hits_via"),
+            "cutting through a mounting hole is normal"
+        );
+    }
+    #[test]
+    fn each_via_is_reported_once_not_per_copper_side() {
+        let mut p = drawn_layer(
+            ArtKind::Cut,
+            ArtShape::Line {
+                start: Point::new(18.0, 20.0),
+                end: Point::new(22.0, 20.0),
+            },
+        );
+        test_via(&mut p);
+        let hits = drc(&p)
+            .into_iter()
+            .filter(|f| f.code == "cut_hits_via")
+            .count();
+        assert_eq!(hits, 1, "one cut crosses one via, on every layer");
+    }
+    #[test]
+    fn mask_rect_over_an_exposed_pad_is_a_finding() -> Result<(), String> {
+        let mut p = masked_pad(&["F.Cu", "F.Mask"]);
+        p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+            side: Default::default(),
+            id: 40,
+            name: "Logo Mask".into(),
+            kind: ArtKind::Mask,
+            dotted: false,
+            dot_pitch: 1.0,
+            dot_size: 0.5,
+            visible: true,
+            shapes: vec![ArtShape::Rect {
+                x: 19.0,
+                y: 19.0,
+                width: 2.0,
+                height: 2.0,
+                rotate: 0.0,
+            }],
+        });
+        let hit = drc(&p)
+            .into_iter()
+            .find(|f| f.code == "mask_covers_pad")
+            .ok_or("a mask figure over a pad opening should be reported")?;
+        assert_eq!(hit.severity, "warning");
+        assert_eq!(hit.objects, vec![40, 11]);
+        assert!(
+            hit.message.contains("rectangle 1 on Logo Mask") && hit.message.contains("top side"),
+            "the finding names the figure and the side it assumes: {}",
+            hit.message
+        );
+        Ok(())
+    }
+    #[test]
+    fn mask_over_a_pad_without_a_mask_opening_is_clean() {
+        let mut p = masked_pad(&["F.Cu"]);
+        p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+            side: Default::default(),
+            id: 40,
+            name: "Logo Mask".into(),
+            kind: ArtKind::Mask,
+            dotted: false,
+            dot_pitch: 1.0,
+            dot_size: 0.5,
+            visible: true,
+            shapes: vec![ArtShape::Rect {
+                x: 19.0,
+                y: 19.0,
+                width: 2.0,
+                height: 2.0,
+                rotate: 0.0,
+            }],
+        });
+        assert!(!codes(&p).contains(&"mask_covers_pad"));
+    }
+    #[test]
+    fn mask_line_has_no_area_and_is_ignored() {
+        let mut p = masked_pad(&["F.Cu", "F.Mask"]);
+        p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+            side: Default::default(),
+            id: 40,
+            name: "Logo Mask".into(),
+            kind: ArtKind::Mask,
+            dotted: false,
+            dot_pitch: 1.0,
+            dot_size: 0.5,
+            visible: true,
+            shapes: vec![ArtShape::Line {
+                start: Point::new(18.0, 20.0),
+                end: Point::new(22.0, 20.0),
+            }],
+        });
+        assert!(
+            !codes(&p).contains(&"mask_covers_pad"),
+            "a bare mask stroke has no area to cover an opening"
+        );
+    }
+    #[test]
+    fn edge_clearance_measures_the_arc_not_the_chord() -> Result<(), String> {
+        let mut p = Project::default();
+        p.board.clearance = 0.5;
+        let a = Point::new(40.0, 0.0);
+        let b = Point::new(40.0, 30.0);
+        let chord = a.distance(b);
+        let radius = 20.0;
+        let sagitta = radius - (radius * radius - chord * chord / 4.0).sqrt();
+        let mid = Point::new(40.0 - sagitta, (a.y + b.y) / 2.0);
+        p.board.outline = Some(vec![
+            Point::new(0.0, 0.0),
+            Point::new(40.0, 0.0),
+            Point::new(40.0, 30.0),
+            Point::new(0.0, 30.0),
+        ]);
+        p.board.outline_arcs = vec![None, Some(mid), None, None];
+        p.nets.push(Net {
+            id: 1,
+            name: "gnd".into(),
+            ..Default::default()
+        });
+        p.board.tracks.push(Track {
+            id: 2,
+            net: 1,
+            start: Point::new(39.0, 15.0),
+            end: Point::new(39.2, 15.0),
+            width: 0.2,
+            layer: Layer::Front,
+            arc: None,
+            preserved: Default::default(),
+        });
+        assert!(
+            drc(&p).iter().any(|f| f.code == "board_edge"),
+            "copper in the chord pocket but beyond the arc must fail"
+        );
+        p.board.tracks[0].start = Point::new(25.0, 15.0);
+        p.board.tracks[0].end = Point::new(25.2, 15.0);
+        assert!(
+            !drc(&p).iter().any(|f| f.code == "board_edge"),
+            "copper well inside the arc is clean"
+        );
+        Ok(())
+    }
+    #[test]
+    fn cut_on_the_traced_board_edge_is_not_off_board() {
+        let mut p = drawn_layer(
+            ArtKind::Cut,
+            ArtShape::Line {
+                start: Point::new(0.0, 0.0),
+                end: Point::new(60.0, 0.0),
+            },
+        );
+        p.board.outline = Some(vec![
+            Point::new(0.0, 0.0),
+            Point::new(60.0, 0.0),
+            Point::new(60.0, 40.0),
+            Point::new(0.0, 40.0),
+        ]);
+        assert!(
+            !codes(&p).contains(&"art_off_board"),
+            "a card outline drawn on the edge is the normal case"
+        );
+    }
+    #[test]
+    fn figure_outside_the_board_rectangle_is_off_board() -> Result<(), String> {
+        let p = drawn_layer(
+            ArtKind::Cut,
+            ArtShape::Line {
+                start: Point::new(58.0, 20.0),
+                end: Point::new(62.0, 20.0),
+            },
+        );
+        let hit = drc(&p)
+            .into_iter()
+            .find(|f| f.code == "art_off_board")
+            .ok_or("a cut that leaves the board should be reported")?;
+        assert_eq!(hit.severity, "warning");
+        assert_eq!(hit.objects, vec![40]);
+        assert!(
+            hit.message.contains("past the board edge"),
+            "the finding quotes the overshoot: {}",
+            hit.message
+        );
+        Ok(())
+    }
+    #[test]
+    fn severity_override_and_exclusion_silence_the_drawn_layer_codes() {
+        let mut p = drawn_layer(
+            ArtKind::Cut,
+            ArtShape::Line {
+                start: Point::new(18.0, 20.0),
+                end: Point::new(22.0, 20.0),
+            },
+        );
+        test_via(&mut p);
+        p.rule_severity.insert("cut_hits_via".into(), "off".into());
+        assert!(!codes(&p).contains(&"cut_hits_via"));
+        p.rule_severity
+            .insert("cut_hits_via".into(), "warning".into());
+        assert!(
+            drc(&p)
+                .iter()
+                .any(|f| f.code == "cut_hits_via" && f.severity == "warning"),
+            "a re-levelled check reports at the chosen level"
+        );
+        p.rule_severity.remove("cut_hits_via");
+        p.rule_exclusions
+            .insert("cut_hits_via".into(), vec![40, 20]);
+        assert!(!codes(&p).contains(&"cut_hits_via"));
+        p.rule_exclusions.clear();
+        let mut edge = drawn_layer(
+            ArtKind::Cut,
+            ArtShape::Line {
+                start: Point::new(58.0, 20.0),
+                end: Point::new(62.0, 20.0),
+            },
+        );
+        edge.rule_severity
+            .insert("art_off_board".into(), "off".into());
+        assert!(!codes(&edge).contains(&"art_off_board"));
+    }
+    #[test]
+    fn region_exclusion_covers_a_drawn_layer_finding() {
+        let mut p = drawn_layer(
+            ArtKind::Cut,
+            ArtShape::Line {
+                start: Point::new(18.0, 20.0),
+                end: Point::new(22.0, 20.0),
+            },
+        );
+        test_via(&mut p);
+        p.rule_regions.insert(
+            "cut_hits_via".into(),
+            vec![pcbcraft_doc::RuleRegion {
+                x: 10.0,
+                y: 10.0,
+                width: 20.0,
+                height: 20.0,
+            }],
+        );
+        assert!(
+            !codes(&p).contains(&"cut_hits_via"),
+            "the layer anchor and the via both sit inside the region"
+        );
+        p.rule_regions.insert(
+            "cut_hits_via".into(),
+            vec![pcbcraft_doc::RuleRegion {
+                x: 30.0,
+                y: 30.0,
+                width: 5.0,
+                height: 5.0,
+            }],
+        );
+        assert!(
+            codes(&p).contains(&"cut_hits_via"),
+            "a region elsewhere leaves the finding alone"
+        );
+    }
+
+    fn six_layer_project() -> Project {
+        let mut p = Project::default();
+        for i in 1..=6 {
+            p.board.layer_records.push(pcbcraft_doc::LayerRecord {
+                name: format!("L{i}"),
+                kind: "copper".into(),
+                thickness: 0.035,
+                copper_role: None,
+                ..Default::default()
+            });
+            if i < 6 {
+                p.board.layer_records.push(pcbcraft_doc::LayerRecord {
+                    name: format!("P{i}"),
+                    kind: "prepreg".into(),
+                    thickness: 0.2,
+                    copper_role: None,
+                    ..Default::default()
+                });
+            }
+        }
+        p.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "N1".into(),
+            ..Default::default()
+        });
+        p
+    }
+
+    fn span_via(p: &mut Project, id: Id, from: Option<u8>, to: Option<u8>) {
+        p.board.vias.push(Via {
+            preserved: pcbcraft_doc::PreservedSource::default(),
+            id,
+            net: 1,
+            position: Point::new(12.1, 10.0),
+            diameter: 1.4,
+            drill: 0.4,
+            from_layer: from.and_then(|i| Layer::from_index(i).ok()),
+            to_layer: to.and_then(|i| Layer::from_index(i).ok()),
+            covering: None,
+            covering_bottom: None,
+            backdrill: None,
+        });
+    }
+    fn span_track(p: &mut Project, id: Id, layer: u8) {
+        p.board.tracks.push(Track {
+            preserved: pcbcraft_doc::PreservedSource::default(),
+            id,
+            net: 1,
+            start: Point::new(11.0, 10.0),
+            end: Point::new(13.0, 10.0),
+            width: 0.25,
+            layer: Layer::from_index(layer).unwrap_or(Layer::Front),
+            arc: None,
+        });
+    }
+    #[test]
+    fn blind_via_connects_top_and_inner_not_bottom() -> Result<(), String> {
+        let mut p = six_layer_project();
+        span_via(&mut p, 4, None, Some(1));
+        span_track(&mut p, 5, 0);
+        span_track(&mut p, 6, 1);
+        span_track(&mut p, 7, 5);
+        p.validate()?;
+        let items = copper(&p);
+        let on = |layer: u8| items.iter().find(|c| c.id == 4 && c.layer.index() == layer);
+        assert!(on(0).is_some() && on(1).is_some());
+        assert!(
+            on(2).is_none() && on(5).is_none(),
+            "no copper below its span"
+        );
+        let via_top = on(0).ok_or("top via pad missing")?;
+        let top_track = items
+            .iter()
+            .find(|c| c.id == 5)
+            .ok_or("top track missing")?;
+        let inner_track = items
+            .iter()
+            .find(|c| c.id == 6)
+            .ok_or("inner track missing")?;
+        let bottom_track = items
+            .iter()
+            .find(|c| c.id == 7)
+            .ok_or("bottom track missing")?;
+        assert!(touching(via_top, top_track));
+        let via_inner = on(1).ok_or("inner via pad missing")?;
+        assert!(touching(via_inner, inner_track));
+        assert!(
+            !items
+                .iter()
+                .filter(|c| c.id == 4)
+                .any(|v| touching(v, bottom_track)),
+            "a blind via does not reach the bottom layer"
+        );
+        Ok(())
+    }
+    #[test]
+    fn via_findings_report_forbidden_span_and_stacked_microvias() -> Result<(), String> {
+        let mut p = six_layer_project();
+        span_via(&mut p, 4, Some(2), Some(3));
+        p.validate()?;
+        assert!(codes(&p).contains(&"via_span_not_allowed"));
+        p.board.via_spans.push((2, 3));
+        assert!(!codes(&p).contains(&"via_span_not_allowed"));
+        // Two shallow blind vias end to end at one spot are stacked.
+        p.board.vias.clear();
+        p.board.via_spans.push((1, 2));
+        span_via(&mut p, 8, None, Some(1));
+        span_via(&mut p, 9, Some(1), Some(2));
+        assert!(codes(&p).contains(&"stacked_microvia"));
+        Ok(())
+    }
+
+    fn tracks_on_both_layers() -> Project {
+        let mut p = Project::default();
+        p.board.width = 50.0;
+        p.board.height = 50.0;
+        p.nets.push(Net {
+            id: 1,
+            name: "sig".into(),
+            ..Default::default()
+        });
+        p.board.tracks.push(Track {
+            id: 20,
+            net: 1,
+            start: Point::new(5.0, 5.0),
+            end: Point::new(15.0, 5.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+            preserved: Default::default(),
+        });
+        p.board.tracks.push(Track {
+            id: 21,
+            net: 1,
+            start: Point::new(5.0, 5.0),
+            end: Point::new(15.0, 5.0),
+            width: 0.25,
+            layer: Layer::Back,
+            arc: None,
+            preserved: Default::default(),
+        });
+        p
+    }
+
+    #[test]
+    fn obstacles_lists_foreign_copper_on_the_requested_layer_only() -> Result<(), String> {
+        let p = tracks_on_both_layers();
+        p.validate()?;
+        let front = obstacles(&p, Layer::Front);
+        let back = obstacles(&p, Layer::Back);
+        assert_eq!(front.len(), 1, "one front track");
+        assert_eq!(back.len(), 1, "one back track");
+        assert_eq!(front[0].id, 20);
+        assert_eq!(back[0].id, 21);
+        assert!(front[0].is_track);
+        assert!(back[0].is_track);
+        Ok(())
+    }
+
+    #[test]
+    fn obstacles_exclude_nothing_on_an_empty_board() -> Result<(), String> {
+        let p = Project::default();
+        assert!(obstacles(&p, Layer::Front).is_empty());
+        assert!(obstacles(&p, Layer::Back).is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn obstacles_carry_the_clearance_of_their_net_class() -> Result<(), String> {
+        let mut p = fixture();
+        // An embedded footprint definition needs its pad, and the placed pad
+        // must carry that same geometry.
+        let definition_pad = FootprintPad {
+            number: "1".into(),
+            pad_type: "smd".into(),
+            shape: "circle".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            size: Point::new(1.0, 1.0),
+            layers: vec!["F.Cu".into()],
+            drill: None,
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        if let Some(f) = p.board.footprints.iter_mut().find(|f| f.id == 12) {
+            f.pads[0].geometry = Some(definition_pad.clone());
+        }
+        if let Some(c) = p.components.iter_mut().find(|c| c.id == 2) {
+            c.pins.truncate(1);
+            c.library_footprint = Some(pcbcraft_doc::LibraryFootprint {
+                library: "Test".into(),
+                definition: pcbcraft_library::FootprintDefinition {
+                    name: "pad".into(),
+                    description: String::new(),
+                    keywords: String::new(),
+                    pads: vec![definition_pad],
+                    graphics: vec![],
+                    model: None,
+                    rules: Some(pcbcraft_library::FootprintRules {
+                        clearance: Some(0.42),
+                        mask_margin: None,
+                        paste_margin: None,
+                    }),
+                    raw_source: String::new(),
+                    unsupported: vec![],
+                    box_body: Default::default(),
+                    retained: Default::default(),
+                },
+            });
+        }
+        p.validate()?;
+        let front = obstacles(&p, Layer::Front);
+        let with_rules = front
+            .iter()
+            .find(|o| o.id == 12)
+            .ok_or("footprint 12 pad should appear on front")?;
+        assert_eq!(with_rules.clearance, Some(0.42));
+        assert!(!with_rules.is_track);
+        Ok(())
+    }
+
+    #[test]
+    fn copper_conflicts_reports_only_pairs_that_include_a_given_id() -> Result<(), String> {
+        let mut p = fixture();
+        p.nets.push(Net {
+            id: 4,
+            name: "gnd".into(),
+            ..Default::default()
+        });
+        p.board.tracks.push(Track {
+            id: 20,
+            net: 1,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(30.0, 10.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+            preserved: Default::default(),
+        });
+        p.board.tracks.push(Track {
+            id: 21,
+            net: 4,
+            start: Point::new(20.0, 5.0),
+            end: Point::new(20.0, 15.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+            preserved: Default::default(),
+        });
+        p.validate()?;
+        let for_twenty = copper_conflicts(&p, &[20]);
+        assert_eq!(
+            for_twenty
+                .iter()
+                .filter(|f| f.code == "copper_short")
+                .count(),
+            1,
+            "one short involves track 20"
+        );
+        assert!(
+            for_twenty
+                .iter()
+                .any(|f| f.code == "copper_short" && f.objects.contains(&20)),
+            "{for_twenty:?}"
+        );
+        assert!(
+            copper_conflicts(&p, &[21])
+                .iter()
+                .any(|f| f.code == "copper_short" && f.objects.contains(&21)),
+            "the crossing track also reports the short"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn copper_conflicts_is_empty_for_clear_copper() -> Result<(), String> {
+        let mut p = fixture();
+        p.board.tracks.push(Track {
+            id: 20,
+            net: 1,
+            start: Point::new(10.0, 20.0),
+            end: Point::new(30.0, 20.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+            preserved: Default::default(),
+        });
+        p.validate()?;
+        assert!(
+            copper_conflicts(&p, &[20])
+                .iter()
+                .all(|f| f.code != "copper_short"),
+            "a lone track on its net does not short"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn copper_conflicts_reports_a_foreign_net_short() -> Result<(), String> {
+        let mut p = fixture();
+        p.nets.push(Net {
+            id: 4,
+            name: "gnd".into(),
+            ..Default::default()
+        });
+        p.board.tracks.push(Track {
+            id: 20,
+            net: 1,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(30.0, 10.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+            preserved: Default::default(),
+        });
+        p.board.tracks.push(Track {
+            id: 21,
+            net: 4,
+            start: Point::new(20.0, 5.0),
+            end: Point::new(20.0, 15.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+            preserved: Default::default(),
+        });
+        p.validate()?;
+        let short = copper_conflicts(&p, &[20])
+            .into_iter()
+            .find(|f| f.code == "copper_short")
+            .ok_or("crossing nets must short")?;
+        assert!(
+            short.objects.contains(&20) && short.objects.contains(&21),
+            "both track ids appear in the short: {:?}",
+            short.objects
+        );
+        assert!(
+            copper_conflicts(&p, &[999]).is_empty(),
+            "an id that does not participate returns nothing"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn min_space_by_grid_equals_the_pair_by_pair_scan() {
+        let mut p = fixture();
+        p.board.rules = Some(FabRules {
+            min_space: Some(0.6),
+            ..FabRules::default()
+        });
+        let mut seed: u64 = 7;
+        let mut next = move |range: f64| {
+            seed = seed
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            ((seed >> 33) as f64 / (1u64 << 31) as f64) * range
+        };
+        for id in 100..700u64 {
+            let start = Point::new(next(120.0), next(80.0));
+            let end = Point::new(start.x + next(6.0), start.y + next(6.0));
+            p.board.tracks.push(pcbcraft_doc::Track {
+                id,
+                net: 1 + id % 5,
+                start,
+                end,
+                width: 0.2,
+                layer: if id % 3 == 0 {
+                    Layer::Back
+                } else {
+                    Layer::Front
+                },
+                arc: None,
+                preserved: pcbcraft_doc::PreservedSource::default(),
+            });
+        }
+        let items = copper(&p);
+        let mut scan = vec![];
+        for (i, a) in items.iter().enumerate() {
+            for b in items.iter().skip(i + 1) {
+                if a.net != b.net && a.layer == b.layer && gap(a, b) + 1e-6 < 0.6 {
+                    scan.push(vec![a.id, b.id]);
+                }
+            }
+        }
+        let found: Vec<Vec<Id>> = fab_findings(&p, &p.board)
+            .into_iter()
+            .filter(|f| f.code == "min_space")
+            .map(|f| f.objects)
+            .collect();
+        assert!(!scan.is_empty(), "the layout has pairs that are too close");
+        assert_eq!(found, scan, "same pairs in the same order");
+    }
+
+    #[test]
+    fn min_space_on_a_dense_board_does_not_compare_every_pair() {
+        let mut p = fixture();
+        p.board.rules = Some(FabRules {
+            min_space: Some(0.3),
+            ..FabRules::default()
+        });
+        for id in 0..3000u64 {
+            let x = (id % 75) as f64 * 5.0;
+            let y = (id / 75) as f64 * 5.0;
+            p.board.tracks.push(pcbcraft_doc::Track {
+                id: 100 + id,
+                net: 1 + id % 7,
+                start: Point::new(x, y),
+                end: Point::new(x + 3.0, y + 0.2 * (id % 3) as f64),
+                width: 0.2,
+                layer: Layer::Front,
+                arc: None,
+                preserved: pcbcraft_doc::PreservedSource::default(),
+            });
+        }
+        let found = fab_findings(&p, &p.board)
+            .into_iter()
+            .filter(|f| f.code == "min_space")
+            .count();
+        let items = copper(&p);
+        let mut scan = 0;
+        for (i, a) in items.iter().enumerate() {
+            for b in items.iter().skip(i + 1) {
+                if a.net != b.net && a.layer == b.layer && gap(a, b) + 1e-6 < 0.3 {
+                    scan += 1;
+                }
+            }
+        }
+        assert_eq!(found, scan, "the same pairs are found");
+        let every_pair = items.len() * (items.len() - 1) / 2;
+        let asked = Grid::new(&items, 0.3).pair_count();
+        assert!(
+            asked * 20 < every_pair,
+            "the grid asks about {asked} of {every_pair} pairs"
+        );
+    }
+}
+
+#[cfg(test)]
+mod pour_tests {
+    use super::*;
+    use pcbcraft_doc::{
+        CopperZone, DiffPair, Footprint, Keepout, Label, Net, NetClass, Pad, RuleArea, RuleRegion,
+        Track, Via, ZoneIslands, ZonePour, component_template,
+    };
+    use pcbcraft_library::{Drill, FootprintPad};
+
+    fn square(x0: f64, y0: f64, x1: f64, y1: f64) -> Vec<Point> {
+        vec![
+            Point::new(x0, y0),
+            Point::new(x1, y0),
+            Point::new(x1, y1),
+            Point::new(x0, y1),
+            Point::new(x0, y0),
+        ]
+    }
+    /// A ground pour over a 40 by 40 mm board with one other net.
+    fn board() -> Project {
+        let mut p = Project::default();
+        p.board.width = 40.0;
+        p.board.height = 40.0;
+        for (id, name) in [(1, "GND"), (2, "SIG")] {
+            p.nets.push(Net {
+                id,
+                name: name.into(),
+                ..Default::default()
+            });
+        }
+        p.board.zones.push(CopperZone {
+            preserved: pcbcraft_doc::PreservedSource::default(),
+            id: 10,
+            net: 1,
+            layer: Layer::Front,
+            outline: square(5.0, 5.0, 35.0, 35.0),
+            cutouts: vec![],
+            filled: true,
+            kind: None,
+            pour: None,
+        });
+        p
+    }
+    /// A plated through-hole pad on ground at the given spot.
+    fn plated_pad(p: &mut Project, at: Point) {
+        let g = FootprintPad {
+            number: "1".into(),
+            pad_type: "thru_hole".into(),
+            shape: "circle".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            size: Point::new(1.6, 1.6),
+            layers: vec!["*.Cu".into(), "*.Mask".into()],
+            drill: Some(Drill {
+                size: Point::new(0.8, 0.8),
+                offset: Point::default(),
+            }),
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        if let Some(mut c) = component_template("resistor", 4, "R4".into(), at) {
+            c.pins.truncate(1);
+            for pin in &mut c.pins {
+                pin.net = Some(1);
+            }
+            c.library_footprint = Some(pcbcraft_doc::LibraryFootprint {
+                library: "Test".into(),
+                definition: pcbcraft_library::FootprintDefinition {
+                    name: "PTH".into(),
+                    description: String::new(),
+                    keywords: String::new(),
+                    pads: vec![g.clone()],
+                    graphics: vec![],
+                    model: None,
+                    rules: None,
+                    box_body: None,
+                    raw_source: String::new(),
+                    unsupported: vec![],
+                    retained: vec![],
+                },
+            });
+            p.components.push(c);
+        }
+        p.board.footprints.push(Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
+            id: 20,
+            component: 4,
+            position: at,
+            rotation: 0.0,
+            locked: None,
+            side: None,
+            pads: vec![Pad {
+                number: "1".into(),
+                offset: Point::default(),
+                diameter: 1.6,
+                net: Some(1),
+                castellated: None,
+                geometry: Some(g),
+            }],
+        });
+    }
+    fn track(id: Id, net: Id, layer: Layer, a: (f64, f64), b: (f64, f64), width: f64) -> Track {
+        Track {
+            preserved: pcbcraft_doc::PreservedSource::default(),
+            id,
+            net,
+            start: Point::new(a.0, a.1),
+            end: Point::new(b.0, b.1),
+            width,
+            layer,
+            arc: None,
+        }
+    }
+    fn codes(p: &Project) -> Vec<&'static str> {
+        drc(p).iter().map(|f| f.code).collect()
+    }
+    fn fill(p: &Project) -> Result<pcbcraft_doc::ZoneFill, String> {
+        let zone = p.board.zones.first().ok_or("no zone")?;
+        pcbcraft_doc::zone_fill(p, zone)
+    }
+
+    #[test]
+    fn foreign_via_inside_a_filled_zone_is_no_longer_a_short() -> Result<(), String> {
+        let mut p = board();
+        p.board.vias.push(Via {
+            preserved: pcbcraft_doc::PreservedSource::default(),
+            id: 30,
+            net: 2,
+            position: Point::new(20.0, 20.0),
+            diameter: 0.8,
+            drill: 0.4,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+            covering_bottom: None,
+            backdrill: None,
+        });
+        p.validate()?;
+        let findings = drc(&p);
+        assert!(
+            !findings.iter().any(|f| f.code == "copper_short"
+                && f.objects.contains(&10)
+                && f.objects.contains(&30)),
+            "the pour leaves a clearance hole round the foreign via"
+        );
+        assert!(!fill(&p)?.contains(Point::new(20.2, 20.0)));
+        assert!(fill(&p)?.contains(Point::new(25.0, 25.0)));
+        Ok(())
+    }
+
+    #[test]
+    fn tht_pad_in_zone_gets_four_spokes() -> Result<(), String> {
+        let mut p = board();
+        plated_pad(&mut p, Point::new(20.0, 20.0));
+        p.validate()?;
+        let f = fill(&p)?;
+        assert_eq!(f.spokes, 4);
+        assert!(f.starved.is_empty());
+        assert!(!f.unconnected);
+        // The gap ring is empty copper between two spokes, the pad edge is joined.
+        assert!(!f.contains(Point::new(20.0 + 0.8 + 0.15, 20.0)));
+        Ok(())
+    }
+
+    #[test]
+    fn blocked_spokes_report_thermal_starved() -> Result<(), String> {
+        let mut p = board();
+        plated_pad(&mut p, Point::new(20.0, 20.0));
+        // Two cutouts take away the right half and the upper half beside the pad,
+        // leaving a single spoke that reaches copper.
+        p.board.zones[0].cutouts.push(square(20.3, 5.0, 35.0, 35.0));
+        p.board.zones[0].cutouts.push(square(5.0, 20.3, 20.3, 35.0));
+        p.validate()?;
+        let f = fill(&p)?;
+        assert!(f.spokes < 2, "got {} spokes", f.spokes);
+        assert_eq!(f.starved, vec![20]);
+        assert!(codes(&p).contains(&"thermal_starved"));
+        Ok(())
+    }
+
+    /// A foreign wall that splits the pour into a pad half and a lonely half.
+    fn walled() -> Result<Project, String> {
+        let mut p = board();
+        plated_pad(&mut p, Point::new(12.0, 20.0));
+        p.board
+            .tracks
+            .push(track(31, 2, Layer::Front, (25.0, 4.0), (25.0, 36.0), 1.0));
+        p.validate()?;
+        Ok(p)
+    }
+
+    #[test]
+    fn detached_fill_region_is_reported_as_an_island() -> Result<(), String> {
+        let mut p = walled()?;
+        p.board.zones[0].pour = Some(ZonePour {
+            islands: ZoneIslands::Keep,
+            ..ZonePour::default()
+        });
+        assert_eq!(fill(&p)?.islands, 1);
+        assert!(codes(&p).contains(&"zone_island"));
+        Ok(())
+    }
+
+    #[test]
+    fn remove_islands_drops_it_from_the_fill() -> Result<(), String> {
+        let mut p = walled()?;
+        let lonely = Point::new(30.0, 20.0);
+        let f = fill(&p)?;
+        assert_eq!(f.removed, 1);
+        assert!(!f.contains(lonely), "the default drops detached copper");
+        assert!(f.contains(Point::new(18.0, 20.0)));
+        let list = codes(&p);
+        assert!(!list.contains(&"zone_island"));
+        assert!(list.contains(&"zone_island_removed"));
+        p.board.zones[0].pour = Some(ZonePour {
+            islands: ZoneIslands::Keep,
+            ..ZonePour::default()
+        });
+        assert!(fill(&p)?.contains(lonely), "keep leaves it in");
+        assert!(codes(&p).contains(&"zone_island"));
+        p.board.zones[0].pour = Some(ZonePour {
+            islands: ZoneIslands::RemoveBelow(10.0),
+            ..ZonePour::default()
+        });
+        assert!(
+            fill(&p)?.contains(lonely),
+            "a piece larger than the limit stays"
+        );
+        assert!(codes(&p).contains(&"zone_island"));
+        Ok(())
+    }
+
+    #[test]
+    fn zone_touching_nothing_is_kept_whole_and_reported_once() -> Result<(), String> {
+        let p = board();
+        let f = fill(&p)?;
+        assert!(f.unconnected);
+        assert!(f.contains(Point::new(20.0, 20.0)));
+        let list = codes(&p);
+        assert!(list.contains(&"zone_unconnected"));
+        assert!(!list.contains(&"zone_island"));
+        Ok(())
+    }
+
+    fn keepout(layer: Option<Layer>) -> RuleArea {
+        RuleArea {
+            id: 40,
+            name: None,
+            net: None,
+            layer,
+            clearance: 0.2,
+            keepout: Some(Keepout::default()),
+            max_height: None,
+            region: RuleRegion {
+                x: 15.0,
+                y: 18.0,
+                width: 10.0,
+                height: 4.0,
+            },
+            profile: None,
+            footprint_ref: Default::default(),
+            forbid: Default::default(),
+        }
+    }
+
+    #[test]
+    fn track_crossing_a_keepout_with_both_ends_outside_is_a_finding() -> Result<(), String> {
+        let mut p = Project::default();
+        p.board.width = 40.0;
+        p.board.height = 40.0;
+        p.nets.push(Net {
+            id: 2,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        p.board
+            .tracks
+            .push(track(31, 2, Layer::Front, (5.0, 20.0), (35.0, 20.0), 0.25));
+        p.board.rule_areas.push(keepout(None));
+        p.validate()?;
+        assert!(codes(&p).contains(&"keepout"));
+        p.board.tracks[0] = track(31, 2, Layer::Front, (5.0, 30.0), (35.0, 30.0), 0.25);
+        assert!(
+            !codes(&p).contains(&"keepout"),
+            "a track clear of it is fine"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn keepout_layer_filter_lets_the_other_layer_through() -> Result<(), String> {
+        let mut p = Project::default();
+        p.board.width = 40.0;
+        p.board.height = 40.0;
+        p.nets.push(Net {
+            id: 2,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        p.board
+            .tracks
+            .push(track(31, 2, Layer::Back, (5.0, 20.0), (35.0, 20.0), 0.25));
+        p.board.rule_areas.push(keepout(Some(Layer::Front)));
+        p.validate()?;
+        assert!(!codes(&p).contains(&"keepout"));
+        p.board.rule_areas[0].layer = Some(Layer::Back);
+        assert!(codes(&p).contains(&"keepout"));
+        Ok(())
+    }
+
+    #[test]
+    fn pour_leaves_a_keepout_empty() -> Result<(), String> {
+        let mut p = board();
+        p.board.rule_areas.push(keepout(None));
+        p.validate()?;
+        let f = fill(&p)?;
+        assert!(!f.contains(Point::new(20.0, 20.0)));
+        assert!(f.contains(Point::new(20.0, 28.0)));
+        Ok(())
+    }
+
+    fn via_on(p: &mut Project, id: Id, net: Id, x: f64, y: f64) {
+        p.board.vias.push(Via {
+            id,
+            net,
+            position: Point::new(x, y),
+            diameter: 1.0,
+            drill: 0.4,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+            backdrill: Default::default(),
+            covering_bottom: Default::default(),
+            preserved: Default::default(),
+        });
+    }
+
+    fn class_with_limit(
+        p: &mut Project,
+        class_id: Id,
+        net: Id,
+        max_vias: u32,
+    ) -> Result<(), String> {
+        p.net_classes.push(NetClass {
+            id: class_id,
+            name: "USB".into(),
+            clearance: 0.2,
+            width: 0.25,
+            min_width: None,
+            max_width: None,
+            target_length: None,
+            length_tolerance: None,
+            max_stub: None,
+            max_vias: Some(max_vias),
+            via_diameter: None,
+            via_drill: None,
+            pair_width: None,
+            pair_gap: None,
+            nets: vec![net],
+            profile: None,
+            backdrill: Default::default(),
+            corner_radius: Default::default(),
+            current: Default::default(),
+            fast: Default::default(),
+            impedance_target: Default::default(),
+            impedance_tolerance_pct: Default::default(),
+            insulation: Default::default(),
+            line_structure: Default::default(),
+            min_radius: Default::default(),
+            reference_layers: Default::default(),
+            return_path_rule: Default::default(),
+            rise_time: Default::default(),
+            target_impedance: Default::default(),
+            temperature_rise: Default::default(),
+            working_voltage: Default::default(),
+            max_length: Default::default(),
+        });
+        p.validate()
+    }
+
+    fn via_count_findings(p: &Project) -> Vec<Finding> {
+        drc(p)
+            .into_iter()
+            .filter(|f| f.code == "via_count")
+            .collect()
+    }
+
+    #[test]
+    fn a_class_with_max_vias_zero_reports_via_count_until_the_via_is_removed() -> Result<(), String>
+    {
+        let mut p = board();
+        via_on(&mut p, 100, 2, 20.0, 20.0);
+        class_with_limit(&mut p, 50, 2, 0)?;
+        assert_eq!(via_count_findings(&p).len(), 1);
+        p.board.vias.clear();
+        p.validate()?;
+        assert!(via_count_findings(&p).is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn a_class_with_max_vias_four_allows_four_and_reports_five() -> Result<(), String> {
+        let mut p = board();
+        class_with_limit(&mut p, 50, 2, 4)?;
+        for (i, x) in (0..4_u64).map(|i| (i, 10.0 + i as f64 * 2.0)) {
+            via_on(&mut p, 100 + i, 2, x, 20.0);
+        }
+        p.validate()?;
+        assert!(via_count_findings(&p).is_empty());
+        via_on(&mut p, 200, 2, 30.0, 20.0);
+        p.validate()?;
+        assert_eq!(via_count_findings(&p).len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn a_pair_with_equal_vias_reports_diffpair_via_count_until_counts_match() -> Result<(), String>
+    {
+        let mut p = board();
+        p.nets.push(Net {
+            id: 3,
+            name: "USB_N".into(),
+            ..Default::default()
+        });
+        p.board.diff_pairs.push(DiffPair {
+            id: 60,
+            name: "USB".into(),
+            net_p: 2,
+            net_n: 3,
+            gap: 0.2,
+            length_tolerance: None,
+            equal_vias: true,
+            profile: None,
+            impedance_tolerance: Default::default(),
+            max_uncoupled_length: Default::default(),
+            skew_limit_mm: Default::default(),
+            skew_limit_ps: Default::default(),
+            target_impedance: Default::default(),
+        });
+        via_on(&mut p, 101, 2, 12.0, 20.0);
+        via_on(&mut p, 102, 2, 14.0, 20.0);
+        via_on(&mut p, 103, 3, 16.0, 20.0);
+        p.validate()?;
+        let findings: Vec<_> = drc(&p)
+            .into_iter()
+            .filter(|f| f.code == "diffpair_via_count")
+            .collect();
+        assert_eq!(findings.len(), 1);
+        via_on(&mut p, 104, 3, 18.0, 20.0);
+        p.validate()?;
+        assert!(drc(&p).iter().all(|f| f.code != "diffpair_via_count"));
+        Ok(())
+    }
+
+    #[test]
+    fn vias_on_a_net_outside_any_class_never_report_via_count() -> Result<(), String> {
+        let mut p = board();
+        via_on(&mut p, 100, 2, 20.0, 20.0);
+        p.validate()?;
+        assert!(via_count_findings(&p).is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn finding_hint_serializes_only_when_present() -> Result<(), String> {
+        use serde_json::{json, to_value};
+        let with_hint = Finding {
+            code: "clearance",
+            severity: "error".into(),
+            message: "gap".into(),
+            objects: vec![1],
+            hint: Some("Widen the copper gap or move one object.".into()),
+        };
+        let without_hint = finding(
+            "board_edge",
+            "error".into(),
+            "Copper is 0.1 mm from the board edge".into(),
+            vec![2],
+        );
+        let with_json = to_value(&with_hint).map_err(|e| e.to_string())?;
+        let without_json = to_value(&without_hint).map_err(|e| e.to_string())?;
+        assert_eq!(
+            with_json.get("hint"),
+            Some(&json!("Widen the copper gap or move one object."))
+        );
+        assert!(
+            without_json.get("hint").is_none(),
+            "findings without hints keep the existing JSON shape"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn check_codes_lists_fab_codes_for_sibling_checks() {
+        assert!(
+            CHECK_CODES
+                .iter()
+                .any(|(code, _)| *code == "courtyard_overlap"),
+            "fab sibling codes are published for severity UI wiring"
+        );
+    }
+
+    #[test]
+    fn check_codes_lists_the_design_intent_codes() {
+        let design_intent = [
+            "power_not_driven",
+            "missing_decoupling",
+            "missing_pullup",
+            "dangling_label",
+        ];
+        for code in design_intent {
+            let entry = CHECK_CODES.iter().find(|(c, _)| *c == code);
+            assert!(
+                entry.is_some(),
+                "CHECK_CODES must list the design-intent code {}",
+                code
+            );
+            assert_eq!(
+                entry.map(|e| e.1).unwrap_or("none"),
+                "warning",
+                "design-intent code {} must default to warning",
+                code
+            );
+        }
+    }
+
+    #[test]
+    fn check_code_defaults_match_the_findings() -> Result<(), String> {
+        // Build the same project as erc_reports_dangling_label_with_no_wires_or_pins
+        // and confirm the finding's severity matches CHECK_CODES.
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "CLK".into(),
+            ..Default::default()
+        });
+        p.labels.push(Label {
+            id: 2,
+            kind: "label".into(),
+            net: 1,
+            position: Point::new(10.0, 10.0),
+            rotation: 0.0,
+            text: String::new(),
+            style: String::new(),
+        });
+        p.validate()?;
+        let findings = erc(&p);
+        let finding = match findings.iter().find(|f| f.code == "dangling_label") {
+            Some(f) => f,
+            None => return Err("dangling_label finding must exist".into()),
+        };
+        let expected = match CHECK_CODES.iter().find(|(c, _)| *c == "dangling_label") {
+            Some(e) => e.1,
+            None => return Err("CHECK_CODES must list dangling_label".into()),
+        };
+        assert_eq!(
+            finding.severity, expected,
+            "finding severity must match the CHECK_CODES default"
+        );
+        Ok(())
+    }
+
+    /// A small deterministic generator, so the equivalence test below covers
+    /// thousands of boards without a random-number dependency.
+    fn scatter(seed: u64) -> Project {
+        let mut state = seed | 1;
+        let mut next = |limit: f64| -> f64 {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            ((state >> 33) as f64 / (u32::MAX as f64)) * limit
+        };
+        let mut p = Project::default();
+        for id in 1..=3 {
+            p.nets.push(Net {
+                id,
+                name: format!("net {id}"),
+                ..Default::default()
+            });
+        }
+        for id in 10..40 {
+            let net = 1 + (next(3.0) as Id);
+            let start = Point::new(next(40.0), next(40.0));
+            let along = next(6.0);
+            let end = Point::new(start.x + along, start.y + next(2.0) - 1.0);
+            let layer = if next(2.0) < 1.0 {
+                Layer::Front
+            } else {
+                Layer::Back
+            };
+            p.board.tracks.push(Track {
+                id,
+                net,
+                start,
+                end,
+                width: 0.2 + next(0.6),
+                layer,
+                arc: None,
+                preserved: Default::default(),
+            });
+        }
+        for id in 100..108 {
+            let radius = 0.3 + next(0.8);
+            p.board.footprints.push(Footprint {
+                id,
+                component: 0,
+                position: Point::new(next(40.0), next(40.0)),
+                rotation: 0.0,
+                locked: None,
+                side: None,
+                pads: vec![Pad {
+                    number: "1".into(),
+                    offset: Point::default(),
+                    diameter: radius * 2.0,
+                    net: Some(1 + (next(3.0) as Id)),
+                    castellated: None,
+                    geometry: None,
+                }],
+                preserved: Default::default(),
+            });
+        }
+        p
+    }
+
+    /// The grid never skips a pair the exact clearance test would report, and
+    /// the checks that report such pairs produce the same findings a full scan
+    /// of every pair would.
+    #[test]
+    fn broad_phase_finds_the_same_findings_as_the_pair_scan() -> Result<(), String> {
+        for seed in 1..=64 {
+            let p = scatter(seed);
+            let items = copper(&p);
+            let margin = widest_clearance(&p, &items);
+            let grid = Grid::new(&items, margin);
+            let mut reported = BTreeSet::new();
+            for (i, list) in grid.near.iter().enumerate() {
+                for &j in list {
+                    reported.insert((i.min(j), i.max(j)));
+                }
+            }
+            // Every pair the exact test would report is in the candidate set.
+            for (i, a) in items.iter().enumerate() {
+                for (j, b) in items.iter().enumerate().skip(i + 1) {
+                    if a.bridge.is_some() && a.bridge == b.bridge {
+                        continue;
+                    }
+                    if (a.net == b.net && a.net != 0) || a.layer != b.layer {
+                        continue;
+                    }
+                    let mid = |c: &Copper| {
+                        Point::new((c.start.x + c.end.x) / 2.0, (c.start.y + c.end.y) / 2.0)
+                    };
+                    let required = p
+                        .required_clearance_at(a.net, b.net, mid(a), mid(b), a.layer, b.layer)
+                        .max(a.clearance.unwrap_or(0.0))
+                        .max(b.clearance.unwrap_or(0.0));
+                    let violation = gap(a, b) + 1e-6 < required;
+                    if violation {
+                        assert!(
+                            reported.contains(&(i, j)),
+                            "seed {seed}: the grid skipped copper {i} and {j}"
+                        );
+                    }
+                }
+            }
+            // And the findings themselves match the pair scan: every violating
+            // pair appears in the report, with the same order of objects.
+            let findings = drc(&p);
+            for (i, list) in grid.near.iter().enumerate() {
+                for &j in list {
+                    if j <= i {
+                        continue;
+                    }
+                    let (a, b) = (&items[i], &items[j]);
+                    let mid = |c: &Copper| {
+                        Point::new((c.start.x + c.end.x) / 2.0, (c.start.y + c.end.y) / 2.0)
+                    };
+                    let required = p
+                        .required_clearance_at(a.net, b.net, mid(a), mid(b), a.layer, b.layer)
+                        .max(a.clearance.unwrap_or(0.0))
+                        .max(b.clearance.unwrap_or(0.0));
+                    if a.bridge.is_some() && a.bridge == b.bridge {
+                        continue;
+                    }
+                    if (a.net == b.net && a.net != 0) || a.layer != b.layer {
+                        continue;
+                    }
+                    if gap(a, b) + 1e-6 < required {
+                        assert!(
+                            findings.iter().any(|f| f.objects == vec![a.id, b.id]),
+                            "seed {seed}: no finding names copper {} and {}",
+                            a.id,
+                            b.id
+                        );
+                    }
+                }
+            }
+            // Airwires: one per extra island per net, as a full pair scan finds.
+            let airwires = airwires(&p);
+            let mut parent: Vec<usize> = (0..items.len()).collect();
+            for (i, a) in items.iter().enumerate() {
+                for (j, b) in items.iter().enumerate().skip(i + 1) {
+                    if touching(a, b) {
+                        let (ra, rb) = (root(&parent, i), root(&parent, j));
+                        if let Some(slot) = parent.get_mut(rb) {
+                            *slot = ra;
+                        }
+                    }
+                }
+            }
+            let mut islands: BTreeMap<Id, BTreeSet<usize>> = BTreeMap::new();
+            for (i, item) in items
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| c.pad && c.net != 0)
+            {
+                islands
+                    .entry(item.net)
+                    .or_default()
+                    .insert(root(&parent, i));
+            }
+            let expected: usize = islands
+                .values()
+                .map(|set| set.len().saturating_sub(1))
+                .sum();
+            assert_eq!(
+                airwires.len(),
+                expected,
+                "seed {seed}: the grid should find the same islands a full scan does"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn check_codes_name_the_spacing_codes_the_check_emits() -> Result<(), String> {
+        // Two vias, 0.4 mm drill, 0.8 mm apart. Wall gap = 0.8 - 0.2 - 0.2 = 0.4 mm.
+        let mut p = Project::default();
+        p.board.vias.push(Via {
+            id: 1,
+            net: 1,
+            position: Point::new(0.0, 0.0),
+            diameter: 0.8,
+            drill: 0.4,
+            preserved: pcbcraft_doc::PreservedSource::default(),
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+            covering_bottom: None,
+            backdrill: None,
+        });
+        p.board.vias.push(Via {
+            id: 2,
+            net: 1,
+            position: Point::new(0.8, 0.0),
+            diameter: 0.8,
+            drill: 0.4,
+            preserved: pcbcraft_doc::PreservedSource::default(),
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+            covering_bottom: None,
+            backdrill: None,
+        });
+        p.board.rules = Some(FabRules {
+            hole_to_hole_via: Some(0.5),
+            ..Default::default()
+        });
+        let findings = drc(&p);
+        let via_findings = findings
+            .iter()
+            .filter(|f| f.code == "hole_to_hole_via")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            via_findings.len(),
+            1,
+            "0.4 mm gap is under the 0.5 mm limit"
+        );
+        assert!(
+            CHECK_CODES
+                .iter()
+                .any(|(code, _)| *code == "hole_to_hole_via"),
+            "CHECK_CODES must list hole_to_hole_via"
+        );
+        assert!(
+            !CHECK_CODES.iter().any(|(code, _)| *code == "hole_to_hole"),
+            "CHECK_CODES must not list the obsolete hole_to_hole code"
+        );
+        p.board.rules = Some(FabRules {
+            hole_to_hole_via: Some(0.4),
+            ..Default::default()
+        });
+        let findings2 = drc(&p);
+        let via_findings2 = findings2
+            .iter()
+            .filter(|f| f.code == "hole_to_hole_via")
+            .collect::<Vec<_>>();
+        assert!(
+            via_findings2.is_empty(),
+            "0.4 mm gap meets the 0.4 mm limit"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn drc_emits_only_published_codes_for_a_crosstalk_board() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "CLK".into(),
+            ..Default::default()
+        });
+        p.nets.push(Net {
+            id: 2,
+            name: "DATA".into(),
+            ..Default::default()
+        });
+        let width = 0.2;
+        p.board.tracks.push(Track {
+            id: 10,
+            net: 1,
+            start: Point::new(0.0, 0.0),
+            end: Point::new(10.0, 0.0),
+            width,
+            layer: Layer::Front,
+            arc: None,
+            preserved: Default::default(),
+        });
+        p.board.tracks.push(Track {
+            id: 11,
+            net: 2,
+            start: Point::new(0.0, width + 0.2),
+            end: Point::new(10.0, width + 0.2),
+            width,
+            layer: Layer::Front,
+            arc: None,
+            preserved: Default::default(),
+        });
+        p.net_classes.push(NetClass {
+            id: 50,
+            name: "CLK".into(),
+            clearance: 0.2,
+            width,
+            min_width: None,
+            max_width: None,
+            target_length: None,
+            length_tolerance: None,
+            max_stub: None,
+            via_diameter: None,
+            via_drill: None,
+            pair_width: None,
+            pair_gap: None,
+            rise_time: Some(1e-9),
+            nets: vec![1, 2],
+            profile: None,
+            backdrill: Default::default(),
+            corner_radius: Default::default(),
+            current: Default::default(),
+            fast: Default::default(),
+            impedance_target: Default::default(),
+            impedance_tolerance_pct: Default::default(),
+            insulation: Default::default(),
+            line_structure: Default::default(),
+            max_vias: Default::default(),
+            min_radius: Default::default(),
+            reference_layers: Default::default(),
+            return_path_rule: Default::default(),
+            target_impedance: Default::default(),
+            temperature_rise: Default::default(),
+            working_voltage: Default::default(),
+            max_length: Default::default(),
+        });
+        p.validate()
+            .map_err(|e| format!("valid fixture: {:?}", e))?;
+        let findings = drc(&p);
+        for f in &findings {
+            let published = CHECK_CODES.iter().any(|(code, _)| *code == f.code);
+            if !published {
+                return Err(format!("unpublished code {}", f.code));
+            }
+        }
+        Ok(())
+    }
+}

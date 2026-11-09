@@ -1,0 +1,319 @@
+use pcbcraft_library::{
+    ConnectorParametricSpec, ConnectorSeriesOptions, Graphic, PARAMETRIC_MODEL_PATH,
+    body_fits_courtyard, generate_connector_part, pin1_position,
+};
+
+const TOL: f64 = 0.01;
+
+fn near(a: f64, b: f64) -> bool {
+    (a - b).abs() <= TOL
+}
+
+fn courtyard_half(fp: &pcbcraft_library::FootprintDefinition) -> Option<(f64, f64)> {
+    for g in &fp.graphics {
+        if let Graphic::Rectangle {
+            start, end, layer, ..
+        } = g
+            && layer == "pcbcraft.courtyard"
+        {
+            return Some((
+                start.x.abs().max(end.x.abs()),
+                start.y.abs().max(end.y.abs()),
+            ));
+        }
+    }
+    None
+}
+
+fn options_tsw(positions: u32, rows: u32) -> ConnectorSeriesOptions {
+    ConnectorSeriesOptions {
+        positions_per_row: positions,
+        rows,
+        lead_code: "07".into(),
+        stack_code: None,
+        alignment_posts: false,
+    }
+}
+
+fn options_ssw(positions: u32, rows: u32) -> ConnectorSeriesOptions {
+    ConnectorSeriesOptions {
+        positions_per_row: positions,
+        rows,
+        lead_code: "07".into(),
+        stack_code: None,
+        alignment_posts: false,
+    }
+}
+
+#[test]
+fn tsw_example_parts_validate() -> Result<(), String> {
+    for (positions, rows) in [(8, 1), (10, 1), (6, 2), (20, 2)] {
+        let part = generate_connector_part("TSW", &options_tsw(positions, rows))
+            .map_err(|e| format!("{e:?}"))?;
+        part.footprint.validate().map_err(|e| e.to_string())?;
+        assert!(part.footprint.description.contains("verify against"));
+        assert!(part.footprint.description.contains("samtec.com"));
+    }
+    Ok(())
+}
+#[test]
+fn ssw_footprint_passes_validate_for_all_position_counts() -> Result<(), String> {
+    for rows in 1..=2 {
+        for positions in 1..=40 {
+            let part = generate_connector_part("SSW", &options_ssw(positions, rows))
+                .map_err(|e| format!("SSW {positions}x{rows}: {e:?}"))?;
+            part.footprint
+                .validate()
+                .map_err(|e| format!("SSW {positions}x{rows} validate: {e}"))?;
+            if !part.footprint.description.contains("verify against") {
+                return Err(format!(
+                    "SSW {positions}x{rows}: description missing 'verify against'"
+                ));
+            }
+            let signal_pads: usize = part
+                .footprint
+                .pads
+                .iter()
+                .filter(|p| p.number.chars().all(|c| c.is_ascii_digit()))
+                .count();
+            let expected = (positions * rows) as usize;
+            if signal_pads != expected {
+                return Err(format!(
+                    "SSW {positions}x{rows}: expected {expected} signal pads, got {signal_pads}"
+                ));
+            }
+            if !part.part_number.starts_with("SSW-") {
+                return Err(format!(
+                    "SSW {positions}x{rows}: part number does not start with 'SSW-': {}",
+                    part.part_number
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn pad_pitch_and_count_properties_tsw() -> Result<(), String> {
+    let mut state: u64 = 0xDEAD_BEEF;
+    for _ in 0..1000 {
+        state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+        let positions = 1 + (state % 32) as u32;
+        let rows = 1 + (state % 2) as u32;
+        let part = generate_connector_part("TSW", &options_tsw(positions, rows))
+            .map_err(|e| format!("{e:?}"))?;
+        let signal_pads: Vec<_> = part
+            .footprint
+            .pads
+            .iter()
+            .filter(|p| p.number.chars().all(|c| c.is_ascii_digit()))
+            .collect();
+        assert_eq!(signal_pads.len(), (positions * rows) as usize);
+        if positions > 1 {
+            let mut xs: Vec<f64> = signal_pads.iter().map(|p| p.position.x).collect();
+            xs.sort_by(f64::total_cmp);
+            let gap = xs[1] - xs[0];
+            assert!(near(gap, 0.0) || near(gap, 2.54) || near(gap, 2.54 / 2.0));
+        }
+        let (x1, y1) = pin1_position(&part.footprint).ok_or("pin 1 missing")?;
+        assert!(x1 <= 0.0);
+        assert!(near(y1, 0.0) || y1 < 0.0);
+        let (hx, hy) = courtyard_half(&part.footprint).ok_or("courtyard")?;
+        for pad in &part.footprint.pads {
+            assert!(pad.position.x.abs() + pad.size.x / 2.0 <= hx + TOL);
+            assert!(pad.position.y.abs() + pad.size.y / 2.0 <= hy + TOL);
+        }
+        let expected_l = pcbcraft_library::housing_length_mm(positions, 2.54);
+        assert!(near(part.parametric.housing_length_mm, expected_l));
+    }
+    Ok(())
+}
+
+#[test]
+fn bth_stack_height_matches_table() -> Result<(), String> {
+    let part = generate_connector_part(
+        "BTH",
+        &ConnectorSeriesOptions {
+            positions_per_row: 30,
+            rows: 2,
+            lead_code: String::new(),
+            stack_code: Some("01".into()),
+            alignment_posts: true,
+        },
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(part.mated_stack_height_mm, Some(5.0));
+    assert_eq!(part.footprint.pads.len(), 60 + 2);
+    assert!(body_fits_courtyard(&part.parametric, &part.footprint));
+    Ok(())
+}
+
+#[test]
+fn bth_footprint_passes_validate_for_all_position_counts() -> Result<(), String> {
+    for positions in 3..=150 {
+        for stack_code in [Some("01"), Some("02")] {
+            for alignment_posts in [false, true] {
+                let part = generate_connector_part(
+                    "BTH",
+                    &ConnectorSeriesOptions {
+                        positions_per_row: positions,
+                        rows: 2,
+                        lead_code: String::new(),
+                        stack_code: stack_code.map(|s| s.to_string()),
+                        alignment_posts,
+                    },
+                )
+                .map_err(|e| {
+                    format!("BTH {positions} stack={stack_code:?} posts={alignment_posts}: {e:?}")
+                })?;
+                part.footprint.validate().map_err(|e| {
+                    format!(
+                        "BTH {positions} stack={stack_code:?} posts={alignment_posts} validate: {e}"
+                    )
+                })?;
+                if !body_fits_courtyard(&part.parametric, &part.footprint) {
+                    return Err(format!(
+                        "BTH {positions} stack={stack_code:?} posts={alignment_posts}: body does not fit courtyard"
+                    ));
+                }
+                let signal_pads: usize = part
+                    .footprint
+                    .pads
+                    .iter()
+                    .filter(|p| p.number.chars().all(|c| c.is_ascii_digit()))
+                    .count();
+                let expected_signal = (positions * 2) as usize;
+                if signal_pads != expected_signal {
+                    return Err(format!(
+                        "BTH {positions} stack={stack_code:?} posts={alignment_posts}: expected {expected_signal} signal pads, got {signal_pads}"
+                    ));
+                }
+                let expected_total = if alignment_posts {
+                    expected_signal + 2
+                } else {
+                    expected_signal
+                };
+                if part.footprint.pads.len() != expected_total {
+                    return Err(format!(
+                        "BTH {positions} stack={stack_code:?} posts={alignment_posts}: expected {expected_total} total pads, got {}",
+                        part.footprint.pads.len()
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn mated_height_equals_board_gap_plus_stack_code() -> Result<(), String> {
+    let part01 = generate_connector_part(
+        "BTH",
+        &ConnectorSeriesOptions {
+            positions_per_row: 10,
+            rows: 2,
+            lead_code: String::new(),
+            stack_code: Some("01".into()),
+            alignment_posts: false,
+        },
+    )
+    .map_err(|e| format!("BTH stack 01: {e:?}"))?;
+    if !near(part01.mated_stack_height_mm.unwrap_or(0.0), 5.0) {
+        return Err(format!(
+            "BTH stack 01: expected mated height 5.0, got {:?}",
+            part01.mated_stack_height_mm
+        ));
+    }
+    let part02 = generate_connector_part(
+        "BTH",
+        &ConnectorSeriesOptions {
+            positions_per_row: 10,
+            rows: 2,
+            lead_code: String::new(),
+            stack_code: Some("02".into()),
+            alignment_posts: false,
+        },
+    )
+    .map_err(|e| format!("BTH stack 02: {e:?}"))?;
+    if !near(part02.mated_stack_height_mm.unwrap_or(0.0), 6.0) {
+        return Err(format!(
+            "BTH stack 02: expected mated height 6.0, got {:?}",
+            part02.mated_stack_height_mm
+        ));
+    }
+    Ok(())
+}
+
+#[test]
+fn parametric_body_z0_and_json_round_trip() -> Result<(), String> {
+    let part = generate_connector_part("SSW", &options_tsw(4, 1)).map_err(|e| format!("{e:?}"))?;
+    assert_eq!(part.model.path, PARAMETRIC_MODEL_PATH);
+    let (min, max) = part.parametric.body_above_board_bounds();
+    assert!(near(min[2], 0.0));
+    assert!(max[2] >= part.parametric.housing_height_mm);
+    let parsed = ConnectorParametricSpec::from_json(&part.model.raw_source)?;
+    assert_eq!(parsed, part.parametric);
+    Ok(())
+}
+
+#[test]
+fn parametric_body_lowest_face_at_z_zero_for_every_series() -> Result<(), String> {
+    let configs = [
+        ("TSW", 1, 1, "07", None, 2.54),
+        ("TSW", 32, 2, "07", None, 2.54),
+        ("SSW", 1, 1, "07", None, 2.54),
+        ("SSW", 40, 2, "07", None, 2.54),
+        ("BTH", 3, 2, "", Some("01"), 0.50),
+        ("BTH", 150, 2, "", Some("01"), 0.50),
+    ];
+    for (series, positions, rows, lead, stack, pitch) in configs {
+        let opts = ConnectorSeriesOptions {
+            positions_per_row: positions,
+            rows,
+            lead_code: lead.into(),
+            stack_code: stack.map(|s| s.into()),
+            alignment_posts: false,
+        };
+        let part = generate_connector_part(series, &opts)
+            .map_err(|e| format!("{series} {positions}x{rows}: {e:?}"))?;
+        let (min, _) = part.parametric.body_above_board_bounds();
+        if !near(min[2], 0.0) {
+            return Err(format!(
+                "{series} {positions}x{rows}: body lowest face at z={:.4}, expected 0.0",
+                min[2]
+            ));
+        }
+        if !body_fits_courtyard(&part.parametric, &part.footprint) {
+            return Err(format!(
+                "{series} {positions}x{rows}: body does not fit courtyard"
+            ));
+        }
+        let expected_l = pcbcraft_library::housing_length_mm(positions, pitch);
+        if !near(part.parametric.housing_length_mm, expected_l) {
+            return Err(format!(
+                "{series} {positions}x{rows}: housing length {:.4}, expected {:.4}",
+                part.parametric.housing_length_mm, expected_l
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn invalid_lead_code_names_field() -> Result<(), String> {
+    let err = generate_connector_part(
+        "TSW",
+        &ConnectorSeriesOptions {
+            positions_per_row: 4,
+            rows: 1,
+            lead_code: "ZZ".into(),
+            stack_code: None,
+            alignment_posts: false,
+        },
+    )
+    .err()
+    .ok_or("expected an error")?;
+    assert_eq!(err[0].field, "lead_code");
+    assert!(!err[0].valid_values.is_empty());
+    Ok(())
+}

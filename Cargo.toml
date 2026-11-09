@@ -1,0 +1,122 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "apps/*", "xtask"]
+# A patched copy of a third-party crate is built as a dependency only.
+exclude = ["vendor/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+pcbcraft-clock = { path = "crates/clock" }
+pcbcraft-geom = { path = "crates/geom" }
+pcbcraft-doc = { path = "crates/doc" }
+pcbcraft-rules = { path = "crates/rules" }
+pcbcraft-io = { path = "crates/io" }
+pcbcraft-engine = { path = "crates/engine" }
+pcbcraft-calc = { path = "crates/calc" }
+pcbcraft-mcp = { path = "crates/mcp" }
+pcbcraft-assistant = { path = "crates/assistant" }
+pcbcraft-ui-egui = { path = "crates/ui-egui" }
+pcbcraft-library = { path = "crates/library" }
+pcbcraft-plugin = { path = "crates/plugin" }
+pcbcraft-plugin-sdk = { path = "crates/plugin-sdk" }
+pcbcraft-portal = { path = "crates/portal" }
+pcbcraft-publication = { path = "crates/publication" }
+pcbcraft-plugin-firmware-target = { path = "crates/plugin-firmware-target" }
+pcbcraft-text = { path = "crates/text" }
+pcbcraft-datasheet = { path = "crates/datasheet" }
+pcbcraft-sim = { path = "crates/sim" }
+pcbcraft-testkit = { path = "crates/testkit" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+toml = "0.8"
+# Pinned: polygon booleans and round offsets for copper pour fill.
+i_overlay = "=9.1.0"
+egui = "0.36"
+egui_extras = { version = "0.36", default-features = false, features = ["svg"] }
+eframe = { version = "0.36", default-features = false, features = ["default_fonts", "wgpu", "x11", "wayland", "persistence", "accesskit"] }
+craft-cloud = { git = "https://github.com/wdunn001/craft-libs", rev = "0e9d4a61affd665b2e00d5e107cfe4a88ad15df5" }
+craft-ui = { git = "https://github.com/wdunn001/craft-libs", rev = "0e9d4a61affd665b2e00d5e107cfe4a88ad15df5" }
+image = { version = "0.25", default-features = false, features = ["png", "bmp"] }
+png = "0.18.1"
+base64 = "0.22"
+sha2 = "0.10"
+md5 = "0.7"
+getrandom = "0.3"
+# glTF reader for 3D model files; MIT OR Apache-2.0, pure Rust. No image decoding.
+# STEP reading and tessellation for 3D model files; Apache-2.0, pure Rust.
+truck-stepio = "0.3"
+truck-meshalgo = { version = "0.4", default-features = false, features = ["tessellation"] }
+gltf = { version = "1", default-features = false, features = ["utils"] }
+tempfile = "3"
+gerber_parser = "0.5.0"
+web-time = "1.1"
+ipc2581 = "0.3.3"
+rayon = "1.10"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+unimplemented = "deny"
+todo = "deny"
+unreachable = "deny"
+
+[profile.dev]
+debug = 0
+incremental = false
+
+# Unoptimised, a pour fill plus the checks of the showcase board take about half a
+# minute, and the stories that edit that board run them after every command. The
+# geometry crates are built with optimisation so the whole suite stays short.
+[profile.dev.package.pcbcraft-geom]
+opt-level = 3
+[profile.dev.package.pcbcraft-rules]
+opt-level = 2
+[profile.dev.package.i_overlay]
+opt-level = 3
+[profile.dev.package.i_float]
+opt-level = 3
+[profile.dev.package.i_shape]
+opt-level = 3
+[profile.dev.package.i_tree]
+opt-level = 3
+[profile.dev.package.i_key_sort]
+opt-level = 3
+
+[profile.release]
+lto = "thin"
+strip = true
+
+# The browser bundle, picked by `data-cargo-profile-release` on the rust link in
+# apps/pcbcraft-web/index.html. The desktop release keeps `release` above. Size matters
+# in the browser (the wasm is downloaded on first visit), so this profile trades some
+# speed for code size: one codegen unit and fat LTO let the linker drop and merge more.
+# It compiles slower than `release`, so pull request CI builds `wasm-quick` instead.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+
+# The bundle the pull request job builds to prove that the app compiles for wasm32 and starts.
+# No LTO and no size tuning: cheaper to compile, never shipped.
+[profile.wasm-quick]
+inherits = "release"
+lto = false
+
+# ipc2581 0.3.3 pins quick-xml 0.39, which RUSTSEC-2026-0194 and RUSTSEC-2026-0195
+# flag. The crate uses quick-xml in one place (`escape::escape` in types/avl.rs), so
+# this copy of 0.3.3 only raises that requirement to 0.41. Drop it when ipc2581
+# publishes a release that does.
+[patch.crates-io]
+ipc2581 = { path = "vendor/ipc2581" }

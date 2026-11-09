@@ -1,0 +1,6 @@
+# Interactive controls that still have no accessible name, counted per role. One per line:
+#   role | count | #issue | reason
+# Counts, not widget ids, because ids move whenever another change adds a control.
+# The gate in shell.rs fails when a role has more unnamed controls than listed, and
+# when it has fewer (lower the count or delete the line). Name the control instead of
+# raising a count.

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="PCBCraft concept 2, one colour">
+  <title>PCBCraft concept 2, one colour</title>
+  <defs>
+    <mask id="a" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512"><rect width="512" height="512" fill="#fff"/><path d="M148 184 L192 140 H404 V352 H148 Z" fill="#000" stroke="#000" stroke-width="32"/></mask>
+    <mask id="b" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512"><rect width="512" height="512" fill="#fff"/><path d="M208 124 L252 80 H464 V292 H208 Z" fill="#000" stroke="#000" stroke-width="32"/></mask>
+  </defs>
+  <path d="M88 244 L132 200 H344 V412 H88 Z" fill="#000" mask="url(#a)"/>
+  <path d="M148 184 L192 140 H404 V352 H148 Z" fill="#000" mask="url(#b)"/>
+  <path d="M208 124 L252 80 H464 V292 H208 Z" fill="#000"/>
+</svg>

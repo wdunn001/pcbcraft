@@ -1,0 +1,32 @@
+# Accessibility counts per screen, written by hand from the gate's failure message.
+# Format: kind | screen | count | reason (issue number)
+# kind is duplicate-name, unreached-by-tab, focus-trap, undersized, colour-only or focus-order. The gate fails when a
+# count goes up, and when it goes down without this file being lowered. Fix the control, then
+# lower the number. Never raise one. Names and contrast have their own files.
+focus-order | Files | 7 | #922 first measured count, lower it as controls are fixed
+colour-only | Schematic | 3 | #922 first measured count, lower it as controls are fixed
+focus-order | Schematic | 17 | #922 first measured count, lower it as controls are fixed
+duplicate-name | Pcb | 15 | #920 the layer list paints twice, so each Hide, Lock and shown-state button has a twin
+colour-only | Pcb | 13 | #922 first measured count, lower it as controls are fixed
+focus-order | Pcb | 35 | #922 first measured count, lower it as controls are fixed
+duplicate-name | Board3d | 15 | #920 same twin layer list
+focus-order | Board3d | 31 | #922 first measured count, lower it as controls are fixed
+focus-order | Rules | 5 | #922 first measured count, lower it as controls are fixed
+colour-only | Checks | 3 | #922 first measured count, lower it as controls are fixed
+focus-order | Checks | 28 | #922 first measured count, lower it as controls are fixed
+focus-order | Settings | 5 | #922 first measured count, lower it as controls are fixed
+focus-order | PlotFiles | 5 | #922 first measured count, lower it as controls are fixed
+duplicate-name | Pcb, lower dock page 2 | 15 | #920 same twin layer list
+colour-only | Pcb, lower dock page 2 | 13 | #922 first measured count, lower it as controls are fixed
+focus-order | Pcb, lower dock page 2 | 36 | #922 first measured count, lower it as controls are fixed
+focus-order | Start page | 3 | #922 first measured count, lower it as controls are fixed
+colour-only | About dialog | 3 | #922 first measured count, lower it as controls are fixed
+focus-order | About dialog | 18 | #922 first measured count, lower it as controls are fixed
+colour-only | File menu | 3 | #922 first measured count, lower it as controls are fixed
+focus-order | File menu | 19 | #922 first measured count, lower it as controls are fixed
+colour-only | Edit menu | 3 | #922 first measured count, lower it as controls are fixed
+focus-order | Edit menu | 19 | #922 first measured count, lower it as controls are fixed
+colour-only | View menu | 3 | #922 first measured count, lower it as controls are fixed
+focus-order | View menu | 19 | #922 first measured count, lower it as controls are fixed
+colour-only | Help menu | 3 | #922 first measured count, lower it as controls are fixed
+focus-order | Help menu | 18 | #922 first measured count, lower it as controls are fixed

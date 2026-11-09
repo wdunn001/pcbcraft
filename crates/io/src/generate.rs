@@ -1,0 +1,1326 @@
+//! Artifact generation dispatch and content hashing.
+//!
+//! Turns an `Artifact` into bytes via the writers in this crate, and hashes
+//! the result for staleness checks. All pure except `write_generated`, the
+//! only disk access here.
+//!
+//! # Rules
+//! - Kinds without a writer return a refusal naming the tracking issue.
+//! - Artifact paths never escape the output folder.
+//!
+//! # Dependencies
+//! - `crates/doc/src/lib.rs` for `Artifact`, `Project` and the kind list.
+//!
+//! # Do not
+//! - Add a per-kind branch in the engine; new kinds are added to `generate`.
+use pcbcraft_doc::{Artifact, Project};
+use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
+use std::path::{Component, Path};
+
+use crate::cam::{CncProfile, isolation_gcode, isolation_options_from_value};
+use crate::cam_drill::{
+    CamProfile as DrillCamProfile, Dialect as DrillDialect, DrillOptions, DrillOrder,
+    OutlineCompensation, OutlineOptions, Tabs, Tool as DrillMillTool, ToolChange, drill_gcode,
+    outline_gcode,
+};
+use crate::machine_library::resolve_machine_profile;
+use crate::snapmaker::{snapmaker_cnc_profile, snapmaker_files, snapmaker_settings};
+use crate::{
+    ComplianceReportOptions, GerberArcOptions, PACKAGE_CREATION_DATE, PlacementOptions, bom_csv,
+    bundled_placement_flavours, cmp_text, compliance_report_markdown, drill_chart_csv, dxf_board,
+    fab_drawing_pdf, gencad_text, gerber_files, gerber_files_with_options, hpgl_plot,
+    hyperlynx_csv, idf_board, idf_library, impedance_table_csv, ipc356_netlist, ipc2581_text,
+    netlist_text, odb_package, pdf_document, placement_flavoured, placement_text, plot_csv,
+    postscript, report_text, si_net_results_csv, specctra_dsn, spice_netlist, stackup_text,
+    stats_text, step_board, svg, testpoints_csv, touchstone_text, vrml_board,
+};
+
+/// What one artifact produces: one text file, one binary file, or a named set
+/// of files (a package). A single type lets the engine hash, encode and write
+/// every kind the same way.
+///
+/// # Rules
+/// - `Files` keys are relative names; the map order is the hash order.
+///
+/// # Dependencies
+/// - `crates/engine/src/artifacts.rs` encodes it for `artifact.generate`.
+///
+/// # Do not
+/// - Put absolute paths or `..` segments in `Files` keys.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GeneratedOutput {
+    /// One text file.
+    Text(String),
+    /// One binary file.
+    Bytes(Vec<u8>),
+    /// Several text files keyed by relative file name.
+    Files(BTreeMap<String, String>),
+    /// Several binary files keyed by relative file name.
+    BinaryFiles(BTreeMap<String, Vec<u8>>),
+}
+
+/// Gives a project saved before artifacts existed one artifact per legacy
+/// output job entry, so old files keep exporting the same outputs.
+///
+/// # Rules
+/// - Artifacts: runs only when `artifacts` is empty and `output_jobs` is not.
+/// - Sourcing: copies free-form `MPN`, `Manufacturer`, `Description` and supplier number
+///   fields into the typed record (`Project::adopt_free_form_sourcing`); originals stay.
+/// - Ids start above the highest id in use.
+///
+/// # Dependencies
+/// - `crates/doc/src/lib.rs` `Project::migrate_output_jobs_to_artifacts`.
+///
+/// # Do not
+/// - Call it after validation; `load` runs it before `validate`.
+pub fn migrate_loaded_project(project: &mut Project) -> Result<(), String> {
+    if project.artifacts.is_empty() && !project.output_jobs.is_empty() {
+        let mut next = project.ids().max().unwrap_or(0).saturating_add(1);
+        project.migrate_output_jobs_to_artifacts(&mut next)?;
+    }
+    project.adopt_free_form_sourcing();
+    // Files from before component kinds were stored carry "library"; give
+    // each part the kind its symbol and footprint imply.
+    project.migrate_component_kinds();
+    Ok(())
+}
+
+/// SHA-256 of the canonical bytes of an output, as 64 lowercase hex digits.
+/// The engine compares it with the stored hash to decide staleness.
+///
+/// # Rules
+/// - Identical bytes always give the same hash; `Files` hash in name order.
+///
+/// # Dependencies
+/// - `crates/engine/src/artifacts.rs` `artifact_is_stale`.
+///
+/// # Do not
+/// - Hash anything that varies between runs, such as timestamps.
+pub fn output_hash(output: &GeneratedOutput) -> String {
+    let mut hasher = Sha256::new();
+    match output {
+        GeneratedOutput::Text(text) => hasher.update(text.as_bytes()),
+        GeneratedOutput::Bytes(bytes) => hasher.update(bytes.as_slice()),
+        GeneratedOutput::Files(map) => {
+            for (name, body) in map {
+                hasher.update(name.as_bytes());
+                hasher.update(body.as_bytes());
+            }
+        }
+        GeneratedOutput::BinaryFiles(map) => {
+            for (name, body) in map {
+                hasher.update(name.as_bytes());
+                hasher.update(body.as_slice());
+            }
+        }
+    }
+    let digest = hasher.finalize();
+    let mut hex = String::with_capacity(64);
+    for byte in digest {
+        hex.push(nibble(byte >> 4));
+        hex.push(nibble(byte & 0x0f));
+    }
+    hex
+}
+
+fn nibble(value: u8) -> char {
+    match value {
+        0..=9 => (b'0' + value) as char,
+        10..=15 => (b'a' + (value - 10)) as char,
+        _ => '0',
+    }
+}
+
+/// The placement artifact: the classic file, or a bundled flavour when the
+/// artifact settings name one (`flavour`, optionally `variant`).
+///
+/// # Rules
+/// - No `flavour` setting keeps the output of `placement_text` exactly.
+/// - One file comes back as text; a split flavour comes back as named files.
+///
+/// # Dependencies
+/// - `crates/io/src/placement_flavour.rs`
+///
+/// # Do not
+/// - Read a flavour from anywhere but the bundled table here; user records go
+///   through `placement_flavoured` directly.
+fn placement_artifact(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, String> {
+    let Some(id) = artifact.settings.get("flavour").and_then(|v| v.as_str()) else {
+        return Ok(GeneratedOutput::Text(placement_text(p)?));
+    };
+    let flavour = bundled_placement_flavours()?
+        .into_iter()
+        .find(|f| f.id == id)
+        .ok_or_else(|| format!("no placement flavour named {id}"))?;
+    let options = PlacementOptions {
+        variant: artifact
+            .settings
+            .get("variant")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        offsets: Vec::new(),
+    };
+    let mut files = placement_flavoured(p, &flavour, &options)?.files;
+    if files.len() == 1 {
+        return Ok(GeneratedOutput::Text(files.remove(0).1));
+    }
+    Ok(GeneratedOutput::Files(files.into_iter().collect()))
+}
+
+/// The pick and place files for the machine profile the artifact names.
+fn placement_job_artifact(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, String> {
+    let machine_id = artifact
+        .machine
+        .as_deref()
+        .ok_or("placement_job artifacts must name a machine profile on the design")?;
+    let profile = p
+        .machine_profiles
+        .iter()
+        .find(|m| m.id == machine_id)
+        .ok_or_else(|| format!("no machine profile named {machine_id} in the design"))?;
+    let (side, options) = crate::neoden_yy1_from_artifact_settings(&artifact.settings)?;
+    let out = crate::placement_job(p, side, profile, &options)?;
+    // The files are CSV text.
+    Ok(GeneratedOutput::Files(
+        out.files
+            .into_iter()
+            .map(|(name, bytes)| (name, String::from_utf8_lossy(&bytes).into_owned()))
+            .collect(),
+    ))
+}
+
+fn settings_view(settings: &serde_json::Value) -> &str {
+    settings
+        .get("view")
+        .and_then(|v| v.as_str())
+        .unwrap_or("pcb")
+}
+
+fn copper_gerber_name(layer: &str) -> Option<&'static str> {
+    match layer {
+        "F.Cu" => Some("pcb-F.Cu.gbr"),
+        "B.Cu" => Some("pcb-B.Cu.gbr"),
+        _ => None,
+    }
+}
+
+fn plot_gerber_name(kind: &str, layer: &str) -> Option<&'static str> {
+    match (kind, layer) {
+        ("mask_plot", "F.Mask") => Some("pcb-F.Mask.gbr"),
+        ("mask_plot", "B.Mask") => Some("pcb-B.Mask.gbr"),
+        ("paste_plot", "F.Paste") => Some("pcb-F.Paste.gbr"),
+        ("paste_plot", "B.Paste") => Some("pcb-B.Paste.gbr"),
+        ("silk_plot", "F.SilkS") => Some("pcb-F.SilkS.gbr"),
+        ("silk_plot", "B.SilkS") => Some("pcb-B.SilkS.gbr"),
+        ("profile_plot", "Edge.Cuts") => Some("pcb-Edge.gbr"),
+        _ => None,
+    }
+}
+
+fn isolation_gcode_artifact(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, String> {
+    let opts = isolation_options_from_value(&artifact.settings)?;
+    let files = if let Some(machine_id) = artifact.machine.as_deref() {
+        let profile = resolve_machine_profile(&p.machine_profiles, &[], machine_id)?;
+        if profile.kind != "cnc_mill" {
+            return Err(format!(
+                "machine profile {machine_id} is not a CNC mill profile"
+            ));
+        }
+        if profile.output.dialect == "snapmaker" {
+            let settings = snapmaker_settings(&profile, false)?;
+            let out = isolation_gcode(p, &opts, &snapmaker_cnc_profile(&settings))?;
+            snapmaker_files(out.files, &settings)?
+        } else {
+            let out = isolation_gcode(p, &opts, &CncProfile::default())?;
+            out.files
+        }
+    } else {
+        let out = isolation_gcode(p, &opts, &CncProfile::default())?;
+        out.files
+    };
+    let mut map = BTreeMap::new();
+    for (name, body) in files {
+        map.insert(name, body);
+    }
+    Ok(GeneratedOutput::Files(map))
+}
+
+fn drill_gcode_artifact(p: &Project, _artifact: &Artifact) -> Result<GeneratedOutput, String> {
+    let tools = vec![
+        DrillMillTool {
+            number: 1,
+            diameter_mm: 0.3,
+            spindle_rpm: 10_000,
+            cut_feed_mm_min: 300.0,
+            plunge_feed_mm_min: 100.0,
+        },
+        DrillMillTool {
+            number: 2,
+            diameter_mm: 1.0,
+            spindle_rpm: 10_000,
+            cut_feed_mm_min: 300.0,
+            plunge_feed_mm_min: 100.0,
+        },
+        DrillMillTool {
+            number: 3,
+            diameter_mm: 2.0,
+            spindle_rpm: 10_000,
+            cut_feed_mm_min: 300.0,
+            plunge_feed_mm_min: 100.0,
+        },
+    ];
+    let options = DrillOptions {
+        tools,
+        peck_mm: None,
+        order: DrillOrder::Nearest,
+        alignment_holes: vec![],
+        tool_change: ToolChange::PauseM0,
+    };
+    let profile = DrillCamProfile {
+        dialect: DrillDialect::Grbl,
+        work_x_mm: 320.0,
+        work_y_mm: 350.0,
+        safe_z_mm: 5.0,
+        retract_z_mm: 2.0,
+        direction: crate::cam_drill::CutDirection::Conventional,
+        plating_allowance_mm: 0.0,
+        fab_plated: false,
+    };
+    let files = drill_gcode(p, &options, &profile)?;
+    let mut map = BTreeMap::new();
+    for (name, body) in files {
+        map.insert(name, body);
+    }
+    Ok(GeneratedOutput::Files(map))
+}
+
+fn outline_gcode_artifact(p: &Project, _artifact: &Artifact) -> Result<GeneratedOutput, String> {
+    let tool = DrillMillTool {
+        number: 1,
+        diameter_mm: 3.0,
+        spindle_rpm: 10_000,
+        cut_feed_mm_min: 300.0,
+        plunge_feed_mm_min: 100.0,
+    };
+    let options = OutlineOptions {
+        tool,
+        pass_depth_mm: 0.6,
+        tabs: Tabs {
+            count: 4,
+            width_mm: 5.0,
+            height_mm: 0.4,
+        },
+        compensation: OutlineCompensation::Outside,
+        cutouts: false,
+    };
+    let profile = DrillCamProfile {
+        dialect: DrillDialect::Grbl,
+        work_x_mm: 320.0,
+        work_y_mm: 350.0,
+        safe_z_mm: 5.0,
+        retract_z_mm: 2.0,
+        direction: crate::cam_drill::CutDirection::Conventional,
+        plating_allowance_mm: 0.0,
+        fab_plated: false,
+    };
+    let text = outline_gcode(p, &options, &profile)?;
+    Ok(GeneratedOutput::Text(text))
+}
+
+fn package_from_path(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, String> {
+    let path = artifact.path.as_str();
+    if path == "gerber/" || path.starts_with("gerber/") {
+        let opts = GerberArcOptions::default_for(p, &artifact.settings);
+        let (files, _report) = gerber_files_with_options(p, PACKAGE_CREATION_DATE, opts)?;
+        if path == "gerber/" {
+            return Ok(GeneratedOutput::Files(files));
+        }
+        let name = path
+            .strip_prefix("gerber/")
+            .filter(|n| !n.is_empty() && !n.contains('/'))
+            .ok_or_else(|| "gerber package path must be gerber/ or gerber/<file>".to_string())?;
+        let text = files
+            .get(name)
+            .ok_or_else(|| format!("gerber export has no layer named {name}"))?
+            .clone();
+        return Ok(GeneratedOutput::Text(text));
+    }
+    if path.ends_with(".odb.zip") {
+        let bytes = odb_package(p)?;
+        crate::validate_odb_package(&bytes)?;
+        return Ok(GeneratedOutput::Bytes(bytes));
+    }
+    if path.ends_with(".xml") {
+        let text = ipc2581_text(p)?;
+        crate::validate_ipc2581_document(&text)?;
+        return Ok(GeneratedOutput::Text(text));
+    }
+    let text_output = |text: String| Ok(GeneratedOutput::Text(text));
+    match path {
+        "pcb-netlist.net" => text_output(netlist_text(p)?),
+        "bom.csv" => text_output(bom_csv(p, &[], None)?),
+        "placement.txt" => text_output(placement_text(p)?),
+        "board-drill-tools.csv" => text_output(drill_chart_csv(p)?),
+        "board.pdf" => Ok(GeneratedOutput::Bytes(pdf_document(p, "pcb")?)),
+        "board.svg" => text_output(svg(p, "pcb")?),
+        "pcb.dxf" => text_output(dxf_board(p)?),
+        "pcb.cmp" => text_output(cmp_text(p)?),
+        "board.idf" => text_output(idf_board(p)?),
+        "library.idf" => text_output(idf_library(p)?),
+        "board.wrl" => text_output(vrml_board(p)?),
+        "board.step" => text_output(step_board(p)?),
+        "pcb.dsn" => text_output(specctra_dsn(p)?),
+        "test.brd" => text_output(ipc356_netlist(p)?),
+        "testpoints.csv" => text_output(testpoints_csv(p)?),
+        "board.gencad" => text_output(gencad_text(p)?),
+        "netlist.csv" => text_output(hyperlynx_csv(p)?),
+        "plot-report.csv" => text_output(plot_csv(p)?),
+        "board-report.txt" => text_output(report_text(p)?),
+        "pcb.ps" => text_output(postscript(p, "pcb")?),
+        "board.hpgl" => text_output(hpgl_plot(p, "pcb")?),
+        "board-stackup.txt" => text_output(stackup_text(p)?),
+        "board-stats.csv" => text_output(stats_text(p)?),
+        "compliance-report.md" => text_output(compliance_report_markdown(
+            p,
+            &ComplianceReportOptions::default(),
+        )?),
+        "schematic.cir" => text_output(spice_netlist(p)?),
+        "si-net-results.csv" => text_output(si_net_results_csv(p)?),
+        "impedance-table.csv" => text_output(impedance_table_csv(p)?),
+        "touchstone.s2p" => text_output(touchstone_text(p)?),
+        other => Err(format!(
+            "package output for {other} is not available yet; see issue #322"
+        )),
+    }
+}
+
+/// Produces the output for one artifact by dispatching on its `kind` to the
+/// existing writers. Settings pick the view where a writer needs one.
+///
+/// # Rules
+/// - Refuses an invalid artifact before any writer runs.
+/// - Kinds without a writer yet refuse with the issue that tracks them.
+///
+/// # Dependencies
+/// - `crates/doc/src/lib.rs` `Artifact::valid`.
+///
+/// # Do not
+/// - Write to disk here; use `write_generated`.
+pub fn generate(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, String> {
+    if !artifact.valid() {
+        return Err("artifact record is invalid".into());
+    }
+    match artifact.kind.as_str() {
+        "bom" => Ok(GeneratedOutput::Text(bom_csv(p, &[], None)?)),
+        "placement" => placement_artifact(p, artifact),
+        "drill_map" => Ok(GeneratedOutput::Text(drill_chart_csv(p)?)),
+        "fab_drawing" => Ok(GeneratedOutput::Bytes(fab_drawing_pdf(p)?)),
+        "assembly_drawing" => {
+            if !artifact.path.ends_with('/') {
+                return Err(
+                    "assembly_drawing path must be a folder ending in /, for example assembly/"
+                        .into(),
+                );
+            }
+            Ok(GeneratedOutput::BinaryFiles(
+                crate::assembly_drawing::assembly_drawing_pdfs(p)?,
+            ))
+        }
+        "raster_image" => Ok(GeneratedOutput::Text(svg(
+            p,
+            settings_view(&artifact.settings),
+        )?)),
+        "package" => package_from_path(p, artifact),
+        "copper_plot" => {
+            let layer = artifact
+                .layers
+                .first()
+                .map(|s| s.as_str())
+                .unwrap_or("F.Cu");
+            let file = copper_gerber_name(layer).ok_or_else(|| {
+                format!("copper plot for layer {layer} is not available yet; see issue #325")
+            })?;
+            let files = gerber_files(p)?;
+            let text = files
+                .get(file)
+                .ok_or_else(|| format!("gerber export has no layer named {file}"))?
+                .clone();
+            Ok(GeneratedOutput::Text(text))
+        }
+        "mask_plot" | "silk_plot" | "paste_plot" | "profile_plot" => {
+            let kind = artifact.kind.as_str();
+            let layer = match kind {
+                "mask_plot" => artifact
+                    .layers
+                    .first()
+                    .map(|s| s.as_str())
+                    .unwrap_or("F.Mask"),
+                "silk_plot" => artifact
+                    .layers
+                    .first()
+                    .map(|s| s.as_str())
+                    .unwrap_or("F.SilkS"),
+                "paste_plot" => artifact
+                    .layers
+                    .first()
+                    .map(|s| s.as_str())
+                    .unwrap_or("F.Paste"),
+                "profile_plot" => artifact
+                    .layers
+                    .first()
+                    .map(|s| s.as_str())
+                    .unwrap_or("Edge.Cuts"),
+                _ => "F.Cu",
+            };
+            let file = plot_gerber_name(kind, layer)
+                .ok_or_else(|| format!("{kind} for layer {layer} is not available"))?;
+            let files = gerber_files(p)?;
+            let text = files
+                .get(file)
+                .ok_or_else(|| format!("gerber export has no layer named {file}"))?
+                .clone();
+            Ok(GeneratedOutput::Text(text))
+        }
+        "drill_plated" | "drill_unplated" => {
+            let key = if artifact.kind == "drill_plated" {
+                "pcb-Plated.drl"
+            } else {
+                "pcb-NPTH.drl"
+            };
+            let files = gerber_files(p)?;
+            let text = files
+                .get(key)
+                .ok_or_else(|| format!("gerber export has no drill file named {key}"))
+                .cloned()?;
+            Ok(GeneratedOutput::Text(text))
+        }
+        "isolation_gcode" => isolation_gcode_artifact(p, artifact),
+        "drill_gcode" => drill_gcode_artifact(p, artifact),
+        "outline_gcode" => outline_gcode_artifact(p, artifact),
+        "stencil" => Err("stencil output is not available yet; see issue #325".into()),
+        "laser_path" => Err("laser path output is not available yet; see issue #358".into()),
+        "placement_job" | "placement_yy1" => placement_job_artifact(p, artifact),
+        "conformal_coat_plot" => {
+            if p.board.conformal_coat_keepout.is_none() {
+                return Err(
+                    "conformal coat plot is not available yet: the board has no keep-out configured"
+                        .into(),
+                );
+            }
+            Ok(GeneratedOutput::Text(crate::conformal_coat_keepout_gerber(
+                p,
+            )?))
+        }
+        other => Err(format!("unknown artifact kind {other}")),
+    }
+}
+
+/// Writes a generated output under `directory`, at the artifact's relative
+/// path (or inside it for a package), and returns the relative names written.
+///
+/// # Rules
+/// - Rejects an empty directory and any file name that escapes it.
+/// - Writes each file atomically and creates parent folders.
+///
+/// # Dependencies
+/// - `crates/io/src/lib.rs` `atomic_write`, which refuses on WASM.
+///
+/// # Do not
+/// - Record staleness here; the engine does that in the same undo step.
+pub fn write_generated(
+    directory: &Path,
+    artifact: &Artifact,
+    output: &GeneratedOutput,
+) -> Result<Vec<String>, String> {
+    if directory.as_os_str().is_empty() {
+        return Err("output directory is empty".into());
+    }
+    match output {
+        GeneratedOutput::Text(text) => {
+            let path = directory.join(&artifact.path);
+            write_parent(&path)?;
+            crate::atomic_write(&path, text.as_bytes())?;
+            Ok(vec![artifact.path.clone()])
+        }
+        GeneratedOutput::Bytes(bytes) => {
+            let path = directory.join(&artifact.path);
+            write_parent(&path)?;
+            crate::atomic_write(&path, bytes)?;
+            Ok(vec![artifact.path.clone()])
+        }
+        GeneratedOutput::Files(map) => {
+            let base = if artifact.path.ends_with('/') {
+                directory.join(&artifact.path)
+            } else if artifact.path.is_empty() {
+                directory.to_path_buf()
+            } else {
+                directory.join(&artifact.path)
+            };
+            let mut written = Vec::new();
+            for (name, body) in map {
+                if name.contains("..")
+                    || Path::new(name)
+                        .components()
+                        .any(|c| c == Component::ParentDir)
+                {
+                    return Err("generated file name escapes the output folder".into());
+                }
+                let path = base.join(name);
+                write_parent(&path)?;
+                crate::atomic_write(&path, body.as_bytes())?;
+                let rel = if artifact.path.ends_with('/') {
+                    format!("{}{name}", artifact.path)
+                } else if artifact.path.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{}/{}", artifact.path, name)
+                };
+                written.push(rel);
+            }
+            written.sort();
+            Ok(written)
+        }
+        GeneratedOutput::BinaryFiles(map) => {
+            let base = if artifact.path.ends_with('/') {
+                directory.join(&artifact.path)
+            } else if artifact.path.is_empty() {
+                directory.to_path_buf()
+            } else {
+                directory.join(&artifact.path)
+            };
+            let mut written = Vec::new();
+            for (name, body) in map {
+                if name.contains("..")
+                    || Path::new(name)
+                        .components()
+                        .any(|c| c == Component::ParentDir)
+                {
+                    return Err("generated file name escapes the output folder".into());
+                }
+                let path = base.join(name);
+                write_parent(&path)?;
+                crate::atomic_write(&path, body)?;
+                let rel = if artifact.path.ends_with('/') {
+                    format!("{}{name}", artifact.path)
+                } else if artifact.path.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{}/{}", artifact.path, name)
+                };
+                written.push(rel);
+            }
+            written.sort();
+            Ok(written)
+        }
+    }
+}
+
+/// Build the named download entries for an artifact, for use by the browser
+/// host. This is the pure counterpart of [`write_generated`], producing the
+/// same file names but returning bytes in memory instead of writing them to
+/// disk.
+///
+/// # Rules
+/// - Artifact paths are never joined with `..` segments.
+/// - Files are sorted by name so exports are deterministic.
+///
+/// # Dependencies
+/// - `crates/doc/src/lib.rs` for `Artifact`.
+///
+/// # Do not
+/// - Call `std::fs` or `Path::join`; use plain string formatting.
+pub fn download_entries(
+    artifact: &Artifact,
+    output: &GeneratedOutput,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
+    match output {
+        GeneratedOutput::Text(text) => Ok(vec![(artifact.path.clone(), text.as_bytes().to_vec())]),
+        GeneratedOutput::Bytes(bytes) => Ok(vec![(artifact.path.clone(), bytes.clone())]),
+        GeneratedOutput::Files(map) => {
+            let mut entries = Vec::new();
+            for (name, body) in map {
+                if name.contains("..") {
+                    return Err("generated file name escapes the output folder".into());
+                }
+                let rel = if artifact.path.ends_with('/') {
+                    format!("{}{}", artifact.path, name)
+                } else if artifact.path.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{}/{}", artifact.path, name)
+                };
+                entries.push((rel, body.as_bytes().to_vec()));
+            }
+            entries.sort_by(|a, b| a.0.cmp(&b.0));
+            Ok(entries)
+        }
+        GeneratedOutput::BinaryFiles(map) => {
+            let mut entries = Vec::new();
+            for (name, body) in map {
+                if name.contains("..") {
+                    return Err("generated file name escapes the output folder".into());
+                }
+                let rel = if artifact.path.ends_with('/') {
+                    format!("{}{}", artifact.path, name)
+                } else if artifact.path.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{}/{}", artifact.path, name)
+                };
+                entries.push((rel, body.clone()));
+            }
+            entries.sort_by(|a, b| a.0.cmp(&b.0));
+            Ok(entries)
+        }
+    }
+}
+
+fn write_parent(path: &Path) -> Result<(), String> {
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod generate_tests {
+    use super::*;
+    use pcbcraft_doc::Project;
+
+    #[test]
+    fn output_hash_is_stable_for_identical_bytes() -> Result<(), String> {
+        let a = GeneratedOutput::Text("same".into());
+        let b = GeneratedOutput::Text("same".into());
+        assert_eq!(output_hash(&a), output_hash(&b));
+        let c = GeneratedOutput::Text("different".into());
+        assert_ne!(output_hash(&a), output_hash(&c));
+        let mut map = BTreeMap::new();
+        map.insert("a.gbr".into(), "1".into());
+        map.insert("b.gbr".into(), "2".into());
+        assert_eq!(
+            output_hash(&GeneratedOutput::Files(map.clone())),
+            output_hash(&GeneratedOutput::Files(map))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn generate_isolation_gcode_returns_nc_file() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.width = 20.0;
+        project.board.height = 20.0;
+        project.board.thickness = 1.6;
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "SIG".into(),
+            ..pcbcraft_doc::Net::default()
+        });
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 3,
+            net: 1,
+            start: pcbcraft_geom::Point::new(5.0, 10.0),
+            end: pcbcraft_geom::Point::new(15.0, 10.0),
+            width: 0.4,
+            layer: pcbcraft_doc::Layer::Front,
+            arc: None,
+            preserved: Default::default(),
+        });
+        let artifact = Artifact {
+            id: 2,
+            name: "isolation".into(),
+            kind: "isolation_gcode".into(),
+            layers: vec![],
+            settings: serde_json::json!({
+                "side":"top",
+                "tool":{"diameter_mm":0.1,"feed_mm_min":300.0,"plunge_mm_min":60.0,"depth_mm":0.08,"passes":1,"spindle_rpm":18000}
+            }),
+            machine: None,
+            path: "cam/".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let out = generate(&project, &artifact)?;
+        let GeneratedOutput::Files(map) = out else {
+            return Err("expected a file map".into());
+        };
+        assert!(map.contains_key("isolation-top.nc"));
+        assert!(map["isolation-top.nc"].starts_with("G21\n"));
+        Ok(())
+    }
+
+    #[test]
+    fn generate_assembly_drawing_writes_top_and_bottom_pdfs() -> Result<(), String> {
+        let project = Project::default();
+        let artifact = Artifact {
+            id: 1,
+            name: "assembly".into(),
+            kind: "assembly_drawing".into(),
+            layers: vec![],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "assembly/".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let out = generate(&project, &artifact)?;
+        let GeneratedOutput::BinaryFiles(map) = out else {
+            return Err("expected binary file map".into());
+        };
+        assert_eq!(map.len(), 2);
+        assert!(map["assembly-top.pdf"].starts_with(b"%PDF-1.4"));
+        assert!(map["assembly-bottom.pdf"].starts_with(b"%PDF-1.4"));
+        Ok(())
+    }
+
+    #[test]
+    fn generate_package_gerbers_matches_gerber_files() -> Result<(), String> {
+        let project = Project::default();
+        let artifact = Artifact {
+            id: 1,
+            name: "gerbers".into(),
+            kind: "package".into(),
+            layers: vec![],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "gerber/".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let out = generate(&project, &artifact)?;
+        let GeneratedOutput::Files(map) = out else {
+            return Err("expected a file map".into());
+        };
+        // A package is dated with the fixed package date so its hash is stable.
+        assert_eq!(
+            map,
+            crate::gerber_files_at(&project, PACKAGE_CREATION_DATE)?
+        );
+        Ok(())
+    }
+
+    fn placement_artifact_with(settings: serde_json::Value) -> Artifact {
+        Artifact {
+            id: 2,
+            name: "placement".into(),
+            kind: "placement".into(),
+            layers: vec![],
+            settings,
+            machine: None,
+            path: "placement.txt".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        }
+    }
+
+    #[test]
+    fn placement_artifact_without_a_flavour_keeps_the_classic_file() -> Result<(), String> {
+        let project = Project::default();
+        let out = generate(&project, &placement_artifact_with(serde_json::json!({})))?;
+        assert_eq!(out, GeneratedOutput::Text(placement_text(&project)?));
+        Ok(())
+    }
+
+    #[test]
+    fn placement_artifact_with_a_flavour_writes_that_flavour() -> Result<(), String> {
+        let project = Project::default();
+        let one = generate(
+            &project,
+            &placement_artifact_with(serde_json::json!({"flavour": "cpl_mm"})),
+        )?;
+        assert_eq!(
+            one,
+            GeneratedOutput::Text("Designator,Mid X,Mid Y,Rotation,Layer\n".into())
+        );
+        let split = generate(
+            &project,
+            &placement_artifact_with(serde_json::json!({"flavour": "cpl_inch"})),
+        )?;
+        let GeneratedOutput::Files(map) = split else {
+            return Err("a split flavour returns files".into());
+        };
+        assert_eq!(
+            map.keys().map(String::as_str).collect::<Vec<_>>(),
+            ["placement-bottom.csv", "placement-top.csv"]
+        );
+        assert!(
+            generate(
+                &project,
+                &placement_artifact_with(serde_json::json!({"flavour": "nope"})),
+            )
+            .is_err()
+        );
+        Ok(())
+    }
+
+    fn plot_project() -> Project {
+        use pcbcraft_doc::{Component, Footprint, Pad};
+        use pcbcraft_geom::Point;
+        use pcbcraft_library::FootprintPad;
+        let pad = FootprintPad {
+            number: "1".into(),
+            pad_type: "smd".into(),
+            shape: "rect".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            size: Point::new(1.0, 0.5),
+            layers: vec!["F.Cu".into(), "F.Mask".into(), "F.Paste".into()],
+            drill: None,
+            roundrect_ratio: None,
+            raw_source: String::new(),
+            chamfer: None,
+            polygon: Vec::new(),
+        };
+        let mut project = Project::default();
+        project.components.push(Component {
+            id: 1,
+            reference: "C1".into(),
+            value: "cap".into(),
+            kind: "capacitor".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            pins: vec![pcbcraft_doc::Pin::default()],
+            units: vec![],
+            library_symbol: None,
+            library_footprint: Some(pcbcraft_doc::LibraryFootprint {
+                library: "Test".into(),
+                definition: pcbcraft_library::FootprintDefinition {
+                    name: "C0402".into(),
+                    description: String::new(),
+                    keywords: String::new(),
+                    pads: vec![pad],
+                    graphics: vec![],
+                    model: None,
+                    rules: None,
+                    raw_source: String::new(),
+                    unsupported: vec![],
+                    box_body: Default::default(),
+                    retained: Default::default(),
+                },
+            }),
+            fields: vec![],
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
+            sourcing: Default::default(),
+            sheet: 0,
+        });
+        project.board.footprints.push(Footprint {
+            id: 2,
+            component: 1,
+            position: Point::new(10.0, 10.0),
+            rotation: 0.0,
+            locked: None,
+            pads: vec![Pad {
+                number: "1".into(),
+                offset: Point::default(),
+                diameter: 0.5,
+                net: None,
+                castellated: None,
+                geometry: Some(FootprintPad {
+                    number: "1".into(),
+                    pad_type: "smd".into(),
+                    shape: "rect".into(),
+                    position: Point::default(),
+                    rotation: 0.0,
+                    size: Point::new(1.0, 0.5),
+                    layers: vec!["F.Cu".into(), "F.Mask".into(), "F.Paste".into()],
+                    drill: None,
+                    roundrect_ratio: None,
+                    raw_source: String::new(),
+                    chamfer: None,
+                    polygon: Vec::new(),
+                }),
+            }],
+            side: None,
+            preserved: Default::default(),
+        });
+        project
+    }
+
+    #[test]
+    fn a_mask_plot_artifact_makes_the_top_mask_file() -> Result<(), String> {
+        let project = plot_project();
+        let artifact = Artifact {
+            id: 3,
+            name: "top mask".into(),
+            kind: "mask_plot".into(),
+            layers: vec!["F.Mask".into()],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "pcb-F.Mask.gbr".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let out = generate(&project, &artifact)?;
+        let GeneratedOutput::Text(text) = out else {
+            return Err("expected text output".into());
+        };
+        assert!(
+            text.contains("%TF.FileFunction,Soldermask,Top*%"),
+            "top mask must have the Soldermask,Top file function tag"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_mask_plot_artifact_makes_the_bottom_mask_file() -> Result<(), String> {
+        let project = plot_project();
+        let artifact = Artifact {
+            id: 3,
+            name: "bottom mask".into(),
+            kind: "mask_plot".into(),
+            layers: vec!["B.Mask".into()],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "pcb-B.Mask.gbr".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let out = generate(&project, &artifact)?;
+        let GeneratedOutput::Text(text) = out else {
+            return Err("expected text output".into());
+        };
+        assert!(
+            text.contains("%TF.FileFunction,Soldermask,Bot*%"),
+            "bottom mask must have the Soldermask,Bot file function tag"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_paste_plot_artifact_makes_the_bottom_paste_file() -> Result<(), String> {
+        let project = plot_project();
+        let artifact = Artifact {
+            id: 3,
+            name: "bottom paste".into(),
+            kind: "paste_plot".into(),
+            layers: vec!["B.Paste".into()],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "pcb-B.Paste.gbr".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let out = generate(&project, &artifact)?;
+        let GeneratedOutput::Text(text) = out else {
+            return Err("expected text output".into());
+        };
+        assert!(
+            text.contains("%TF.FileFunction,Paste,Bot*%"),
+            "bottom paste must have the Paste,Bot file function tag"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_silk_plot_artifact_makes_legend_files() -> Result<(), String> {
+        let project = plot_project();
+        let artifact = Artifact {
+            id: 3,
+            name: "top silk".into(),
+            kind: "silk_plot".into(),
+            layers: vec!["F.SilkS".into()],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "pcb-F.SilkS.gbr".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let out = generate(&project, &artifact)?;
+        let GeneratedOutput::Text(text) = out else {
+            return Err("expected text output".into());
+        };
+        assert!(
+            text.contains("%TF.FileFunction,Legend,Top*%"),
+            "top silk must have the Legend,Top file function tag"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_profile_plot_artifact_makes_the_outline() -> Result<(), String> {
+        let project = plot_project();
+        let artifact = Artifact {
+            id: 3,
+            name: "outline".into(),
+            kind: "profile_plot".into(),
+            layers: vec![],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "pcb-Edge.gbr".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let out = generate(&project, &artifact)?;
+        let GeneratedOutput::Text(text) = out else {
+            return Err("expected text output".into());
+        };
+        assert!(
+            text.contains("%TF.FileFunction,Profile,NP*%"),
+            "outline must have the Profile,NP file function tag"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_plot_artifact_on_a_layer_it_cannot_make_is_refused() -> Result<(), String> {
+        let project = plot_project();
+        let artifact = Artifact {
+            id: 3,
+            name: "mask on inner layer".into(),
+            kind: "mask_plot".into(),
+            layers: vec!["In1.Cu".into()],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "pcb-In1.Cu.gbr".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let result = generate(&project, &artifact);
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => return Err("expected error for unsupported layer".into()),
+        };
+        assert!(
+            err.contains("In1.Cu"),
+            "error must name the layer it cannot make: {err}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_plated_drill_artifact_lists_only_plated_holes() -> Result<(), String> {
+        use pcbcraft_doc::{Hole, Via};
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        project.board.vias.push(Via {
+            id: 3,
+            net: 1,
+            position: pcbcraft_geom::Point::new(5.0, 5.0),
+            diameter: 0.8,
+            drill: 0.4,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+            covering_bottom: None,
+            backdrill: None,
+            preserved: Default::default(),
+        });
+        project.board.holes.push(Hole {
+            id: 4,
+            position: pcbcraft_geom::Point::new(20.0, 20.0),
+            diameter: 3.2,
+            end: None,
+        });
+        project.validate()?;
+        let artifact = Artifact {
+            id: 2,
+            name: "plated drill".into(),
+            kind: "drill_plated".into(),
+            layers: vec![],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "pcb-Plated.drl".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let out = generate(&project, &artifact)?;
+        let GeneratedOutput::Text(text) = out else {
+            return Err("expected text output".into());
+        };
+        assert!(text.starts_with("M48"), "drill file must start with M48");
+        assert!(
+            text.contains("C0.400"),
+            "plated drill must list the 0.4mm via tool: {text}"
+        );
+        assert!(
+            !text.contains("C3.200"),
+            "plated drill must not list the 3.2mm mounting hole tool: {text}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn an_unplated_drill_artifact_lists_only_npth_holes() -> Result<(), String> {
+        use pcbcraft_doc::{Hole, Via};
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        project.board.vias.push(Via {
+            id: 3,
+            net: 1,
+            position: pcbcraft_geom::Point::new(5.0, 5.0),
+            diameter: 0.8,
+            drill: 0.4,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+            covering_bottom: None,
+            backdrill: None,
+            preserved: Default::default(),
+        });
+        project.board.holes.push(Hole {
+            id: 4,
+            position: pcbcraft_geom::Point::new(20.0, 20.0),
+            diameter: 3.2,
+            end: None,
+        });
+        project.validate()?;
+        let artifact = Artifact {
+            id: 3,
+            name: "unplated drill".into(),
+            kind: "drill_unplated".into(),
+            layers: vec![],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "pcb-NPTH.drl".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let out = generate(&project, &artifact)?;
+        let GeneratedOutput::Text(text) = out else {
+            return Err("expected text output".into());
+        };
+        assert!(text.starts_with("M48"), "drill file must start with M48");
+        assert!(
+            text.contains("C3.200"),
+            "unplated drill must list the 3.2mm mounting hole tool: {text}"
+        );
+        assert!(
+            !text.contains("C0.400"),
+            "unplated drill must not list the 0.4mm via tool: {text}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_text_output_downloads_as_one_file_named_by_the_artifact_path() -> Result<(), String> {
+        let artifact = Artifact {
+            id: 1,
+            name: "top copper".into(),
+            kind: "copper_gerber".into(),
+            layers: vec!["Front".into()],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "pcb-F.Cu.gbr".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let output = GeneratedOutput::Text("G04*\n".into());
+        let entries = download_entries(&artifact, &output)?;
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].0, "pcb-F.Cu.gbr");
+        assert_eq!(entries[0].1, b"G04*\n");
+        Ok(())
+    }
+
+    #[test]
+    fn a_package_output_downloads_inside_its_folder() -> Result<(), String> {
+        let artifact = Artifact {
+            id: 1,
+            name: "assembly".into(),
+            kind: "assembly_drawing".into(),
+            layers: vec![],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "assembly/".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let mut files = BTreeMap::new();
+        files.insert("top.pdf".into(), b"%PDF-1.4 top".to_vec());
+        files.insert("bottom.pdf".into(), b"%PDF-1.4 bottom".to_vec());
+        let output = GeneratedOutput::BinaryFiles(files);
+        let entries = download_entries(&artifact, &output)?;
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].0, "assembly/bottom.pdf");
+        assert_eq!(entries[1].0, "assembly/top.pdf");
+        assert_eq!(entries[0].1, b"%PDF-1.4 bottom");
+        Ok(())
+    }
+
+    #[test]
+    fn a_file_name_that_climbs_out_is_refused() -> Result<(), String> {
+        let artifact = Artifact {
+            id: 1,
+            name: "bad".into(),
+            kind: "bom_csv".into(),
+            layers: vec![],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "make/".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let mut files = BTreeMap::new();
+        files.insert("../x.csv".into(), "data".into());
+        let output = GeneratedOutput::Files(files);
+        let result = download_entries(&artifact, &output);
+        assert!(
+            result.is_err(),
+            "expected error for path escaping the output folder"
+        );
+        assert!(
+            matches!(result, Err(e) if e.contains("escapes")),
+            "error message should mention escaping"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn download_entries_match_write_generated_names() -> Result<(), String> {
+        let artifact = Artifact {
+            id: 1,
+            name: "gerbers".into(),
+            kind: "package".into(),
+            layers: vec![],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "pcb-out".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let mut files = BTreeMap::new();
+        files.insert("F.Cu.gbr".into(), "G04 top\n".into());
+        files.insert("B.Cu.gbr".into(), "G04 bottom\n".into());
+        let output = GeneratedOutput::Files(files);
+
+        // Get download entries (pure, no filesystem)
+        let entries = download_entries(&artifact, &output)?;
+        let download_names: Vec<String> = entries.iter().map(|e| e.0.clone()).collect();
+
+        // Write to a temp directory and collect the names that were written
+        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let written = write_generated(dir.path(), &artifact, &output)?;
+
+        assert_eq!(download_names, written);
+        Ok(())
+    }
+}

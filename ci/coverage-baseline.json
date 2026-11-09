@@ -1,0 +1,18 @@
+{
+  "crates": {
+    "assistant": 83.14,
+    "calc": 65.77,
+    "doc": 86.86,
+    "engine": 88.75,
+    "geom": 87.24,
+    "io": 84.86,
+    "library": 89.7,
+    "mcp": 88.5,
+    "pcbcraft": 66.67,
+    "rules": 90.74,
+    "sim": 97.51,
+    "text": 94.46,
+    "ui-egui": 83.82
+  },
+  "workspace": 85.91
+}

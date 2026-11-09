@@ -1,0 +1,4 @@
+Reference,Value,Footprint,MPN,Manufacturer,Quantity
+R1,330 Ω,starter pads,,,1
+J1,5V input,starter pads,,,1
+D1,Green LED,starter pads,,,1

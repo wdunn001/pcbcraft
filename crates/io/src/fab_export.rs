@@ -1,0 +1,1493 @@
+//! Fabrication Gerber bundle: X2 attributes, split drills, mask, paste, readme.
+//!
+//! Generates the complete set of Gerber and Excellon files needed to manufacture
+//! a PCB. Each copper layer becomes a separate Gerber file; the drill file is
+//! split by tool diameter. Pick-and-place data is written as a CSV for the
+//! assembly house. A readme.txt explains the file layout to the fabricator.
+//!
+//! # Rules
+//! - File names follow the IPC-356 naming convention.
+//! - All coordinates use 4.6 fixed-point integers (millionths of a millimetre).
+//! - Aperture definitions use 3 decimal places (thousandths of a millimetre).
+//! - X2 extended attributes are written for designators and layer names.
+//!
+//! # Dependencies
+//! - crates/doc/src/lib.rs Board, Layer, Project, Via, ViaCovering, ViaProtectionType
+//! - crates/geom/src/lib.rs Point
+//! - crates/library/src/lib.rs FootprintRules
+//! - crates/io/src/gerber.rs coordinate, GerberWriter, Aperture, Operation
+//! - crates/io/src/lib.rs ExcellonWriter, Tool, Hit
+//! - crates/io/src/lib.rs PickPlaceWriter
+use crate::gerber::coordinate;
+use pcbcraft_doc::{Board, Layer, Project, Via, ViaProtectionType};
+use pcbcraft_geom::Point;
+use pcbcraft_library::FootprintRules;
+use std::collections::BTreeMap;
+
+const MAX_OPS: usize = 100_000;
+const MAX_APERTURES: usize = 64;
+const MAX_HITS: usize = 50_000;
+pub(crate) const MAX_TOOLS: usize = 64;
+const DEFAULT_MASK_MARGIN_MM: f64 = 0.05;
+
+/// Whether a via gets a solder-mask opening on at least one face.
+///
+/// See `via_mask_opening_on_face` for the per-face rule.
+pub fn via_mask_opening(v: &Via, board: &Board) -> bool {
+    via_mask_opening_on_face(v, board, true) || via_mask_opening_on_face(v, board, false)
+}
+
+/// Whether a via gets a solder-mask opening on one face.
+///
+/// The covering of that face is the via's own, else the board default. Only
+/// an open face keeps its opening; tented, plugged and filled types close the
+/// hole, so the mask plot of that face leaves the opening out. A via without
+/// a drilled hole has nothing to open.
+///
+/// # Rules
+/// - `top` picks the face; the top face uses `Via::effective_covering`, the bottom face `Via::effective_covering_bottom`.
+///
+/// # Dependencies
+/// - `crates/doc/src/lib.rs` `Via`, `Board`.
+///
+/// # Do not
+/// - Test whether the span reaches the face here; the caller knows the layer it plots.
+pub fn via_mask_opening_on_face(v: &Via, board: &Board, top: bool) -> bool {
+    let covering = if top {
+        v.effective_covering(board)
+    } else {
+        v.effective_covering_bottom(board)
+    };
+    v.drill > 0.0 && covering.keeps_mask_opening()
+}
+
+/// What a drilled hole is for, in the order the drill table lists them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum DrillFunction {
+    /// A via barrel.
+    Via,
+    /// The hole of a component pad.
+    ComponentPad,
+    /// A mounting or tooling hole.
+    Mounting,
+    /// A back-drill pass that removes the stub of a plated through hole.
+    BackDrill,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct DrillHit {
+    /// Copper span (upper, lower layer index) of a blind or buried via.
+    pub via_span: Option<(u8, u8)>,
+    pub d_um: u64,
+    pub span_um: u64,
+    pub plated: bool,
+    /// Protection type of the via this hit drills, `None` for pad and mounting holes.
+    pub via: Option<ViaProtectionType>,
+    /// Copper span (upper, lower layer index) the hole runs through; top to bottom for pad and mounting holes.
+    pub span: (u8, u8),
+    /// What the hole is for.
+    pub function: DrillFunction,
+    pub x: f64,
+    pub y: f64,
+    pub ux: f64,
+    pub uy: f64,
+}
+
+/// The span of a via that does not run top to bottom, as layer indices.
+pub(crate) fn partial_via_span(p: &Project, v: &Via) -> Option<(u8, u8)> {
+    let (a, b) = p.via_span(v);
+    let last = p.copper_layer_count().saturating_sub(1);
+    (a.index() != 0 || b.index() < last).then_some((a.index(), b.index()))
+}
+
+/// Whether a via has copper on the top and on the bottom layer.
+pub(crate) fn via_reaches_outer(p: &Project, v: &Via) -> (bool, bool) {
+    let (a, b) = p.via_span(v);
+    let last = p.copper_layer_count().saturating_sub(1);
+    (a.index() == 0, b.index() >= last)
+}
+
+pub(crate) fn collect_drill_hits(p: &Project) -> Result<Vec<DrillHit>, String> {
+    p.validate()?;
+    let mut hits = Vec::new();
+    let push = |hits: &mut Vec<DrillHit>, hit: DrillHit| {
+        hits.push(hit);
+    };
+    let through = (0u8, p.copper_layer_count().saturating_sub(1));
+    for v in &p.board.vias {
+        if v.drill > 0.0 {
+            push(
+                &mut hits,
+                DrillHit {
+                    via_span: partial_via_span(p, v),
+                    d_um: (v.drill * 1_000.0).round() as u64,
+                    span_um: 0,
+                    plated: true,
+                    via: Some(p.via_protection_type(v)),
+                    span: {
+                        let (a, b) = p.via_span(v);
+                        (a.index(), b.index())
+                    },
+                    function: DrillFunction::Via,
+                    x: v.position.x,
+                    y: v.position.y,
+                    ux: 0.0,
+                    uy: 0.0,
+                },
+            );
+        }
+    }
+    for h in &p.board.holes {
+        let d_um = (h.diameter * 1_000.0).round() as u64;
+        let span_um = if h.is_slot() {
+            (h.start().distance(h.finish()) * 1_000.0).round() as u64
+        } else {
+            0
+        };
+        let (x, y, ux, uy) = if h.is_slot() {
+            let center = h.center();
+            let half = Point::new(
+                (h.finish().x - h.start().x) / 2.0,
+                (h.finish().y - h.start().y) / 2.0,
+            );
+            (center.x, center.y, half.x, half.y)
+        } else {
+            (h.position.x, h.position.y, 0.0, 0.0)
+        };
+        push(
+            &mut hits,
+            DrillHit {
+                via_span: None,
+                d_um,
+                span_um,
+                plated: false,
+                via: None,
+                span: through,
+                function: DrillFunction::Mounting,
+                x,
+                y,
+                ux,
+                uy,
+            },
+        );
+    }
+    for f in &p.board.footprints {
+        for pad in &f.pads {
+            let Some(g) = pad.geometry.as_ref() else {
+                continue;
+            };
+            let Some(drill) = g.drill.as_ref() else {
+                continue;
+            };
+            let (wide, narrow) = (
+                drill.size.x.max(drill.size.y),
+                drill.size.x.min(drill.size.y),
+            );
+            let d_um = (narrow * 1_000.0).round() as u64;
+            if d_um == 0 {
+                continue;
+            }
+            let span_um = ((wide - narrow) * 1_000.0).round() as u64;
+            let local = pad.offset.offset(drill.offset.rotate(-g.rotation));
+            let world = f.position.offset(local.rotate(-f.rotation));
+            let (ux, uy) = if span_um == 0 {
+                (0.0, 0.0)
+            } else {
+                let axis = if drill.size.x >= drill.size.y {
+                    Point::new((wide - narrow) / 2.0, 0.0)
+                } else {
+                    Point::new(0.0, (wide - narrow) / 2.0)
+                };
+                let dir = axis.rotate(-(g.rotation + f.rotation));
+                (dir.x, dir.y)
+            };
+            push(
+                &mut hits,
+                DrillHit {
+                    via_span: None,
+                    d_um,
+                    span_um,
+                    plated: g.pad_type == "thru_hole",
+                    via: None,
+                    span: through,
+                    function: if g.pad_type == "thru_hole" {
+                        DrillFunction::ComponentPad
+                    } else {
+                        DrillFunction::Mounting
+                    },
+                    x: world.x,
+                    y: world.y,
+                    ux,
+                    uy,
+                },
+            );
+        }
+    }
+    if hits.len() > MAX_HITS {
+        return Err("gerber export exceeds the drill hit limit".into());
+    }
+    Ok(hits)
+}
+
+pub fn drill_tool_counts(p: &Project) -> Result<BTreeMap<(u64, u64, bool), usize>, String> {
+    let mut tools: BTreeMap<(u64, u64, bool), usize> = BTreeMap::new();
+    for hit in collect_drill_hits(p)? {
+        *tools
+            .entry((hit.d_um, hit.span_um, hit.plated))
+            .or_default() += 1;
+    }
+    if tools.len() > MAX_TOOLS {
+        return Err("drill chart needs 64 or fewer distinct drill tools".into());
+    }
+    Ok(tools)
+}
+
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum Ap {
+    Circle(u64),
+    Rect(u64, u64),
+    Obround(u64, u64),
+    Round(u64, u64, u64),
+    /// A one micrometre disc that names the region it draws: 0 for a plain
+    /// opening, 1 for a pad whose copper the mask defines, 2 for a copper
+    /// defined surface pad.
+    Region(u8),
+}
+
+/// The aperture function an `Ap::Region` stands for.
+fn region_function(kind: u8) -> Option<&'static str> {
+    match kind {
+        1 => Some("SMDPad,SMDef"),
+        2 => Some("SMDPad,CuDef"),
+        _ => None,
+    }
+}
+
+struct LayerAttrs<'a> {
+    comment: &'a str,
+    file_function: &'a str,
+    polarity: &'a str,
+}
+
+struct GerberLayer {
+    apertures: BTreeMap<Ap, u32>,
+    body: String,
+    ops: usize,
+    scale: f64,
+    current_ap: Option<u32>,
+}
+
+impl GerberLayer {
+    fn new(scale: f64) -> Self {
+        Self {
+            apertures: BTreeMap::new(),
+            body: String::new(),
+            ops: 0,
+            scale,
+            current_ap: None,
+        }
+    }
+
+    fn code(&mut self, ap: Ap) -> Result<u32, String> {
+        if let Some(code) = self.apertures.get(&ap) {
+            return Ok(*code);
+        }
+        if self.apertures.len() >= MAX_APERTURES {
+            return Err("gerber export needs more than 64 distinct apertures".into());
+        }
+        let code = 10 + self.apertures.len() as u32;
+        self.apertures.insert(ap, code);
+        Ok(code)
+    }
+
+    fn select(&mut self, code: u32) {
+        if self.current_ap != Some(code) {
+            self.body.push_str(&format!("D{code}*\n"));
+            self.current_ap = Some(code);
+        }
+    }
+
+    fn push_attrs(&mut self, net: Option<&str>, part: Option<(&str, &str)>) {
+        if let Some(name) = net.filter(|n| !n.is_empty()) {
+            self.body.push_str(&format!("%TO.N,{name}*%\n"));
+        }
+        if let Some((reference, pad)) = part {
+            self.body.push_str(&format!("%TO.P,{reference},{pad}*%\n"));
+            self.body.push_str(&format!("%TO.C,{reference}*%\n"));
+        }
+    }
+
+    fn flash(&mut self, code: u32, x: f64, y: f64) -> Result<(), String> {
+        self.ops += 1;
+        if self.ops > MAX_OPS {
+            return Err("gerber export exceeds the object limit".into());
+        }
+        self.select(code);
+        self.body.push_str(&format!(
+            "X{}Y{}D03*\n",
+            coordinate(x * self.scale),
+            coordinate(y * self.scale)
+        ));
+        Ok(())
+    }
+
+    fn stroke(&mut self, code: u32, points: &[(f64, f64)], closed: bool) -> Result<(), String> {
+        self.ops += points.len();
+        if self.ops > MAX_OPS {
+            return Err("gerber export exceeds the object limit".into());
+        }
+        self.select(code);
+        for (i, (x, y)) in points.iter().enumerate() {
+            self.body.push_str(&format!(
+                "X{}Y{}D0{}*\n",
+                coordinate(x * self.scale),
+                coordinate(y * self.scale),
+                if i == 0 { 2 } else { 1 }
+            ));
+        }
+        if closed && let Some((x, y)) = points.first() {
+            self.body.push_str(&format!(
+                "X{}Y{}D01*\n",
+                coordinate(x * self.scale),
+                coordinate(y * self.scale)
+            ));
+        }
+        Ok(())
+    }
+
+    fn fill(&mut self, code: u32, points: &[(f64, f64)]) -> Result<(), String> {
+        self.ops += points.len();
+        if self.ops > MAX_OPS {
+            return Err("gerber export exceeds the object limit".into());
+        }
+        self.select(code);
+        self.body.push_str("G36*\nD02*\n");
+        for (i, (x, y)) in points.iter().enumerate() {
+            self.body.push_str(&format!(
+                "X{}Y{}D0{}*\n",
+                coordinate(x * self.scale),
+                coordinate(y * self.scale),
+                if i == 0 { 2 } else { 1 }
+            ));
+        }
+        self.body.push_str("G37*\n");
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn arc_segment(
+        &mut self,
+        code: u32,
+        sx: f64,
+        sy: f64,
+        ex: f64,
+        ey: f64,
+        cx: f64,
+        cy: f64,
+        clockwise: bool,
+    ) -> Result<(), String> {
+        self.ops += 1;
+        if self.ops > MAX_OPS {
+            return Err("gerber export exceeds the object limit".into());
+        }
+        self.select(code);
+        self.body.push_str("G75*\n");
+        self.body.push_str(&format!(
+            "X{}Y{}D02*\nG0{}*\nX{}Y{}I{}J{}D01*\nG01*\n",
+            coordinate(sx * self.scale),
+            coordinate(sy * self.scale),
+            if clockwise { 2 } else { 3 },
+            coordinate(ex * self.scale),
+            coordinate(ey * self.scale),
+            coordinate((cx - sx) * self.scale),
+            coordinate((cy - sy) * self.scale),
+        ));
+        Ok(())
+    }
+
+    fn finish(&self, attrs: &LayerAttrs<'_>) -> String {
+        let mo = if self.scale != 1.0 {
+            "%MOIN*%"
+        } else {
+            "%MOMM*%"
+        };
+        let x2 = crate::gerber::x2_header(
+            &crate::gerber_job::now_utc(),
+            attrs.file_function,
+            Some(attrs.polarity),
+            true,
+            None,
+        );
+        let mut out = format!(
+            "G04 {} generated by PCBCraft *\n\
+             {}\
+             %FSLAX46Y46*%\n\
+             {mo}\n\
+             %LPD*%\n\
+             G01*\n",
+            attrs.comment, x2
+        );
+        let mut by_code: Vec<(&Ap, &u32)> = self.apertures.iter().collect();
+        by_code.sort_by_key(|(_, code)| **code);
+        for (ap, code) in by_code {
+            match *ap {
+                Ap::Region(kind) => {
+                    if let Some(function) = region_function(kind) {
+                        out.push_str(&format!("%TA.AperFunction,{function}*%\n"));
+                    }
+                    out.push_str(&format!("%ADD{code}C,0.001*%\n"));
+                }
+                Ap::Circle(d) => out.push_str(&format!(
+                    "%ADD{code}C,{:.3}*%\n",
+                    d as f64 / 1000.0 * self.scale
+                )),
+                Ap::Rect(w, h) => out.push_str(&format!(
+                    "%ADD{code}R,{:.3}X{:.3}*%\n",
+                    w as f64 / 1000.0 * self.scale,
+                    h as f64 / 1000.0 * self.scale
+                )),
+                Ap::Obround(w, h) => out.push_str(&format!(
+                    "%ADD{code}O,{:.3}X{:.3}*%\n",
+                    w as f64 / 1000.0 * self.scale,
+                    h as f64 / 1000.0 * self.scale
+                )),
+                Ap::Round(w, h, r) => {
+                    let w_mm = w as f64 / 1000.0;
+                    let h_mm = h as f64 / 1000.0;
+                    let r_mm = r as f64 / 1000.0;
+                    let points = roundrect_outline(w_mm, h_mm, r_mm);
+                    let mut ring = points.clone();
+                    if let Some(first) = points.first().copied() {
+                        ring.push(first);
+                    }
+                    let coords = ring
+                        .iter()
+                        .map(|(x, y)| format!("{:.6},{:.6}", x * self.scale, y * self.scale))
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    let macro_def = format!("%AMPAD{}*", code);
+                    let macro_body = format!("4,1,{},{}*%", ring.len().saturating_sub(1), coords);
+                    out.push_str(&macro_def);
+                    out.push('\n');
+                    out.push_str(&macro_body);
+                    out.push('\n');
+                    out.push_str(&format!("%ADD{code}PAD{code}*%\n"));
+                }
+            }
+        }
+        out.push_str(&self.body);
+        out.push_str("M02*\n");
+        crate::gerber_fidelity::attach_gerber_md5_in_header(out)
+    }
+}
+
+fn net_name(p: &Project, id: u64) -> Option<&str> {
+    p.nets.iter().find(|n| n.id == id).map(|n| n.name.as_str())
+}
+
+fn component_reference(p: &Project, component_id: u64) -> Option<&str> {
+    p.components
+        .iter()
+        .find(|c| c.id == component_id)
+        .map(|c| c.reference.as_str())
+}
+
+fn footprint_rules(p: &Project, component_id: u64) -> Option<&FootprintRules> {
+    p.components
+        .iter()
+        .find(|c| c.id == component_id)
+        .and_then(|c| c.library_footprint.as_ref())
+        .and_then(|lf| lf.definition.rules.as_ref())
+}
+
+fn grow_outline(points: &[(f64, f64)], margin: f64) -> Vec<(f64, f64)> {
+    if margin.abs() < 1e-12 || points.len() < 3 {
+        return points.to_vec();
+    }
+    let n = points.len() as f64;
+    let (cx, cy) = (
+        points.iter().map(|p| p.0).sum::<f64>() / n,
+        points.iter().map(|p| p.1).sum::<f64>() / n,
+    );
+    points
+        .iter()
+        .map(|(x, y)| {
+            let dx = x - cx;
+            let dy = y - cy;
+            let len = (dx * dx + dy * dy).sqrt();
+            if len < 1e-9 {
+                (*x, *y)
+            } else {
+                (x + dx / len * margin, y + dy / len * margin)
+            }
+        })
+        .collect()
+}
+
+fn roundrect_outline(w_mm: f64, h_mm: f64, r_mm: f64) -> Vec<(f64, f64)> {
+    if r_mm <= 0.0 {
+        return vec![
+            (-w_mm / 2.0, -h_mm / 2.0),
+            (w_mm / 2.0, -h_mm / 2.0),
+            (w_mm / 2.0, h_mm / 2.0),
+            (-w_mm / 2.0, h_mm / 2.0),
+        ];
+    }
+    let mut points = Vec::with_capacity(68);
+    for (cx, cy, start_deg) in [
+        (w_mm / 2.0 - r_mm, h_mm / 2.0 - r_mm, 0.0),
+        (-w_mm / 2.0 + r_mm, h_mm / 2.0 - r_mm, 90.0),
+        (-w_mm / 2.0 + r_mm, -h_mm / 2.0 + r_mm, 180.0),
+        (w_mm / 2.0 - r_mm, -h_mm / 2.0 + r_mm, 270.0),
+    ] {
+        for i in 0..=16 {
+            let angle = (start_deg + i as f64 * 90.0 / 16.0).to_radians();
+            points.push((cx + r_mm * angle.cos(), cy + r_mm * angle.sin()));
+        }
+    }
+    points
+}
+
+fn pad_ap(pad: &pcbcraft_doc::Pad) -> Ap {
+    match &pad.geometry {
+        Some(g) => {
+            let w = (g.size.x * 1_000.0).round() as u64;
+            let h = (g.size.y * 1_000.0).round() as u64;
+            match g.shape.as_str() {
+                "circle" => Ap::Circle(w.max(1)),
+                "rect" => Ap::Rect(w.max(1), h.max(1)),
+                "oval" => Ap::Obround(w.max(1), h.max(1)),
+                "roundrect" => Ap::Round(
+                    w.max(1),
+                    h.max(1),
+                    ((w.min(h) as f64 * g.roundrect_ratio.unwrap_or(0.0))
+                        .round()
+                        .max(1.0)) as u64,
+                ),
+                _ => Ap::Circle((pad.diameter.max(0.001) * 1_000.0).round() as u64),
+            }
+        }
+        None => Ap::Circle((pad.diameter.max(0.001) * 1_000.0).round() as u64),
+    }
+}
+
+/// Build the solder paste aperture for a pad, growing or shrinking it by the
+/// footprint paste margin. The margin is in millimetres; a negative value
+/// shrinks the opening, as the library rule documents. Dimensions are stored in
+/// micrometres, so the margin is converted first. Each dimension is clamped to
+/// at least one micrometre so a large negative margin cannot produce a zero or
+/// negative aperture. Computation uses i64 to avoid u64 underflow when the
+/// margin is negative. A zero margin returns exactly the pad aperture, matching
+/// the old behaviour.
+fn paste_ap(pad: &pcbcraft_doc::Pad, margin_mm: f64) -> Ap {
+    let margin_um = (margin_mm * 1_000.0).round() as i64;
+    match &pad.geometry {
+        Some(g) => {
+            let w = (g.size.x * 1_000.0).round() as i64;
+            let h = (g.size.y * 1_000.0).round() as i64;
+            match g.shape.as_str() {
+                "circle" => {
+                    let d = w + 2 * margin_um;
+                    Ap::Circle(d.max(1) as u64)
+                }
+                "rect" => {
+                    let dw = w + 2 * margin_um;
+                    let dh = h + 2 * margin_um;
+                    Ap::Rect(dw.max(1) as u64, dh.max(1) as u64)
+                }
+                "oval" => {
+                    let dw = w + 2 * margin_um;
+                    let dh = h + 2 * margin_um;
+                    Ap::Obround(dw.max(1) as u64, dh.max(1) as u64)
+                }
+                "roundrect" => {
+                    let dw = w + 2 * margin_um;
+                    let dh = h + 2 * margin_um;
+                    let r = ((w.min(h) as f64 * g.roundrect_ratio.unwrap_or(0.0))
+                        .round()
+                        .max(1.0)) as u64;
+                    Ap::Round(dw.max(1) as u64, dh.max(1) as u64, r)
+                }
+                _ => {
+                    let d = (pad.diameter * 1_000.0).round() as i64;
+                    let dd = d + 2 * margin_um;
+                    Ap::Circle(dd.max(1) as u64)
+                }
+            }
+        }
+        None => {
+            let d = (pad.diameter * 1_000.0).round() as i64;
+            let dd = d + 2 * margin_um;
+            Ap::Circle(dd.max(1) as u64)
+        }
+    }
+}
+
+fn pad_on_back(pad: &pcbcraft_doc::Pad) -> bool {
+    pad.geometry
+        .as_ref()
+        .is_some_and(|g| !g.layers.is_empty() && !g.layers.iter().any(|l| l.starts_with("F.")))
+}
+
+fn pad_is_smd(pad: &pcbcraft_doc::Pad) -> bool {
+    pad.geometry
+        .as_ref()
+        .is_some_and(|g| g.drill.is_none() && g.pad_type != "thru_hole")
+}
+
+fn pad_is_through(pad: &pcbcraft_doc::Pad) -> bool {
+    pad.geometry
+        .as_ref()
+        .is_some_and(|g| g.drill.is_some() || g.pad_type.starts_with("thru_hole"))
+}
+
+fn outline_ring(points: &[(f64, f64)]) -> Vec<(f64, f64)> {
+    if points.len() >= 2
+        && (points[0].0 - points[points.len() - 1].0).abs() < 1e-9
+        && (points[0].1 - points[points.len() - 1].1).abs() < 1e-9
+    {
+        points[..points.len() - 1].to_vec()
+    } else {
+        points.to_vec()
+    }
+}
+
+/// The drill tolerance the board records, in millimetres, plus or minus.
+fn drill_tolerance(p: &Project) -> Option<f64> {
+    p.board
+        .machining
+        .as_ref()
+        .and_then(|m| m.drill_tolerance)
+        .filter(|t| *t > 0.0)
+}
+
+/// One Excellon drill file with X2 tool attributes.
+///
+/// Each tool is written under `TA.DrillTolerance` when the board records a
+/// drill tolerance, and under `TA.AperFunction,Plated,PTH,ViaDrill,<type>`
+/// when it drills vias, so a fab reads both from the file itself. Via hits
+/// get their own tools per protection type.
+///
+/// # Rules
+/// - The tolerance is written in the file's unit, plus and minus equal.
+/// - A tool with no attribute writes no `TD` line.
+///
+/// # Dependencies
+/// - `crates/io/src/fab_export.rs` `DrillHit`, `drill_tolerance`.
+///
+/// # Do not
+/// - Write a comment line for the protection; the attribute carries it.
+fn write_excellon(
+    hits: &[DrillHit],
+    plating_line: &str,
+    scale: f64,
+    origin: Point,
+    inch: bool,
+    tolerance: Option<f64>,
+) -> Result<String, String> {
+    let round: Vec<&DrillHit> = hits.iter().filter(|h| h.span_um == 0).collect();
+    // Via hits get their own tools per protection type so each tool can carry
+    // the via drill attribute and name its protection.
+    let mut by_tool: BTreeMap<(u64, u64, Option<ViaProtectionType>), Vec<&DrillHit>> =
+        BTreeMap::new();
+    for hit in round {
+        by_tool
+            .entry((hit.d_um, hit.span_um, hit.via))
+            .or_default()
+            .push(hit);
+    }
+    if by_tool.len() > MAX_TOOLS {
+        return Err("drill export needs 64 or fewer distinct tools".into());
+    }
+    let (unit_line, prec) = if inch { ("INCH", 4) } else { ("METRIC", 3) };
+    let mut out = format!("M48\n{plating_line}\n{unit_line}\n");
+    for (n, key) in by_tool.keys().enumerate() {
+        let d = key.0;
+        let mut attributed = false;
+        if let Some(t) = tolerance {
+            out.push_str(&format!(
+                "; #@! TA.DrillTolerance,{t:.prec$},{t:.prec$}\n",
+                t = t * scale,
+                prec = prec
+            ));
+            attributed = true;
+        }
+        if let Some(kind) = key.2 {
+            out.push_str(&format!(
+                "; #@! TA.AperFunction,Plated,PTH,ViaDrill,{}\n",
+                kind.gerber_token()
+            ));
+            attributed = true;
+        }
+        out.push_str(&format!(
+            "T{:02}C{:.prec$}\n",
+            n + 1,
+            d as f64 / 1000.0 * scale,
+            prec = prec
+        ));
+        if attributed {
+            out.push_str("; #@! TD\n");
+        }
+    }
+    out.push_str("%\nG90\nG05\n");
+    for (n, (_key, group)) in by_tool.iter().enumerate() {
+        out.push_str(&format!("T{:02}\n", n + 1));
+        for hit in group {
+            let x = (hit.x - origin.x) * scale;
+            let y = (hit.y - origin.y) * scale;
+            out.push_str(&format!("X{x:.prec$}Y{y:.prec$}\n", prec = prec));
+        }
+    }
+    out.push_str("M30\n");
+    Ok(out)
+}
+
+fn write_rout(hits: &[DrillHit], scale: f64, origin: Point, inch: bool) -> Result<String, String> {
+    let slots: Vec<&DrillHit> = hits.iter().filter(|h| h.span_um > 0).collect();
+    if slots.is_empty() {
+        return Ok(String::new());
+    }
+    let mut by_tool: BTreeMap<u64, Vec<&DrillHit>> = BTreeMap::new();
+    for hit in slots {
+        by_tool.entry(hit.d_um).or_default().push(hit);
+    }
+    if by_tool.len() > MAX_TOOLS {
+        return Err("rout export needs 64 or fewer distinct tools".into());
+    }
+    let (unit_line, prec) = if inch { ("INCH", 4) } else { ("METRIC", 3) };
+    let mut out = format!("M48\nRout\n{unit_line}\n");
+    for (n, (d, _)) in by_tool.iter().enumerate() {
+        out.push_str(&format!(
+            "T{:02}C{:.prec$}\n",
+            n + 1,
+            *d as f64 / 1000.0 * scale,
+            prec = prec
+        ));
+    }
+    out.push_str("%\nG90\nG05\n");
+    for (n, (_d, group)) in by_tool.iter().enumerate() {
+        out.push_str(&format!("T{:02}\n", n + 1));
+        for hit in group {
+            let x = (hit.x - origin.x) * scale;
+            let y = (hit.y - origin.y) * scale;
+            let ux = hit.ux * scale;
+            let uy = hit.uy * scale;
+            out.push_str(&format!(
+                "G00X{a:.prec$}Y{b:.prec$}\nM15\nG01X{c:.prec$}Y{d:.prec$}\nM16\n",
+                a = x - ux,
+                b = y - uy,
+                c = x + ux,
+                d = y + uy,
+                prec = prec
+            ));
+        }
+    }
+    out.push_str("M30\n");
+    Ok(out)
+}
+
+/// Gerber drill-map layer with one marker symbol per tool and a legend table.
+pub fn drill_map_plot(p: &Project) -> Result<String, String> {
+    p.validate()?;
+    let inch = p.unit == "inch";
+    let scale = if inch { 1.0 / 25.4 } else { 1.0 };
+    let origin = p.board.drill_origin;
+    let hits = collect_drill_hits(p)?;
+    let counts = drill_tool_counts(p)?;
+    let mut layer = GerberLayer::new(scale);
+    // The drill table, as comments, in the same lines the readme prints.
+    for (n, line) in crate::drill_table::drill_table_lines(&crate::drill_table::drill_table(p)?)
+        .iter()
+        .enumerate()
+    {
+        layer.body.push_str(&format!(
+            "G04 DRILL TABLE {}{} *\n",
+            if n == 0 { "" } else { "ROW " },
+            line
+        ));
+    }
+    let mut tool_index = 0usize;
+    for ((d_um, span_um, plated), count) in &counts {
+        tool_index += 1;
+        let marker_d = (100 + tool_index as u64 * 25).min(500);
+        let code = layer.code(Ap::Circle(marker_d))?;
+        layer.body.push_str(&format!(
+            "G04 LEGEND T{tool_index},{:.3},{:.3},{plated},{count} *%\n",
+            *d_um as f64 / 1000.0,
+            *span_um as f64 / 1000.0,
+            plated = if *plated { "yes" } else { "no" },
+            count = count
+        ));
+        for hit in hits
+            .iter()
+            .filter(|h| h.d_um == *d_um && h.span_um == *span_um && h.plated == *plated)
+        {
+            let (x, y) = (hit.x - origin.x, hit.y - origin.y);
+            if hit.span_um == 0 {
+                layer.flash(code, x, y)?;
+            } else {
+                layer.stroke(
+                    code,
+                    &[(x - hit.ux, y - hit.uy), (x + hit.ux, y + hit.uy)],
+                    false,
+                )?;
+            }
+        }
+    }
+    let back = crate::backdrill::collect_backdrill_hits(p);
+    let mut diameters: Vec<u64> = back.iter().map(|h| h.d_um).collect();
+    diameters.sort_unstable();
+    diameters.dedup();
+    for d_um in diameters {
+        tool_index += 1;
+        let marker_d = (100 + tool_index as u64 * 25).min(500);
+        let code = layer.code(Ap::Circle(marker_d))?;
+        let at: Vec<_> = back.iter().filter(|h| h.d_um == d_um).collect();
+        layer.body.push_str(&format!(
+            "G04 LEGEND T{tool_index},{:.3},0.000,no,{} BACKDRILL *%\n",
+            d_um as f64 / 1000.0,
+            at.len()
+        ));
+        for h in at {
+            layer.flash(code, h.x - origin.x, h.y - origin.y)?;
+        }
+    }
+    Ok(layer.finish(&LayerAttrs {
+        comment: "drill hole map",
+        file_function: "Drillmap",
+        polarity: "Positive",
+    }))
+}
+
+/// Plain-text fabrication readme listing bundle files and stackup metadata.
+pub fn fab_readme_text(p: &Project, file_names: &[String]) -> Result<String, String> {
+    p.validate()?;
+    let title = if p.name.trim().is_empty() {
+        "untitled board"
+    } else {
+        p.name.trim()
+    };
+    let mut out = format!("Fabrication package for {title}\n\nFILES\n");
+    for name in file_names {
+        out.push_str(name);
+        out.push('\n');
+    }
+    out.push_str("\nLayer order (recorded stack):\n");
+    if p.board.layer_records.is_empty() {
+        out.push_str("(none recorded)\n");
+    } else {
+        for l in &p.board.layer_records {
+            out.push_str(&format!(
+                "  {} ({}, {:.3} mm)\n",
+                l.name, l.kind, l.thickness
+            ));
+        }
+    }
+    out.push_str(&format!(
+        "\nBoard: {:.3} x {:.3} x {:.3} mm\nSurface finish: {}\n",
+        p.board.width, p.board.height, p.board.thickness, p.board.finish
+    ));
+    if let Some(m) = &p.board.machining {
+        if let Some(v) = m.drill_tolerance {
+            out.push_str(&format!("Drill tolerance: +/- {:.3} mm\n", v));
+        }
+        if let Some(v) = m.edge_plating {
+            out.push_str(&format!("Edge plating: {}\n", if v { "yes" } else { "no" }));
+        }
+    }
+    out.push_str(&format!(
+        "Via protection: {}\n",
+        p.board.via_covering_default.label()
+    ));
+    let mut overrides: BTreeMap<&'static str, usize> = BTreeMap::new();
+    for v in &p.board.vias {
+        if let Some(c) = v.covering.filter(|c| *c != p.board.via_covering_default) {
+            *overrides.entry(c.label()).or_default() += 1;
+        }
+    }
+    for (label, count) in overrides {
+        out.push_str(&format!("Via protection override: {count} {label}\n"));
+    }
+    out.push_str(
+        "Drill tool numbers restart in each Excellon file; the CSV chart may use different indices.\n",
+    );
+    out.push_str("\nDRILL TABLE\n");
+    for line in crate::drill_table::drill_table_lines(&crate::drill_table::drill_table(p)?) {
+        out.push_str(&line);
+        out.push('\n');
+    }
+    let meta_keys = [
+        "contact",
+        "company",
+        "revision",
+        "impedance",
+        "mask_colour",
+        "silk_colour",
+        "material",
+        "ipc_class",
+        "panel",
+        "quantity",
+    ];
+    let mut wrote_meta = false;
+    for key in meta_keys {
+        if let Some(value) = p.meta.get(key).filter(|v| !v.is_empty()) {
+            if !wrote_meta {
+                out.push_str("\nProject notes:\n");
+                wrote_meta = true;
+            }
+            out.push_str(&format!("  {key}: {value}\n"));
+        }
+    }
+    for (key, value) in &p.meta {
+        if meta_keys.contains(&key.as_str()) || value.is_empty() {
+            continue;
+        }
+        if !wrote_meta {
+            out.push_str("\nProject notes:\n");
+            wrote_meta = true;
+        }
+        out.push_str(&format!("  {key}: {value}\n"));
+    }
+    Ok(out)
+}
+
+/// RS-274X fabrication bundle with X2 attributes, split drills, mask and paste.
+pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
+    p.validate()?;
+    let inch = p.unit == "inch";
+    let scale = if inch { 1.0 / 25.4 } else { 1.0 };
+
+    let mut front = GerberLayer::new(scale);
+    let mut back = GerberLayer::new(scale);
+    let mut mask_front = GerberLayer::new(scale);
+    let mut mask_back = GerberLayer::new(scale);
+    let mut paste_front = GerberLayer::new(scale);
+    let mut paste_back = GerberLayer::new(scale);
+
+    // Poured copper ships from `gerber_files_report` in lib.rs, which writes
+    // the computed fill. The copper files built here are not shipped, so zones
+    // are not written again as raw outlines.
+    for t in &p.board.tracks {
+        let is_back = t.layer == Layer::Back;
+        let file = if is_back { &mut back } else { &mut front };
+        let w = (t.width * 1_000.0).round() as u64;
+        let code = file.code(Ap::Circle(w.max(1)))?;
+        file.push_attrs(net_name(p, t.net), None);
+        if let Some(arc) = t.curve() {
+            let (sx, sy) = (t.start.x, t.start.y);
+            let (ex, ey) = (t.end.x, t.end.y);
+            let (cx, cy) = (arc.center.x, arc.center.y);
+            let clockwise = arc.sweep < 0.0;
+            file.arc_segment(code, sx, sy, ex, ey, cx, cy, clockwise)?;
+        } else {
+            file.stroke(code, &[(t.start.x, t.start.y), (t.end.x, t.end.y)], false)?;
+        }
+    }
+
+    for f in &p.board.footprints {
+        let reference = component_reference(p, f.component);
+        let rules = footprint_rules(p, f.component);
+        let mask_margin = rules
+            .and_then(|r| r.mask_margin)
+            .unwrap_or(DEFAULT_MASK_MARGIN_MM);
+        let paste_margin = rules.and_then(|r| r.paste_margin).unwrap_or(0.0);
+        for pad in &f.pads {
+            let world = f.position.offset(pad.offset.rotate(-f.rotation));
+            let through = pad_is_through(pad);
+            let is_back = pad_on_back(pad);
+            let ap = pad_ap(pad);
+            let net = pad.net.and_then(|id| net_name(p, id));
+            let part = reference.map(|r| (r, pad.number.as_str()));
+
+            let (front_code, back_code) = if through {
+                (front.code(ap.clone())?, back.code(ap.clone())?)
+            } else if is_back {
+                (0, back.code(ap.clone())?)
+            } else {
+                (front.code(ap.clone())?, 0)
+            };
+            if front_code != 0 {
+                front.push_attrs(net, part);
+                front.flash(front_code, world.x, world.y)?;
+            }
+            if back_code != 0 {
+                let (x, y) = (world.x, world.y);
+                back.push_attrs(net, part);
+                back.flash(back_code, x, y)?;
+            }
+
+            let local_outline: Vec<(f64, f64)> = pad
+                .outline_points()
+                .into_iter()
+                .map(|v| {
+                    let pt = f.position.offset(v.rotate(-f.rotation));
+                    (pt.x, pt.y)
+                })
+                .collect();
+            let mask_ring = grow_outline(&local_outline, mask_margin);
+            let paste_ring = if paste_margin.abs() > 1e-12 {
+                grow_outline(&local_outline, paste_margin)
+            } else {
+                local_outline.clone()
+            };
+
+            let mask_on_front = through || !is_back;
+            let mask_on_back = through || is_back;
+            let region_kind = if pad_is_smd(pad) {
+                if crate::gerber_fidelity::pad_mask_defined(f, pad) {
+                    1
+                } else {
+                    2
+                }
+            } else {
+                0
+            };
+            if mask_on_front && !mask_ring.is_empty() {
+                let code = mask_front.code(Ap::Region(region_kind))?;
+                mask_front.fill(code, &outline_ring(&mask_ring))?;
+            }
+            if mask_on_back && !mask_ring.is_empty() {
+                let code = mask_back.code(Ap::Region(region_kind))?;
+                mask_back.fill(code, &outline_ring(&mask_ring))?;
+            }
+
+            if pad_is_smd(pad) {
+                if !is_back && !paste_ring.is_empty() {
+                    let code = paste_front.code(paste_ap(pad, paste_margin))?;
+                    paste_front.flash(code, world.x, world.y)?;
+                }
+                if is_back && !paste_ring.is_empty() {
+                    let code = paste_back.code(paste_ap(pad, paste_margin))?;
+                    paste_back.flash(code, world.x, world.y)?;
+                }
+            }
+        }
+    }
+
+    for v in &p.board.vias {
+        let d = (v.diameter * 1_000.0).round() as u64;
+        let ap = Ap::Circle(d.max(1));
+        let front_code = front.code(ap.clone())?;
+        let back_code = back.code(ap)?;
+        let (reaches_top, reaches_bottom) = via_reaches_outer(p, v);
+        if reaches_top {
+            front.push_attrs(net_name(p, v.net), None);
+            front.flash(front_code, v.position.x, v.position.y)?;
+        }
+        if reaches_bottom {
+            back.push_attrs(net_name(p, v.net), None);
+            back.flash(back_code, v.position.x, v.position.y)?;
+        }
+
+        let open_top = reaches_top && via_mask_opening_on_face(v, &p.board, true);
+        let open_bottom = reaches_bottom && via_mask_opening_on_face(v, &p.board, false);
+        if open_top || open_bottom {
+            let margin = DEFAULT_MASK_MARGIN_MM;
+            let r = v.drill / 2.0 + margin;
+            let n = 16usize;
+            let mut ring = Vec::with_capacity(n + 1);
+            for i in 0..=n {
+                let a = std::f64::consts::TAU * i as f64 / n as f64;
+                ring.push((v.position.x + r * a.cos(), v.position.y + r * a.sin()));
+            }
+            if open_top {
+                let code_f = mask_front.code(Ap::Circle(1))?;
+                mask_front.fill(code_f, &outline_ring(&ring))?;
+            }
+            if open_bottom {
+                let code_b = mask_back.code(Ap::Circle(1))?;
+                mask_back.fill(code_b, &outline_ring(&ring))?;
+            }
+        }
+    }
+
+    let mut outline = GerberLayer::new(scale);
+    let edge_code = outline.code(Ap::Circle(100))?;
+    outline.select(edge_code);
+    let (edge_body, edge_ops) = crate::board_edge::gerber_body(scale, p)?;
+    outline.ops += edge_ops;
+    if outline.ops > MAX_OPS {
+        return Err("gerber export exceeds the object limit".into());
+    }
+    outline.body.push_str(&edge_body);
+    for c in &p.board.cutouts {
+        outline.ops += 1;
+        if outline.ops > MAX_OPS {
+            return Err("gerber export exceeds the object limit".into());
+        }
+        outline.select(edge_code);
+        outline.body.push_str("G75*\n");
+        outline.body.push_str(&format!(
+            "X{x}Y{y}D02*\nG02*\nX{x}Y{y}I{}J{}D01*\nG01*\n",
+            coordinate(c.radius * scale),
+            0,
+            x = coordinate((c.center.x - c.radius) * scale),
+            y = coordinate(c.center.y * scale)
+        ));
+    }
+
+    let hits = collect_drill_hits(p)?;
+    let origin = p.board.drill_origin;
+    let _tolerance = drill_tolerance(p);
+    let plated: Vec<DrillHit> = hits
+        .iter()
+        .copied()
+        .filter(|h| h.plated && h.via_span.is_none())
+        .collect();
+    let unplated: Vec<DrillHit> = hits.iter().copied().filter(|h| !h.plated).collect();
+    let tolerance = p.board.machining.as_ref().and_then(|m| m.drill_tolerance);
+
+    let edge_plated = p
+        .board
+        .machining
+        .as_ref()
+        .and_then(|m| m.edge_plating)
+        .unwrap_or(false);
+    let profile_fn = if edge_plated {
+        "Profile,P"
+    } else {
+        "Profile,NP"
+    };
+
+    let mut files = BTreeMap::new();
+    files.insert(
+        "pcb-F.Cu.gbr".into(),
+        front.finish(&LayerAttrs {
+            comment: "front copper layer",
+            file_function: "Copper,L1,Top",
+            polarity: "Positive",
+        }),
+    );
+    files.insert(
+        "pcb-B.Cu.gbr".into(),
+        back.finish(&LayerAttrs {
+            comment: "back copper layer",
+            file_function: "Copper,L2,Bot",
+            polarity: "Positive",
+        }),
+    );
+    files.insert(
+        "pcb-F.Mask.gbr".into(),
+        mask_front.finish(&LayerAttrs {
+            comment: "front solder mask",
+            file_function: "Soldermask,Top",
+            polarity: "Negative",
+        }),
+    );
+    files.insert(
+        "pcb-B.Mask.gbr".into(),
+        mask_back.finish(&LayerAttrs {
+            comment: "back solder mask",
+            file_function: "Soldermask,Bot",
+            polarity: "Negative",
+        }),
+    );
+    files.insert(
+        "pcb-F.Paste.gbr".into(),
+        paste_front.finish(&LayerAttrs {
+            comment: "front solder paste",
+            file_function: "Paste,Top",
+            polarity: "Positive",
+        }),
+    );
+    files.insert(
+        "pcb-B.Paste.gbr".into(),
+        paste_back.finish(&LayerAttrs {
+            comment: "back solder paste",
+            file_function: "Paste,Bot",
+            polarity: "Positive",
+        }),
+    );
+    files.insert(
+        "pcb-Edge.gbr".into(),
+        outline.finish(&LayerAttrs {
+            comment: "board outline",
+            file_function: profile_fn,
+            polarity: "Positive",
+        }),
+    );
+    for (name, text) in crate::assembly_profiles::gerber_component_layers(p, None)? {
+        files.insert(name, text);
+    }
+    files.insert("pcb-DrillMap.gbr".into(), drill_map_plot(p)?);
+    files.extend(crate::backdrill::backdrill_files(
+        p, scale, origin, inch, tolerance,
+    )?);
+    // Both split drill files are always written, empty ones included, so a
+    // fabricator finds the same set of files for every board.
+    files.insert(
+        "pcb-Plated.drl".into(),
+        write_excellon(&plated, "Plated,1,2,PTH", scale, origin, inch, tolerance)?,
+    );
+    files.insert(
+        "pcb-NPTH.drl".into(),
+        write_excellon(
+            &unplated,
+            "NonPlated,1,2,NPTH",
+            scale,
+            origin,
+            inch,
+            tolerance,
+        )?,
+    );
+    // Blind and buried vias drill in their own passes: one file per span.
+    let last = p.copper_layer_count().saturating_sub(1);
+    let mut spans: BTreeMap<(u8, u8), Vec<DrillHit>> = BTreeMap::new();
+    for hit in hits.iter().filter(|h| h.plated) {
+        if let Some(span) = hit.via_span {
+            spans.entry(span).or_default().push(*hit);
+        }
+    }
+    for ((a, b), span_hits) in spans {
+        let kind = if a == 0 || b >= last {
+            "Blind"
+        } else {
+            "Buried"
+        };
+        files.insert(
+            format!("pcb-Drill-L{}-L{}.drl", a + 1, b + 1),
+            write_excellon(
+                &span_hits,
+                &format!("Plated,{},{},{kind}", a + 1, b + 1),
+                scale,
+                origin,
+                inch,
+                tolerance,
+            )?,
+        );
+    }
+    let rout = write_rout(&hits, scale, origin, inch)?;
+    if !rout.is_empty() {
+        files.insert("pcb-Rout.drl".into(), rout);
+    }
+
+    let mut names: Vec<String> = files.keys().cloned().collect();
+    names.push("README-fabrication.txt".into());
+    names.sort();
+    files.insert("README-fabrication.txt".into(), fab_readme_text(p, &names)?);
+    Ok(files)
+}
+
+#[cfg(test)]
+mod fab_export_tests {
+    use super::*;
+    use pcbcraft_doc::{Hole, Project, Via, ViaCovering};
+
+    #[test]
+    fn tented_via_has_no_mask_opening() -> Result<(), String> {
+        let board = pcbcraft_doc::Board::default();
+        let open = Via {
+            id: 1,
+            net: 1,
+            position: Point::new(1.0, 2.0),
+            diameter: 0.6,
+            drill: 0.3,
+            from_layer: None,
+            to_layer: None,
+            covering: Some(ViaCovering::Open),
+            backdrill: Default::default(),
+            covering_bottom: Default::default(),
+            preserved: Default::default(),
+        };
+        let tented = Via {
+            covering: Some(ViaCovering::Tented),
+            ..open.clone()
+        };
+        assert!(via_mask_opening(&open, &board));
+        assert!(!via_mask_opening(&tented, &board));
+        let no_drill = Via { drill: 0.0, ..open };
+        assert!(!via_mask_opening(&no_drill, &board));
+        Ok(())
+    }
+
+    #[test]
+    fn drill_tool_counts_groups_by_diameter_and_plating() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "N".into(),
+            ..Default::default()
+        });
+        p.board.vias.push(Via {
+            id: 10,
+            net: 1,
+            position: Point::new(5.0, 5.0),
+            diameter: 0.6,
+            drill: 0.3,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+            backdrill: Default::default(),
+            covering_bottom: Default::default(),
+            preserved: Default::default(),
+        });
+        p.board.vias.push(Via {
+            id: 11,
+            net: 1,
+            position: Point::new(8.0, 5.0),
+            diameter: 0.6,
+            drill: 0.3,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+            backdrill: Default::default(),
+            covering_bottom: Default::default(),
+            preserved: Default::default(),
+        });
+        p.board.holes.push(Hole {
+            id: 12,
+            position: Point::new(12.0, 5.0),
+            diameter: 1.0,
+            end: None,
+        });
+        p.validate()?;
+        let counts = drill_tool_counts(&p)?;
+        assert_eq!(counts.get(&(300, 0, true)), Some(&2));
+        assert_eq!(counts.get(&(1000, 0, false)), Some(&1));
+        Ok(())
+    }
+
+    #[test]
+    fn fab_readme_lists_every_file_name_given() -> Result<(), String> {
+        let p = Project {
+            name: "oracle board".into(),
+            ..Project::default()
+        };
+        p.validate()?;
+        let names = vec![
+            "pcb-F.Cu.gbr".into(),
+            "pcb-B.Cu.gbr".into(),
+            "pcb-PTH.drl".into(),
+        ];
+        let text = fab_readme_text(&p, &names)?;
+        for name in &names {
+            assert_eq!(text.matches(name.as_str()).count(), 1, "{name}");
+        }
+        assert!(text.contains("oracle board"));
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+fn mask_paste_project() -> Result<Project, String> {
+    let smd = pcbcraft_library::FootprintPad {
+        number: "1".into(),
+        pad_type: "smd".into(),
+        shape: "rect".into(),
+        position: Point::new(0.0, 0.0),
+        rotation: 0.0,
+        size: Point::new(1.0, 0.5),
+        layers: vec!["F.Cu".into(), "F.Mask".into(), "F.Paste".into()],
+        drill: None,
+        roundrect_ratio: None,
+        raw_source: String::new(),
+        chamfer: None,
+        polygon: Vec::new(),
+    };
+    let mut project = Project::default();
+    project.components.push(pcbcraft_doc::Component {
+        sheet: 0,
+        id: 1,
+        reference: "C1".into(),
+        value: "cap".into(),
+        kind: "capacitor".into(),
+        position: Point::new(10.0, 10.0),
+        rotation: 0.0,
+        pins: vec![pcbcraft_doc::Pin {
+            number: "1".into(),
+            name: String::new(),
+            offset: Point::new(0.0, 0.0),
+            net: None,
+            electrical_type: "passive".into(),
+            direction: None,
+            unit: 1,
+            appearances: Default::default(),
+        }],
+        units: vec![],
+        library_symbol: None,
+        library_footprint: Some(pcbcraft_doc::LibraryFootprint {
+            library: "Test".into(),
+            definition: pcbcraft_library::FootprintDefinition {
+                name: "C0402".into(),
+                description: String::new(),
+                keywords: String::new(),
+                pads: vec![smd.clone()],
+                graphics: vec![],
+                model: None,
+                rules: Some(pcbcraft_library::FootprintRules {
+                    clearance: None,
+                    mask_margin: Some(0.1),
+                    paste_margin: Some(-0.02),
+                }),
+                raw_source: String::new(),
+                unsupported: vec![],
+                box_body: Default::default(),
+                retained: Default::default(),
+            },
+        }),
+        fields: vec![],
+        compliance: Default::default(),
+        include_in_bom: true,
+        include_in_placement: true,
+        instance: Default::default(),
+        part: None,
+        prototype: Default::default(),
+        sourcing: Default::default(),
+    });
+    project.board.footprints.push(pcbcraft_doc::Footprint {
+        id: 2,
+        component: 1,
+        position: Point::new(12.0, 8.0),
+        rotation: 0.0,
+        locked: None,
+        pads: vec![pcbcraft_doc::Pad {
+            number: "1".into(),
+            offset: Point::new(0.0, 0.0),
+            diameter: 0.5,
+            net: None,
+            castellated: None,
+            geometry: Some(smd),
+        }],
+        preserved: Default::default(),
+        side: Default::default(),
+    });
+    project.validate()?;
+    Ok(project)
+}
+
+#[test]
+fn bundle_mask_and_paste_files_carry_date_and_valid_hash() -> Result<(), String> {
+    let project = mask_paste_project()?;
+    let files = crate::gerber_job::with_fixed_clock(0, || gerber_files(&project))?;
+    let names = ["pcb-F.Mask.gbr", "pcb-F.Paste.gbr"];
+    for name in &names {
+        let content = files.get(*name).ok_or(format!("missing {name}"))?;
+        // Creation date present
+        if !content.contains("%TF.CreationDate,1970-01-01T00:00:00+00:00*%") {
+            return Err(format!("{name} missing creation date"));
+        }
+        // MD5 appears before the format block
+        let md5_pos = content.find("%TF.MD5,");
+        let format_pos = content.find("%FSLAX46Y46*%");
+        match (md5_pos, format_pos) {
+            (Some(m), Some(f)) if m < f => {}
+            _ => return Err(format!("{name} MD5 not before format block")),
+        }
+        // MD5 verifies
+        crate::gerber_fidelity::verify_gerber_md5(content)?;
+    }
+    // Two runs under the same clock are byte-identical
+    let files2 = crate::gerber_job::with_fixed_clock(0, || gerber_files(&project))?;
+    for name in &names {
+        let a = files
+            .get(*name)
+            .ok_or(format!("missing {name} in first run"))?;
+        let b = files2
+            .get(*name)
+            .ok_or(format!("missing {name} in second run"))?;
+        if a != b {
+            return Err(format!("{name} differs between runs"));
+        }
+    }
+    Ok(())
+}

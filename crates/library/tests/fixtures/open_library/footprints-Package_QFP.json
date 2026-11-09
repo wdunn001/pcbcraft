@@ -1,0 +1,289 @@
+[
+ {
+  "id": "184890f91c7b47a4462e168522615a45f8624f36",
+  "name": "LQFP-100-1EP_14x14mm_P0.5mm_EP6.9x6.9mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-100-1EP_14x14mm_P0.5mm_EP6.9x6.9mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "b8dab7c5b071c91ef4b00bd49a77454b3514529f",
+  "name": "LQFP-100-1EP_14x14mm_P0.5mm_EP6.9x6.9mm_ThermalVias.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-100-1EP_14x14mm_P0.5mm_EP6.9x6.9mm_ThermalVias.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "566bf08f537f628d4e96f7433fb043f0fc199e0c",
+  "name": "LQFP-100_14x14mm_P0.5mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-100_14x14mm_P0.5mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "50bc971a0c7487c0dce8a520a64b9fd9f878f1ae",
+  "name": "LQFP-128_14x14mm_P0.4mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-128_14x14mm_P0.4mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "2f0cd157495fc89cf1b7cd652ab10d185ef62da5",
+  "name": "LQFP-128_14x20mm_P0.5mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-128_14x20mm_P0.5mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "d2ce28d6a664c0f66c0a31f6ca985f88f2fee819",
+  "name": "LQFP-144-1EP_20x20mm_P0.5mm_EP6.5x6.5mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-144-1EP_20x20mm_P0.5mm_EP6.5x6.5mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "0c95d262dab0301a65bc273a71a4c972013bcc06",
+  "name": "LQFP-144-1EP_20x20mm_P0.5mm_EP6.5x6.5mm_ThermalVias.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-144-1EP_20x20mm_P0.5mm_EP6.5x6.5mm_ThermalVias.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "e3601a65aa9cd7d7e4c45ec3efa70e8931468ddb",
+  "name": "LQFP-144_20x20mm_P0.5mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-144_20x20mm_P0.5mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "8b7434c627fe46b1dda59fba3e6a20c85fa7172f",
+  "name": "LQFP-160_24x24mm_P0.5mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-160_24x24mm_P0.5mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "6845346825d52cc701cc6dd00bd1ac414e9a256d",
+  "name": "LQFP-176-1EP_24x24mm_P0.5mm_EP6.6x6.6mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-176-1EP_24x24mm_P0.5mm_EP6.6x6.6mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "e223b2f2b1ddc81c4de9ba4fa00bbfb39f8c428d",
+  "name": "LQFP-176-1EP_24x24mm_P0.5mm_EP6.6x6.6mm_ThermalVias.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-176-1EP_24x24mm_P0.5mm_EP6.6x6.6mm_ThermalVias.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "07924472f1a9690ef2347f817e6b9058e40860b7",
+  "name": "LQFP-176_20x20mm_P0.4mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-176_20x20mm_P0.4mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "afe713af1df105baffdfff3e238c3d5434df071f",
+  "name": "LQFP-176_24x24mm_P0.5mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-176_24x24mm_P0.5mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "f356cb0dcff7ed2d3fc734502c9c539e24928dff",
+  "name": "LQFP-208_28x28mm_P0.5mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-208_28x28mm_P0.5mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "c7b2d57ab5be77f14422ca29f35b82660502108b",
+  "name": "LQFP-216_24x24mm_P0.4mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-216_24x24mm_P0.4mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "e258924e8bbfd615480a8dd334734b72e18f07b3",
+  "name": "LQFP-32_5x5mm_P0.5mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-32_5x5mm_P0.5mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "11814d2e1f0da8ae145a1075cb80d62d091deb83",
+  "name": "LQFP-32_7x7mm_P0.8mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-32_7x7mm_P0.8mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "76618a5a3d6c84e5731a62215417e66488896c41",
+  "name": "LQFP-36_7x7mm_P0.65mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-36_7x7mm_P0.65mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "1c0359b9a5890f4b325a0f09b05f4d0b3112ef99",
+  "name": "LQFP-44_10x10mm_P0.8mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-44_10x10mm_P0.8mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "523d651898d665a97161295a3ba867414bab46a0",
+  "name": "LQFP-48-1EP_7x7mm_P0.5mm_EP3.6x3.6mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-48-1EP_7x7mm_P0.5mm_EP3.6x3.6mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "34f177adbc293567afbf3c67811f5b133e28c610",
+  "name": "LQFP-48-1EP_7x7mm_P0.5mm_EP3.6x3.6mm_ThermalVias.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-48-1EP_7x7mm_P0.5mm_EP3.6x3.6mm_ThermalVias.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "3d26fc94c3611ffc17c02fa8621cc4a4c5244f10",
+  "name": "LQFP-48_7x7mm_P0.5mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-48_7x7mm_P0.5mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "80e2974cbaf95c3ffc9c8f9f81bf9ce38db2071d",
+  "name": "LQFP-52-1EP_10x10mm_P0.65mm_EP4.8x4.8mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-52-1EP_10x10mm_P0.65mm_EP4.8x4.8mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "2f3b3ab3b263c6c601fc0900498bd8bf8dfa8c4e",
+  "name": "LQFP-52-1EP_10x10mm_P0.65mm_EP4.8x4.8mm_ThermalVias.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-52-1EP_10x10mm_P0.65mm_EP4.8x4.8mm_ThermalVias.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "d39b44871f2d0e76fdc02829d406a0ac37344496",
+  "name": "LQFP-52_10x10mm_P0.65mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-52_10x10mm_P0.65mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "9c9432c1cdcf772da3d02175563ad839030b3567",
+  "name": "LQFP-52_14x14mm_P1mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-52_14x14mm_P1mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "419de32b8c85df60de9381ba16786ae1be80ebb6",
+  "name": "LQFP-64-1EP_10x10mm_P0.5mm_EP5x5mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-64-1EP_10x10mm_P0.5mm_EP5x5mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "52ab14f5a78109a0d1aad3a377e4c0dc35a456f4",
+  "name": "LQFP-64-1EP_10x10mm_P0.5mm_EP5x5mm_ThermalVias.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-64-1EP_10x10mm_P0.5mm_EP5x5mm_ThermalVias.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "23fdbb6005e1c8005b7d80d7a2a978b0f179ad38",
+  "name": "LQFP-64-1EP_10x10mm_P0.5mm_EP6.5x6.5mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-64-1EP_10x10mm_P0.5mm_EP6.5x6.5mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "8f00aebd6e77cba7057b69399e6c7b4486940884",
+  "name": "LQFP-64-1EP_10x10mm_P0.5mm_EP6.5x6.5mm_ThermalVias.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-64-1EP_10x10mm_P0.5mm_EP6.5x6.5mm_ThermalVias.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "a0679d5f0069796967edf24252693ef01593a015",
+  "name": "LQFP-64_10x10mm_P0.5mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-64_10x10mm_P0.5mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "ea02e4de8b75594b66bd8a30eb132d763eeaa043",
+  "name": "LQFP-64_14x14mm_P0.8mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-64_14x14mm_P0.8mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "e0a7fd4c36701e8956b2bfdd926fcce6a2c694a3",
+  "name": "LQFP-64_7x7mm_P0.4mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-64_7x7mm_P0.4mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "175d341c18232fbb670c564a2132a6718a551e9d",
+  "name": "LQFP-80_10x10mm_P0.4mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-80_10x10mm_P0.4mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "aa79a86ae031bd8a2be843aaa3b85e1a9bae9005",
+  "name": "LQFP-80_12x12mm_P0.5mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-80_12x12mm_P0.5mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "d66bfb608b0967f2129c6d7fa24380de53491f4c",
+  "name": "LQFP-80_14x14mm_P0.65mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/LQFP-80_14x14mm_P0.65mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "a4783912471c356a642ac5dfab4920fbf2b3bafb",
+  "name": "TQFP-64-1EP_10x10mm_P0.5mm_EP5.305x5.305mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/TQFP-64-1EP_10x10mm_P0.5mm_EP5.305x5.305mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "a2ec42fcdf176f8643d783bb07a6a9a66f9ddef2",
+  "name": "TQFP-64-1EP_10x10mm_P0.5mm_EP5.305x5.305mm_ThermalVias.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/TQFP-64-1EP_10x10mm_P0.5mm_EP5.305x5.305mm_ThermalVias.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "f39e205dbd1447fc5f38447d14d3bb4df2d0b817",
+  "name": "TQFP-64_10x10mm_P0.5mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/TQFP-64_10x10mm_P0.5mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "55f2c1f69951d7d3c8056f92289727b67c4e5ad1",
+  "name": "TQFP-64_14x14mm_P0.8mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/TQFP-64_14x14mm_P0.8mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "547a7aa9ea1f7b5c2de2d50844882b9335d33acf",
+  "name": "TQFP-64_7x7mm_P0.4mm.kicad_mod",
+  "type": "blob",
+  "path": "Package_QFP.pretty/TQFP-64_7x7mm_P0.4mm.kicad_mod",
+  "mode": "100644"
+ }
+]

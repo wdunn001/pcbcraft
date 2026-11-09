@@ -1,0 +1,320 @@
+{
+  "format": "pcbcraft",
+  "version": 1,
+  "name": "LED indicator",
+  "unit": "mm",
+  "components": [
+    {
+      "id": 1,
+      "reference": "J1",
+      "value": "5V input",
+      "kind": "connector",
+      "position": {
+        "x": 15.0,
+        "y": 26.0
+      },
+      "rotation": 0.0,
+      "pins": [
+        {
+          "number": "1",
+          "name": "+",
+          "offset": {
+            "x": -5.0,
+            "y": 0.0
+          },
+          "net": 4,
+          "electrical_type": "passive",
+          "direction": null,
+          "unit": 1
+        },
+        {
+          "number": "2",
+          "name": "−",
+          "offset": {
+            "x": 5.0,
+            "y": 0.0
+          },
+          "net": 6,
+          "electrical_type": "passive",
+          "direction": null,
+          "unit": 1
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "reference": "R1",
+      "value": "330 Ω",
+      "kind": "resistor",
+      "position": {
+        "x": 40.0,
+        "y": 14.0
+      },
+      "rotation": 0.0,
+      "pins": [
+        {
+          "number": "1",
+          "name": "1",
+          "offset": {
+            "x": -5.0,
+            "y": 0.0
+          },
+          "net": 4,
+          "electrical_type": "passive",
+          "direction": null,
+          "unit": 1
+        },
+        {
+          "number": "2",
+          "name": "2",
+          "offset": {
+            "x": 5.0,
+            "y": 0.0
+          },
+          "net": 5,
+          "electrical_type": "passive",
+          "direction": null,
+          "unit": 1
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "reference": "D1",
+      "value": "Green LED",
+      "kind": "led",
+      "position": {
+        "x": 65.0,
+        "y": 26.0
+      },
+      "rotation": 0.0,
+      "pins": [
+        {
+          "number": "1",
+          "name": "A",
+          "offset": {
+            "x": -5.0,
+            "y": 0.0
+          },
+          "net": 5,
+          "electrical_type": "passive",
+          "direction": null,
+          "unit": 1
+        },
+        {
+          "number": "2",
+          "name": "K",
+          "offset": {
+            "x": 5.0,
+            "y": 0.0
+          },
+          "net": 6,
+          "electrical_type": "passive",
+          "direction": null,
+          "unit": 1
+        }
+      ]
+    }
+  ],
+  "nets": [
+    {
+      "id": 4,
+      "name": "VCC",
+      "target_length": null,
+      "length_tolerance": null
+    },
+    {
+      "id": 5,
+      "name": "LED",
+      "target_length": null,
+      "length_tolerance": null
+    },
+    {
+      "id": 6,
+      "name": "GND",
+      "target_length": null,
+      "length_tolerance": null
+    }
+  ],
+  "net_classes": [],
+  "panel": {
+    "enabled": false,
+    "columns": 1,
+    "rows": 1,
+    "pitch_x": 0.0,
+    "pitch_y": 0.0,
+    "rail": 5.0,
+    "separation": "tab",
+    "tab_channel": 1.8
+  },
+  "wires": [
+    {
+      "id": 7,
+      "net": 4,
+      "from": {
+        "component": 1,
+        "pin": "1"
+      },
+      "to": {
+        "component": 2,
+        "pin": "1"
+      }
+    },
+    {
+      "id": 8,
+      "net": 5,
+      "from": {
+        "component": 2,
+        "pin": "2"
+      },
+      "to": {
+        "component": 3,
+        "pin": "1"
+      }
+    },
+    {
+      "id": 9,
+      "net": 6,
+      "from": {
+        "component": 1,
+        "pin": "2"
+      },
+      "to": {
+        "component": 3,
+        "pin": "2"
+      }
+    }
+  ],
+  "drawn_wires": [],
+  "graphics": [],
+  "labels": [],
+  "no_connects": [],
+  "board": {
+    "width": 60.0,
+    "height": 40.0,
+    "thickness": 1.6,
+    "clearance": 0.2,
+    "finish": "HASL",
+    "er": 4.4,
+    "drill_origin": {
+      "x": 0.0,
+      "y": 0.0
+    },
+    "footprints": [
+      {
+        "id": 10,
+        "component": 1,
+        "position": {
+          "x": 12.0,
+          "y": 20.0
+        },
+        "rotation": 0.0,
+        "pads": [
+          {
+            "number": "1",
+            "offset": {
+              "x": -2.5,
+              "y": 0.0
+            },
+            "diameter": 1.6,
+            "net": 4
+          },
+          {
+            "number": "2",
+            "offset": {
+              "x": 2.5,
+              "y": 0.0
+            },
+            "diameter": 1.6,
+            "net": 6
+          }
+        ]
+      },
+      {
+        "id": 11,
+        "component": 2,
+        "position": {
+          "x": 28.0,
+          "y": 12.0
+        },
+        "rotation": 0.0,
+        "pads": [
+          {
+            "number": "1",
+            "offset": {
+              "x": -2.5,
+              "y": 0.0
+            },
+            "diameter": 1.6,
+            "net": 4
+          },
+          {
+            "number": "2",
+            "offset": {
+              "x": 2.5,
+              "y": 0.0
+            },
+            "diameter": 1.6,
+            "net": 5
+          }
+        ]
+      },
+      {
+        "id": 12,
+        "component": 3,
+        "position": {
+          "x": 44.0,
+          "y": 20.0
+        },
+        "rotation": 0.0,
+        "pads": [
+          {
+            "number": "1",
+            "offset": {
+              "x": -2.5,
+              "y": 0.0
+            },
+            "diameter": 1.6,
+            "net": 5
+          },
+          {
+            "number": "2",
+            "offset": {
+              "x": 2.5,
+              "y": 0.0
+            },
+            "diameter": 1.6,
+            "net": 6
+          }
+        ]
+      }
+    ],
+    "tracks": [],
+    "vias": [],
+    "zones": [],
+    "cutouts": [
+      {
+        "id": 13,
+        "center": {
+          "x": 5.0,
+          "y": 5.0
+        },
+        "radius": 1.6
+      },
+      {
+        "id": 14,
+        "center": {
+          "x": 55.0,
+          "y": 35.0
+        },
+        "radius": 1.6
+      }
+    ],
+    "texts": []
+  },
+  "library": {
+    "notices": [],
+    "symbols": [],
+    "footprints": []
+  }
+}

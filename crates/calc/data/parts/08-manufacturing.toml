@@ -1,0 +1,107 @@
+# Glossary part 08-manufacturing
+schema = 1
+
+[[term]]
+id = "solder_mask"
+term = "Solder mask"
+category = "manufacturing"
+short = "Polymer layer that covers copper except pads and openings."
+long = "Mask color is cosmetic but openings must align to pads. Mask defined pads are smaller than copper defined ones."
+synonyms = ["soldermask"]
+related = ["pad", "silkscreen"]
+units = ""
+in_pcbcraft = []
+search = "soldermask solder mask opening"
+source = "Fabrication practice"
+
+[[term]]
+id = "pad"
+term = "Pad"
+category = "manufacturing"
+short = "Exposed copper where a lead or ball attaches during soldering."
+long = "Pad size follows land pattern standards for each package. Paste stencil openings are often slightly smaller than pads."
+synonyms = ["land"]
+related = ["footprint", "annular_ring"]
+units = "mm"
+in_pcbcraft = []
+search = "pad land smt bga"
+source = "Assembly practice"
+
+[[term]]
+id = "annular_ring"
+term = "Annular ring"
+category = "manufacturing"
+short = "Copper ring around a drilled hole after registration tolerance."
+long = "Thin rings crack under thermal stress. Drill to copper registration drives the minimum ring your fab guarantees."
+synonyms = ["annulus"]
+related = ["via", "pad"]
+units = "mm"
+in_pcbcraft = []
+search = "annular ring drill registration"
+source = "Fabrication practice"
+
+[[term]]
+id = "paste"
+term = "Solder paste"
+category = "manufacturing"
+short = "Alloy particles in flux deposited through a stencil before reflow."
+long = "Paste volume sets joint quality. Stencil thickness and aperture size tune deposit for each package."
+synonyms = ["SMT paste"]
+related = ["reflow", "pad"]
+units = ""
+in_pcbcraft = []
+search = "paste stencil reflow smt"
+source = "Assembly practice"
+
+[[term]]
+id = "reflow"
+term = "Reflow soldering"
+category = "manufacturing"
+short = "Heating cycle that melts paste to form SMT joints."
+long = "Reflow profiles follow alloy melting points. Thermal mass of large parts may need slower ramps."
+synonyms = ["SMT reflow"]
+related = ["paste", "assembly"]
+units = ""
+in_pcbcraft = []
+search = "reflow profile oven smt"
+source = "Assembly practice"
+
+[[term]]
+id = "assembly"
+term = "PCB assembly"
+category = "manufacturing"
+short = "Process of placing and soldering parts onto fabricated boards."
+long = "Assembly drawings show orientation and special notes. Pick and place data comes from centroid files."
+synonyms = ["PCBA"]
+related = ["bom", "reflow"]
+units = ""
+in_pcbcraft = []
+search = "assembly pcba pick place"
+source = "Manufacturing practice"
+
+[[term]]
+id = "panelization"
+term = "Panelization"
+category = "manufacturing"
+short = "Arranging several boards on one manufacturing panel."
+long = "Panels add rails, fiducials and breakaway tabs. They improve throughput but need clearance for tooling."
+synonyms = ["panel"]
+related = ["fiducial", "assembly"]
+units = ""
+in_pcbcraft = []
+search = "panel tab fiducial array"
+source = "Manufacturing practice"
+
+[[term]]
+id = "fiducial"
+term = "Fiducial mark"
+category = "manufacturing"
+short = "Optical alignment target for assembly equipment."
+long = "Fiducials are bare copper circles near panel edges. Vision systems use them to register paste and placement."
+synonyms = ["alignment mark"]
+related = ["panelization", "assembly"]
+units = ""
+in_pcbcraft = []
+search = "fiducial alignment vision"
+source = "Assembly practice"
+

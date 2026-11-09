@@ -1,0 +1,7 @@
+Ref;PosX;PosY;Rot;Side;Package
+C1;9.300;-23.000;90.000;bottom;Chip_0603_N
+D2;18.500;-24.000;-90.000;bottom;SOD-323_N
+R1;21.000;-17.000;180.000;bottom;Chip_0402_N
+R2;24.100;-20.000;180.000;bottom;Chip_0402_N
+R4;3.500;-18.000;0.000;bottom;Chip_0402_N
+U7;-30.000;13.000;180.000;bottom;SOT-23-5_N

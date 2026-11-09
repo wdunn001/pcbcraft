@@ -1,0 +1,29 @@
+[part]
+manufacturer = "Espressif"
+mpn = "ESP32-S3"
+datasheet_path = "research/sources/library/datasheets/espressif/esp32-s3.pdf"
+datasheet_url = "https://www.espressif.com/sites/default/files/documentation/esp32-s3_datasheet_en.pdf"
+
+package = "QFN-56"
+pin_count = 56
+land_pattern_ref = "See datasheet package section"
+
+[limits]
+abs_max_vdd = { value = "see datasheet", page = 1, confirmed = false }
+tj_max = { value = "see datasheet", page = 1, confirmed = false }
+
+[[pin]]
+number = 3
+name = "VDDA"
+function = "Analog power"
+kind = "power"
+page = 28
+confirmed = false
+
+[[pin]]
+number = 4
+name = "GND"
+function = "Ground"
+kind = "ground"
+page = 28
+confirmed = false

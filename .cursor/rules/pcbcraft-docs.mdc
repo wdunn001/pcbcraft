@@ -1,0 +1,15 @@
+---
+description: PCBCraft documentation layers and the agent procedure for editing docs and code docs
+alwaysApply: true
+---
+
+# Documentation
+
+Standard: `docs/doc-standard.md`, checked by `cargo xtask docs check`. Article: https://themildtake.com/articles/2026-05-05-documentation-beating-your-ai-stack/
+
+- **Less to infer.** Document intent only when it is not obvious, plus rules, dependencies by relative path (each must resolve) and prohibitions.
+- **Inline first.** Docs live in doc comments and file headers. Project-wide rules live in `AGENTS.md`, `CLAUDE.md` and the always-on rule files here. External docs are not the primary source.
+- **Three layers, each pointing up, none repeating a rule.** Global (these files, under about 60 lines). Contract (rules every implementation obeys, the implementations list by path, prohibitions). Implementation (only what is specific, with a `Contract:` line). Scoped rule files such as `pcbcraft-ui.mdc` state layer constraints only, not business rules or dependency lists.
+- **Function blocks** run about 5 to 12 lines.
+- **Procedure.** The `Pre-edit:` lines in `AGENTS.md` apply. Before editing a contract, review each implementation it lists. When updating docs, match the existing pattern and only append to `# Do not` sections. Stop and ask when a local rule conflicts with a global one or when ownership of a rule is unclear.
+- **Diagnostic.** Fix these when you see them: a rule repeated in implementations, an interface with no implementations list, a global rule on a contract, a contract rule on an implementation.

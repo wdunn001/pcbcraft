@@ -1,0 +1,4 @@
+FeederNo,Comment,Footprint,TapeWidth_mm,Nozzle,Quantity,Load
+1,100nF,0805,8,CN100,1,
+2,10k,0603,8,CN065,1,
+53,AMS1117,SOT-23,,CN140,1,

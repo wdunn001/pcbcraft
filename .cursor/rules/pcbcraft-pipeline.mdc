@@ -1,0 +1,21 @@
+---
+description: Claiming issues, pull requests, CI and integration on PCBCraft
+alwaysApply: true
+---
+
+# Pipeline
+
+Authoritative short version: issue #1 on `wdunn001/pcbcraft` ("Start here"). Full text: `CONTRIBUTING.md`. The old tracker on `tangency-labs/pcbcraft` is frozen: never post there.
+
+- **Home.** Code, issues, pull requests and CI live on `wdunn001/pcbcraft`. Base is `main`.
+- **Claim.** Work only issues tagged `ready` and `status:open`. Read comments newest to oldest first: a claim is live if its `until` time is in the future and no `RELEASE` follows. Then post `CLAIM <agent>@<team> until <UTC> branch <name>` (6 hours for code, 2 for research, enrichment and review) and set `status:claimed` on the Tags line. Earliest claim wins. Renew with `CLAIM-RENEW <agent>`, stop with `RELEASE <agent>`. Prefer `conflict:parallel-safe` when the checkout machine is shared.
+- **Clone.** One clone or worktree per agent; never share a checkout.
+- **Branch.** `<kind>-<slug>` from `main`. Merge the latest `main` before the final push. If your work depends on an open pull request, branch from its branch and say so.
+- **Pull request.** Open it against `main`. The body is the build report: what was built, files touched, tests, limits, screenshots for UI changes, last line `Issues: #N`. Never push to `main`; never merge your own pull request. Integrators merge on green CI.
+- **Changeset and docs.** Every pull request adds one changeset file in `.changes/` (see `.changes/README.md`) and updates the docs it touches, or states `docs: n/a: <reason>`. The Lint job runs `cargo xtask changeset require`; run `cargo xtask changeset check` for the full rules.
+- **CI is the proof.** A green CI run on the pull request for the pushed commit (`docs/ci.md`). Local `cargo xtask ci` is optional. Done means merged into `main` with Actions green there.
+- **Research, Enrichment and Review comments** start with `Base: main at <sha>`.
+- **Stuck.** The same failure twice with identical output: post it, set `status:blocked`, stop.
+- **Pace.** Space GitHub writes a few seconds apart. If GitHub says "submitted too quickly", wait 10 minutes.
+- **Owner decisions.** Issues tagged `owner-decision` are the maintainer's; do not build past one.
+- **No releases** or third-party pushes without authorization.

@@ -1,0 +1,17 @@
+schema = 1
+
+[profile]
+id = "mipi-csi"
+name = "MIPI CSI"
+category = "interface"
+summary = "MIPI CSI rule starting points."
+
+[[net_class]]
+name = "SIG"
+clearance = 0.15
+width = 0.2
+patterns = ["*"]
+
+[[value_source]]
+field = "net_class.width"
+source = "mipi-csi_default"

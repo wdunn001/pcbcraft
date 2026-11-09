@@ -1,0 +1,32 @@
+---
+// Status mark for a feature: a dot plus a text label (never colour alone).
+import { statusLabels, type StatusId } from '../lib/features';
+interface Props { status: StatusId }
+const { status } = Astro.props;
+---
+
+<span class={`chip s-${status}`}><span class="dot" aria-hidden="true"></span>{statusLabels[status]}</span>
+
+<style>
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.15rem 0.55rem;
+    font: 600 0.68rem/1.4 var(--pc-font-mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+  }
+  .dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .s-browser { color: var(--pc-mask); }
+  .s-available { color: var(--pc-cyan); }
+  .s-desktop { color: var(--pc-gold); }
+</style>

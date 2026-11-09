@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "kind": "static-url",
+      "id": "fixture-registry",
+      "name": "Fixture static registry",
+      "url": "https://example.com/registry/"
+    },
+    {
+      "kind": "git",
+      "id": "community-tree",
+      "name": "Community registry tree",
+      "repo": "https://github.com/example/community-registry.git"
+    },
+    {
+      "kind": "pack",
+      "id": "offline-pack",
+      "name": "Offline registry pack",
+      "path": "packs/demo.pack"
+    },
+    {
+      "kind": "instance",
+      "id": "fixture-peer",
+      "name": "Fixture peer instance",
+      "feed": "instances/sample-instances.json"
+    }
+  ]
+}

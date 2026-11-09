@@ -1,0 +1,415 @@
+use pcbcraft_geom::Point;
+use pcbcraft_library::{
+    FindingSeverity, FootprintDefinition, FootprintPad, Graphic, LandPatternDensity,
+    LandPatternParams, check_footprint, generate_footprint,
+};
+
+const TOL: f64 = 0.05;
+
+fn nominal_params() -> LandPatternParams {
+    LandPatternParams {
+        name: "TestFootprint".into(),
+        description: String::new(),
+        keywords: String::new(),
+        pitch: 1.27,
+        pin_count: 8,
+        body_length: 2.0,
+        body_width: 1.25,
+        row_spacing: 0.0,
+        lead_width: 0.0,
+        lead_diameter: 0.0,
+        grid_rows: 0,
+        grid_cols: 0,
+        thermal_size: 0.0,
+    }
+}
+
+fn courtyard_half_extents(def: &FootprintDefinition) -> Option<(f64, f64)> {
+    for g in &def.graphics {
+        #[allow(clippy::collapsible_if)]
+        if let Graphic::Rectangle {
+            start, end, layer, ..
+        } = g
+            && layer == "pcbcraft.courtyard"
+        {
+            return Some((
+                start.x.abs().max(end.x.abs()),
+                start.y.abs().max(end.y.abs()),
+            ));
+        }
+    }
+    None
+}
+
+fn near(a: f64, b: f64) -> bool {
+    (a - b).abs() <= TOL
+}
+
+#[test]
+fn land_pattern_density_suffix_matches_ipc_level_letter() -> Result<(), String> {
+    if LandPatternDensity::Most.suffix() != 'M' {
+        return Err("Most suffix must be M".into());
+    }
+    if LandPatternDensity::Nominal.suffix() != 'N' {
+        return Err("Nominal suffix must be N".into());
+    }
+    if LandPatternDensity::Least.suffix() != 'L' {
+        return Err("Least suffix must be L".into());
+    }
+    if LandPatternDensity::parse("nominal") != Some(LandPatternDensity::Nominal) {
+        return Err("nominal must parse".into());
+    }
+    if LandPatternDensity::parse("N") != Some(LandPatternDensity::Nominal) {
+        return Err("N must parse to nominal".into());
+    }
+    if LandPatternDensity::parse("unknown").is_some() {
+        return Err("unknown level must not parse".into());
+    }
+    Ok(())
+}
+
+#[test]
+fn chip_two_terminal_matches_0805_fixture_span() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.body_length = 2.0;
+    p.body_width = 1.25;
+    p.name = "R_0805_2012Metric_gen".into();
+    let def = generate_footprint("chip_2terminal", LandPatternDensity::Nominal, &p)?;
+    assert_eq!(def.pads.len(), 2);
+    assert!(near(def.pads[0].position.x.abs(), 0.9125));
+    assert!(near(def.pads[0].size.x, 1.025));
+    assert!(near(def.pads[0].size.y, 1.4));
+    let (hx, hy) = courtyard_half_extents(&def).ok_or("courtyard missing")?;
+    assert!(near(hx, 2.012));
+    assert!(near(hy, 2.179));
+    Ok(())
+}
+
+#[test]
+fn sot23_5_produces_five_pads() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.pitch = 0.95;
+    p.pin_count = 5;
+    p.body_length = 2.9;
+    p.body_width = 1.6;
+    let def = generate_footprint("sot", LandPatternDensity::Nominal, &p)?;
+    assert_eq!(def.pads.len(), 5);
+    Ok(())
+}
+
+#[test]
+fn soic8_pitch_and_row_span() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.pitch = 1.27;
+    p.pin_count = 8;
+    p.body_width = 3.9;
+    let def = generate_footprint("soic", LandPatternDensity::Nominal, &p)?;
+    assert_eq!(def.pads.len(), 8);
+    let row_y = def.pads[0].position.y.abs();
+    assert!(near(row_y, 3.9 / 2.0 + p.pitch * 0.35 / 2.0));
+    let xs: Vec<f64> = def.pads.iter().take(4).map(|pad| pad.position.x).collect();
+    assert!(near(xs[1] - xs[0], 1.27));
+    Ok(())
+}
+
+#[test]
+fn qfp48_pad_count_and_pitch() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.pitch = 0.5;
+    p.pin_count = 48;
+    p.body_length = 7.0;
+    p.body_width = 7.0;
+    let def = generate_footprint("qfp", LandPatternDensity::Nominal, &p)?;
+    assert_eq!(def.pads.len(), 48);
+    assert!(near(def.pads[0].size.x, 0.5 * 0.55));
+    Ok(())
+}
+
+#[test]
+fn qfn33_includes_center_thermal_pad() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.pitch = 0.5;
+    p.pin_count = 32;
+    p.body_length = 5.0;
+    p.body_width = 5.0;
+    p.thermal_size = 2.5;
+    let def = generate_footprint("qfn", LandPatternDensity::Nominal, &p)?;
+    assert_eq!(def.pads.len(), 33);
+    assert!(def.pads.iter().any(|pad| pad.number == "EP"));
+    Ok(())
+}
+
+#[test]
+fn bga_10x10_grid_pad_count() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.pitch = 0.8;
+    p.grid_rows = 10;
+    p.grid_cols = 10;
+    p.body_length = 8.0;
+    p.body_width = 8.0;
+    let def = generate_footprint("bga", LandPatternDensity::Nominal, &p)?;
+    assert_eq!(def.pads.len(), 100);
+    Ok(())
+}
+
+#[test]
+fn dip8_plated_drills_inside_pads() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.pitch = 2.54;
+    p.pin_count = 8;
+    p.row_spacing = 7.62;
+    let def = generate_footprint("dip", LandPatternDensity::Nominal, &p)?;
+    assert_eq!(def.pads.len(), 8);
+    assert!(def.pads.iter().all(|pad| {
+        pad.drill
+            .as_ref()
+            .is_some_and(|d| d.size.x <= pad.size.x && d.size.y <= pad.size.y)
+    }));
+    Ok(())
+}
+
+#[test]
+fn header_single_row_count() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.pitch = 2.54;
+    p.pin_count = 6;
+    let def = generate_footprint("header_single", LandPatternDensity::Nominal, &p)?;
+    assert_eq!(def.pads.len(), 6);
+    Ok(())
+}
+
+#[test]
+fn header_double_rows_aligned() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.pitch = 2.54;
+    p.pin_count = 10;
+    p.row_spacing = 2.54;
+    let def = generate_footprint("header_double", LandPatternDensity::Nominal, &p)?;
+    assert_eq!(def.pads.len(), 10);
+    let top: Vec<_> = def.pads.iter().filter(|pad| pad.position.y < 0.0).collect();
+    let bottom: Vec<_> = def.pads.iter().filter(|pad| pad.position.y > 0.0).collect();
+    assert_eq!(top.len(), 5);
+    assert_eq!(bottom.len(), 5);
+    // Both rows must be at the same x positions (no stagger).
+    for i in 0..top.len() {
+        assert!(near(top[i].position.x, bottom[i].position.x));
+    }
+    // Pad numbering interleaves: odd on one row, even on the other.
+    assert_eq!(top[0].number, "1");
+    assert_eq!(bottom[0].number, "2");
+    assert_eq!(top[1].number, "3");
+    assert_eq!(bottom[1].number, "4");
+    Ok(())
+}
+
+#[test]
+fn radial_two_lead_span() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.pitch = 2.0;
+    p.body_length = 5.0;
+    p.body_width = 5.0;
+    let def = generate_footprint("radial", LandPatternDensity::Nominal, &p)?;
+    assert_eq!(def.pads.len(), 2);
+    assert!(near(def.pads[1].position.x - def.pads[0].position.x, 2.0));
+    Ok(())
+}
+
+#[test]
+fn tssop16_matches_soic_style_row_count() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.pitch = 0.65;
+    p.pin_count = 16;
+    p.body_width = 4.4;
+    let def = generate_footprint("tssop", LandPatternDensity::Nominal, &p)?;
+    assert_eq!(def.pads.len(), 16);
+    assert!(near(def.pads[0].size.y, 0.65 * 0.28));
+    Ok(())
+}
+
+#[test]
+fn tssop_honors_terminal_width() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.pitch = 0.65;
+    p.pin_count = 16;
+    p.body_width = 4.4;
+    p.lead_width = 0.35;
+    let def = generate_footprint("tssop", LandPatternDensity::Nominal, &p)?;
+    assert!(near(def.pads[0].size.y, 0.35));
+    Ok(())
+}
+
+#[test]
+fn dfn8_two_side_pad_count() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.pitch = 0.5;
+    p.pin_count = 8;
+    p.body_length = 2.5;
+    p.body_width = 2.5;
+    let def = generate_footprint("dfn", LandPatternDensity::Nominal, &p)?;
+    assert_eq!(def.pads.len(), 8);
+    let left: Vec<_> = def.pads.iter().filter(|pad| pad.position.x < 0.0).collect();
+    assert_eq!(left.len(), 4);
+    Ok(())
+}
+
+#[test]
+fn lga_4x4_rect_pads() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.pitch = 0.5;
+    p.grid_rows = 4;
+    p.grid_cols = 4;
+    let def = generate_footprint("lga", LandPatternDensity::Nominal, &p)?;
+    assert_eq!(def.pads.len(), 16);
+    assert!(def.pads.iter().all(|pad| pad.shape == "rect"));
+    Ok(())
+}
+
+#[test]
+fn sod123_two_end_pads() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.body_length = 3.2;
+    p.body_width = 1.6;
+    let def = generate_footprint("sod", LandPatternDensity::Nominal, &p)?;
+    assert_eq!(def.pads.len(), 2);
+    assert!(def.pads[0].position.x < 0.0 && def.pads[1].position.x > 0.0);
+    Ok(())
+}
+
+#[test]
+fn to_single_three_plated_holes() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.pitch = 2.54;
+    p.pin_count = 3;
+    p.body_width = 10.0;
+    let def = generate_footprint("to_single", LandPatternDensity::Nominal, &p)?;
+    assert_eq!(def.pads.len(), 3);
+    assert!(def.pads.iter().all(|pad| pad.pad_type == "thru_hole"));
+    Ok(())
+}
+
+#[test]
+fn ssop_alias_uses_tssop_layout() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.pitch = 0.65;
+    p.pin_count = 8;
+    p.body_width = 3.0;
+    let def = generate_footprint("ssop", LandPatternDensity::Nominal, &p)?;
+    assert_eq!(def.pads.len(), 8);
+    Ok(())
+}
+
+#[test]
+fn msop_alias_uses_tssop_layout() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.pitch = 0.5;
+    p.pin_count = 10;
+    p.body_width = 3.0;
+    let def = generate_footprint("msop", LandPatternDensity::Nominal, &p)?;
+    assert_eq!(def.pads.len(), 10);
+    Ok(())
+}
+
+#[test]
+fn axial_two_lead_span() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.pitch = 10.0;
+    p.body_length = 6.0;
+    p.body_width = 2.5;
+    let def = generate_footprint("axial", LandPatternDensity::Nominal, &p)?;
+    assert_eq!(def.pads.len(), 2);
+    assert!(near(def.pads[1].position.x - def.pads[0].position.x, 10.0));
+    Ok(())
+}
+
+#[test]
+fn generate_rejects_non_finite_pitch() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.pitch = f64::NAN;
+    match generate_footprint("soic", LandPatternDensity::Nominal, &p) {
+        Err(message) if message.contains("pitch") => Ok(()),
+        Ok(_) => Err("expected pitch rejection".into()),
+        Err(other) => Err(other),
+    }
+}
+
+#[test]
+fn check_reports_overlapping_pads() -> Result<(), String> {
+    let overlap = FootprintDefinition {
+        name: "OverlapFixture".into(),
+        description: String::new(),
+        keywords: String::new(),
+        pads: vec![
+            FootprintPad {
+                number: "1".into(),
+                pad_type: "smd".into(),
+                shape: "rect".into(),
+                position: Point::new(0.0, 0.0),
+                rotation: 0.0,
+                size: Point::new(2.0, 2.0),
+                layers: vec!["F.Cu".into(), "F.Mask".into(), "F.Paste".into()],
+                drill: None,
+                roundrect_ratio: None,
+                chamfer: None,
+                polygon: vec![],
+                raw_source: String::new(),
+            },
+            FootprintPad {
+                number: "2".into(),
+                pad_type: "smd".into(),
+                shape: "rect".into(),
+                position: Point::new(0.5, 0.0),
+                rotation: 0.0,
+                size: Point::new(2.0, 2.0),
+                layers: vec!["F.Cu".into(), "F.Mask".into(), "F.Paste".into()],
+                drill: None,
+                roundrect_ratio: None,
+                chamfer: None,
+                polygon: vec![],
+                raw_source: String::new(),
+            },
+        ],
+        graphics: vec![Graphic::Rectangle {
+            start: Point::new(-5.0, -5.0),
+            end: Point::new(5.0, 5.0),
+            width: 0.1,
+            fill: String::new(),
+            layer: "pcbcraft.courtyard".into(),
+        }],
+        model: None,
+        rules: None,
+        box_body: None,
+        raw_source: String::new(),
+        unsupported: vec![],
+        retained: vec![],
+    };
+    let findings = check_footprint(&overlap);
+    if findings
+        .iter()
+        .any(|f| f.code == "lib_pad_overlap" && f.severity == FindingSeverity::Error)
+    {
+        Ok(())
+    } else {
+        Err("expected lib_pad_overlap".into())
+    }
+}
+
+#[test]
+fn check_accepts_fresh_qfn() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.pitch = 0.5;
+    p.pin_count = 32;
+    p.body_length = 5.0;
+    p.body_width = 5.0;
+    p.thermal_size = 2.5;
+    p.name = "QFN50P500X500X100-32N".into();
+    let def = generate_footprint("qfn", LandPatternDensity::Nominal, &p)?;
+    let findings = check_footprint(&def);
+    if findings
+        .iter()
+        .any(|f| f.severity == FindingSeverity::Error)
+    {
+        Err(format!("unexpected errors: {findings:?}"))
+    } else {
+        Ok(())
+    }
+}

@@ -1,0 +1,1166 @@
+{
+  "provenance": {
+    "source_repository": "https://www.st.com/resource/en/reference_manual/rm0090-stm32f405407-stm32f415417-advanced-armbased-32bit-mcus-stmicroelectronics.pdf",
+    "revision": "RM0090 Rev 19",
+    "licence": "ST document licence (pin names and mux facts transcribed for PCBCraft)",
+    "fetched": "2026-10-30"
+  },
+  "mcu": {
+    "id": "stm32f405rg",
+    "name": "STM32F405RG",
+    "vendor": "STMicroelectronics",
+    "family": "STM32F4"
+  },
+  "package": [
+    {
+      "id": "lqfp64",
+      "name": "LQFP-64",
+      "pins": [
+        "VBAT",
+        "PC13",
+        "PC14",
+        "PC15",
+        "PF0",
+        "PF1",
+        "NRST",
+        "PC0",
+        "PC1",
+        "PC2",
+        "PC3",
+        "VDD",
+        "VSS",
+        "PF2",
+        "PF3",
+        "PF4",
+        "PF5",
+        "VSS",
+        "VDD",
+        "PA0",
+        "PA1",
+        "PA2",
+        "PA3",
+        "VSS",
+        "VDD",
+        "PA4",
+        "PA5",
+        "PA6",
+        "PA7",
+        "PC4",
+        "PC5",
+        "PB0",
+        "PB1",
+        "PB2",
+        "PB10",
+        "PB11",
+        "VSS",
+        "VDD",
+        "PB12",
+        "PB13",
+        "PB14",
+        "PB15",
+        "PD8",
+        "PD9",
+        "PD10",
+        "PD11",
+        "PD12",
+        "PD13",
+        "PD14",
+        "PD15",
+        "PC6",
+        "PC7",
+        "PC8",
+        "PC9",
+        "PA8",
+        "PA9",
+        "PA10",
+        "PA11",
+        "PA12",
+        "PA13",
+        "VSS",
+        "VDD",
+        "PA14",
+        "PA15"
+      ]
+    }
+  ],
+  "peripheral": [
+    {
+      "kind": "uart",
+      "instance": "USART1",
+      "signals": [
+        "TX",
+        "RX",
+        "CK",
+        "CTS",
+        "RTS"
+      ],
+      "channels": []
+    },
+    {
+      "kind": "uart",
+      "instance": "USART2",
+      "signals": [
+        "TX",
+        "RX",
+        "CK",
+        "CTS",
+        "RTS"
+      ],
+      "channels": []
+    },
+    {
+      "kind": "uart",
+      "instance": "USART3",
+      "signals": [
+        "TX",
+        "RX",
+        "CK",
+        "CTS",
+        "RTS"
+      ],
+      "channels": []
+    },
+    {
+      "kind": "uart",
+      "instance": "USART6",
+      "signals": [
+        "TX",
+        "RX",
+        "CK",
+        "CTS",
+        "RTS"
+      ],
+      "channels": []
+    },
+    {
+      "kind": "spi",
+      "instance": "SPI1",
+      "signals": [
+        "NSS",
+        "SCK",
+        "MISO",
+        "MOSI"
+      ],
+      "channels": []
+    },
+    {
+      "kind": "spi",
+      "instance": "SPI2",
+      "signals": [
+        "NSS",
+        "SCK",
+        "MISO",
+        "MOSI"
+      ],
+      "channels": []
+    },
+    {
+      "kind": "spi",
+      "instance": "SPI3",
+      "signals": [
+        "NSS",
+        "SCK",
+        "MISO",
+        "MOSI"
+      ],
+      "channels": []
+    },
+    {
+      "kind": "spi",
+      "instance": "SPI5",
+      "signals": [
+        "NSS",
+        "SCK",
+        "MISO",
+        "MOSI"
+      ],
+      "channels": []
+    },
+    {
+      "kind": "i2c",
+      "instance": "I2C2",
+      "signals": [
+        "SCL",
+        "SDA",
+        "SMBALERT"
+      ],
+      "channels": []
+    },
+    {
+      "kind": "can",
+      "instance": "CAN2",
+      "signals": [
+        "RX",
+        "TX"
+      ],
+      "channels": []
+    },
+    {
+      "kind": "usb",
+      "instance": "USB_OTG_FS",
+      "signals": [
+        "DM",
+        "DP",
+        "VBUS"
+      ],
+      "channels": []
+    },
+    {
+      "kind": "timer",
+      "instance": "TIM1",
+      "signals": [],
+      "channels": [
+        "CH1",
+        "CH2",
+        "CH3",
+        "CH4",
+        "CH1N",
+        "CH2N",
+        "CH3N",
+        "ETR"
+      ]
+    },
+    {
+      "kind": "timer",
+      "instance": "TIM2",
+      "signals": [],
+      "channels": [
+        "CH1",
+        "CH2",
+        "CH3",
+        "CH4"
+      ]
+    },
+    {
+      "kind": "timer",
+      "instance": "TIM3",
+      "signals": [],
+      "channels": [
+        "CH1",
+        "CH2",
+        "CH3",
+        "CH4"
+      ]
+    },
+    {
+      "kind": "timer",
+      "instance": "TIM8",
+      "signals": [],
+      "channels": [
+        "CH1",
+        "CH2",
+        "CH3",
+        "CH4"
+      ]
+    },
+    {
+      "kind": "timer",
+      "instance": "TIM13",
+      "signals": [],
+      "channels": [
+        "CH1"
+      ]
+    },
+    {
+      "kind": "timer",
+      "instance": "TIM14",
+      "signals": [],
+      "channels": [
+        "CH1"
+      ]
+    }
+  ],
+  "pin": [
+    {
+      "name": "VBAT",
+      "alternate": [],
+      "power_domain": "VBAT"
+    },
+    {
+      "name": "PC13",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOC.13"
+        }
+      ]
+    },
+    {
+      "name": "PC14",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOC.14"
+        }
+      ]
+    },
+    {
+      "name": "PC15",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOC.15"
+        }
+      ]
+    },
+    {
+      "name": "PF0",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOF.0"
+        },
+        {
+          "af": 4,
+          "signal": "I2C2.SDA"
+        }
+      ]
+    },
+    {
+      "name": "PF1",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOF.1"
+        },
+        {
+          "af": 4,
+          "signal": "I2C2.SCL"
+        }
+      ]
+    },
+    {
+      "name": "NRST",
+      "alternate": [],
+      "boot_strap": {
+        "required_level": "high"
+      }
+    },
+    {
+      "name": "PC0",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOC.0"
+        }
+      ]
+    },
+    {
+      "name": "PC1",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOC.1"
+        }
+      ]
+    },
+    {
+      "name": "PC2",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOC.2"
+        }
+      ]
+    },
+    {
+      "name": "PC3",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOC.3"
+        }
+      ]
+    },
+    {
+      "name": "VDD",
+      "alternate": [],
+      "power_domain": "VDD"
+    },
+    {
+      "name": "VSS",
+      "alternate": [],
+      "power_domain": "VSS"
+    },
+    {
+      "name": "PF2",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOF.2"
+        }
+      ]
+    },
+    {
+      "name": "PF3",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOF.3"
+        }
+      ]
+    },
+    {
+      "name": "PF4",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOF.4"
+        }
+      ]
+    },
+    {
+      "name": "PF5",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOF.5"
+        }
+      ]
+    },
+    {
+      "name": "VSS",
+      "alternate": [],
+      "power_domain": "VSS"
+    },
+    {
+      "name": "VDD",
+      "alternate": [],
+      "power_domain": "VDD"
+    },
+    {
+      "name": "PA0",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOA.0"
+        },
+        {
+          "af": 1,
+          "signal": "TIM2.CH1"
+        },
+        {
+          "af": 2,
+          "signal": "USART2.CTS"
+        },
+        {
+          "af": 7,
+          "signal": "USART1.CTS"
+        },
+        {
+          "af": 8,
+          "signal": "USART6.TX"
+        }
+      ]
+    },
+    {
+      "name": "PA1",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOA.1"
+        },
+        {
+          "af": 1,
+          "signal": "TIM2.CH2"
+        },
+        {
+          "af": 2,
+          "signal": "USART2.RTS"
+        },
+        {
+          "af": 7,
+          "signal": "USART1.RTS"
+        },
+        {
+          "af": 8,
+          "signal": "USART6.RX"
+        }
+      ]
+    },
+    {
+      "name": "PA2",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOA.2"
+        },
+        {
+          "af": 1,
+          "signal": "TIM2.CH3"
+        },
+        {
+          "af": 2,
+          "signal": "USART2.TX"
+        },
+        {
+          "af": 7,
+          "signal": "USART1.TX"
+        },
+        {
+          "af": 8,
+          "signal": "USART6.TX"
+        }
+      ]
+    },
+    {
+      "name": "PA3",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOA.3"
+        },
+        {
+          "af": 1,
+          "signal": "TIM2.CH4"
+        },
+        {
+          "af": 2,
+          "signal": "USART2.RX"
+        },
+        {
+          "af": 7,
+          "signal": "USART1.RX"
+        },
+        {
+          "af": 8,
+          "signal": "USART6.RX"
+        }
+      ]
+    },
+    {
+      "name": "VSS",
+      "alternate": [],
+      "power_domain": "VSS"
+    },
+    {
+      "name": "VDD",
+      "alternate": [],
+      "power_domain": "VDD"
+    },
+    {
+      "name": "PA4",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOA.4"
+        },
+        {
+          "af": 5,
+          "signal": "SPI1.NSS"
+        },
+        {
+          "af": 6,
+          "signal": "SPI3.NSS"
+        },
+        {
+          "af": 7,
+          "signal": "USART2.CK"
+        }
+      ]
+    },
+    {
+      "name": "PA5",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOA.5"
+        },
+        {
+          "af": 1,
+          "signal": "TIM2.CH1"
+        },
+        {
+          "af": 5,
+          "signal": "SPI1.SCK"
+        },
+        {
+          "af": 6,
+          "signal": "SPI3.SCK"
+        }
+      ]
+    },
+    {
+      "name": "PA6",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOA.6"
+        },
+        {
+          "af": 1,
+          "signal": "TIM3.CH1"
+        },
+        {
+          "af": 5,
+          "signal": "SPI1.MISO"
+        },
+        {
+          "af": 6,
+          "signal": "SPI3.MISO"
+        },
+        {
+          "af": 13,
+          "signal": "TIM13.CH1"
+        }
+      ]
+    },
+    {
+      "name": "PA7",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOA.7"
+        },
+        {
+          "af": 1,
+          "signal": "TIM3.CH2"
+        },
+        {
+          "af": 5,
+          "signal": "SPI1.MOSI"
+        },
+        {
+          "af": 6,
+          "signal": "SPI3.MOSI"
+        },
+        {
+          "af": 14,
+          "signal": "TIM14.CH1"
+        }
+      ]
+    },
+    {
+      "name": "PC4",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOC.4"
+        }
+      ]
+    },
+    {
+      "name": "PC5",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOC.5"
+        }
+      ]
+    },
+    {
+      "name": "PB0",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOB.0"
+        },
+        {
+          "af": 1,
+          "signal": "TIM3.CH3"
+        },
+        {
+          "af": 2,
+          "signal": "TIM8.CH2"
+        },
+        {
+          "af": 5,
+          "signal": "SPI5.SCK"
+        }
+      ]
+    },
+    {
+      "name": "PB1",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOB.1"
+        },
+        {
+          "af": 1,
+          "signal": "TIM3.CH4"
+        },
+        {
+          "af": 2,
+          "signal": "TIM8.CH3"
+        }
+      ]
+    },
+    {
+      "name": "PB2",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOB.2"
+        },
+        {
+          "af": 5,
+          "signal": "SPI3.MOSI"
+        }
+      ]
+    },
+    {
+      "name": "PB10",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOB.10"
+        },
+        {
+          "af": 1,
+          "signal": "TIM2.CH3"
+        },
+        {
+          "af": 4,
+          "signal": "I2C2.SCL"
+        },
+        {
+          "af": 7,
+          "signal": "USART3.TX"
+        }
+      ]
+    },
+    {
+      "name": "PB11",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOB.11"
+        },
+        {
+          "af": 1,
+          "signal": "TIM2.CH4"
+        },
+        {
+          "af": 4,
+          "signal": "I2C2.SDA"
+        },
+        {
+          "af": 7,
+          "signal": "USART3.RX"
+        }
+      ]
+    },
+    {
+      "name": "VSS",
+      "alternate": [],
+      "power_domain": "VSS"
+    },
+    {
+      "name": "VDD",
+      "alternate": [],
+      "power_domain": "VDD"
+    },
+    {
+      "name": "PB12",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOB.12"
+        },
+        {
+          "af": 4,
+          "signal": "I2C2.SMBALERT"
+        },
+        {
+          "af": 5,
+          "signal": "SPI2.NSS"
+        },
+        {
+          "af": 7,
+          "signal": "USART3.CK"
+        },
+        {
+          "af": 9,
+          "signal": "CAN2.RX"
+        }
+      ]
+    },
+    {
+      "name": "PB13",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOB.13"
+        },
+        {
+          "af": 1,
+          "signal": "TIM1.CH1N"
+        },
+        {
+          "af": 4,
+          "signal": "I2C2.SCL"
+        },
+        {
+          "af": 5,
+          "signal": "SPI2.SCK"
+        },
+        {
+          "af": 9,
+          "signal": "CAN2.TX"
+        }
+      ]
+    },
+    {
+      "name": "PB14",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOB.14"
+        },
+        {
+          "af": 1,
+          "signal": "TIM1.CH2N"
+        },
+        {
+          "af": 4,
+          "signal": "I2C2.SDA"
+        },
+        {
+          "af": 5,
+          "signal": "SPI2.MISO"
+        },
+        {
+          "af": 9,
+          "signal": "CAN2.RX"
+        }
+      ]
+    },
+    {
+      "name": "PB15",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOB.15"
+        },
+        {
+          "af": 1,
+          "signal": "TIM1.CH3N"
+        },
+        {
+          "af": 5,
+          "signal": "SPI2.MOSI"
+        },
+        {
+          "af": 9,
+          "signal": "CAN2.TX"
+        }
+      ]
+    },
+    {
+      "name": "PD8",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOD.8"
+        },
+        {
+          "af": 7,
+          "signal": "USART3.TX"
+        }
+      ]
+    },
+    {
+      "name": "PD9",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOD.9"
+        },
+        {
+          "af": 7,
+          "signal": "USART3.RX"
+        }
+      ]
+    },
+    {
+      "name": "PD10",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOD.10"
+        },
+        {
+          "af": 7,
+          "signal": "USART3.CK"
+        }
+      ]
+    },
+    {
+      "name": "PD11",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOD.11"
+        },
+        {
+          "af": 7,
+          "signal": "USART3.CTS"
+        }
+      ]
+    },
+    {
+      "name": "PD12",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOD.12"
+        },
+        {
+          "af": 7,
+          "signal": "USART3.RTS"
+        }
+      ]
+    },
+    {
+      "name": "PD13",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOD.13"
+        }
+      ]
+    },
+    {
+      "name": "PD14",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOD.14"
+        }
+      ]
+    },
+    {
+      "name": "PD15",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOD.15"
+        }
+      ]
+    },
+    {
+      "name": "PC6",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOC.6"
+        },
+        {
+          "af": 1,
+          "signal": "TIM3.CH1"
+        },
+        {
+          "af": 2,
+          "signal": "TIM8.CH1"
+        },
+        {
+          "af": 7,
+          "signal": "USART6.TX"
+        }
+      ]
+    },
+    {
+      "name": "PC7",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOC.7"
+        },
+        {
+          "af": 1,
+          "signal": "TIM3.CH2"
+        },
+        {
+          "af": 2,
+          "signal": "TIM8.CH2"
+        },
+        {
+          "af": 7,
+          "signal": "USART6.RX"
+        }
+      ]
+    },
+    {
+      "name": "PC8",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOC.8"
+        },
+        {
+          "af": 1,
+          "signal": "TIM3.CH3"
+        },
+        {
+          "af": 2,
+          "signal": "TIM8.CH3"
+        },
+        {
+          "af": 7,
+          "signal": "USART6.CK"
+        }
+      ]
+    },
+    {
+      "name": "PC9",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOC.9"
+        },
+        {
+          "af": 1,
+          "signal": "TIM3.CH4"
+        },
+        {
+          "af": 2,
+          "signal": "TIM8.CH4"
+        }
+      ]
+    },
+    {
+      "name": "PA8",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOA.8"
+        },
+        {
+          "af": 1,
+          "signal": "TIM1.CH1"
+        },
+        {
+          "af": 7,
+          "signal": "USART1.CK"
+        }
+      ]
+    },
+    {
+      "name": "PA9",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOA.9"
+        },
+        {
+          "af": 1,
+          "signal": "TIM1.CH2"
+        },
+        {
+          "af": 7,
+          "signal": "USART1.TX"
+        },
+        {
+          "af": 10,
+          "signal": "USB_OTG_FS.VBUS"
+        }
+      ]
+    },
+    {
+      "name": "PA10",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOA.10"
+        },
+        {
+          "af": 1,
+          "signal": "TIM1.CH3"
+        },
+        {
+          "af": 7,
+          "signal": "USART1.RX"
+        }
+      ]
+    },
+    {
+      "name": "PA11",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOA.11"
+        },
+        {
+          "af": 1,
+          "signal": "TIM1.CH4"
+        },
+        {
+          "af": 10,
+          "signal": "USB_OTG_FS.DM"
+        }
+      ]
+    },
+    {
+      "name": "PA12",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOA.12"
+        },
+        {
+          "af": 1,
+          "signal": "TIM1.ETR"
+        },
+        {
+          "af": 10,
+          "signal": "USB_OTG_FS.DP"
+        }
+      ]
+    },
+    {
+      "name": "PA13",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOA.13"
+        },
+        {
+          "af": 7,
+          "signal": "USART6.RX"
+        }
+      ]
+    },
+    {
+      "name": "VSS",
+      "alternate": [],
+      "power_domain": "VSS"
+    },
+    {
+      "name": "VDD",
+      "alternate": [],
+      "power_domain": "VDD"
+    },
+    {
+      "name": "PA14",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOA.14"
+        },
+        {
+          "af": 7,
+          "signal": "USART6.TX"
+        }
+      ]
+    },
+    {
+      "name": "PA15",
+      "alternate": [
+        {
+          "af": 0,
+          "signal": "GPIOA.15"
+        },
+        {
+          "af": 5,
+          "signal": "SPI1.NSS"
+        },
+        {
+          "af": 6,
+          "signal": "SPI3.NSS"
+        }
+      ]
+    }
+  ],
+  "dma": []
+}

@@ -1,0 +1,29 @@
+[part]
+manufacturer = "Raspberry Pi"
+mpn = "RP2350"
+datasheet_path = "research/sources/library/datasheets/raspberry-pi/rp2350.pdf"
+datasheet_url = "https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf"
+
+package = "QFN-60"
+pin_count = 60
+land_pattern_ref = "See datasheet land pattern section"
+
+[limits]
+abs_max_vdd = { value = "see datasheet", page = 1, confirmed = false }
+tj_max = { value = "see datasheet", page = 1, confirmed = false }
+
+[[pin]]
+number = 1
+name = "IOVDD"
+function = "IO supply"
+kind = "power"
+page = 18
+confirmed = false
+
+[[pin]]
+number = 23
+name = "DVDD"
+function = "Core supply"
+kind = "power"
+page = 18
+confirmed = false

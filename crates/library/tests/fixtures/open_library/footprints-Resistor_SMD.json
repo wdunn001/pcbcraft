@@ -1,0 +1,471 @@
+[
+ {
+  "id": "187575af3c5692b857afe2b7e146efb135fe71a3",
+  "name": "R_01005_0402Metric.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_01005_0402Metric.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "660e96fb14bfd4c1e977b7cecb1928447c44dbe3",
+  "name": "R_01005_0402Metric_Pad0.57x0.30mm_HandSolder.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_01005_0402Metric_Pad0.57x0.30mm_HandSolder.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "11b650532d2097d9a467ffb0fbd1fe20d5378987",
+  "name": "R_0201_0603Metric.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_0201_0603Metric.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "6ce3dcd6b00ff4532d3d684f351e91d02e5f3036",
+  "name": "R_0201_0603Metric_Pad0.64x0.40mm_HandSolder.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_0201_0603Metric_Pad0.64x0.40mm_HandSolder.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "8fca6ff7f92a78e41553f03bc4df7adea4317fd7",
+  "name": "R_0402_1005Metric.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_0402_1005Metric.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "1a09ae8a76f462e41a5a6167e164a71e8f983d7a",
+  "name": "R_0402_1005Metric_Pad0.72x0.64mm_HandSolder.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_0402_1005Metric_Pad0.72x0.64mm_HandSolder.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "e3b8cfb34b86115a8690489d52a765ee3477ebc5",
+  "name": "R_0508_1220Metric.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_0508_1220Metric.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "9458b49cd6d0c20010dad0a1ffd4c89331c2b3dc",
+  "name": "R_0508_1220Metric_Pad1.12x2.15mm_HandSolder.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_0508_1220Metric_Pad1.12x2.15mm_HandSolder.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "3cc5ed8296b3cb27f34e58d2a222f3f4e8b4fabd",
+  "name": "R_0603_1608Metric.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_0603_1608Metric.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "a48920e34de4b12b9f5451cccf6ad71bb53d4aa1",
+  "name": "R_0603_1608Metric_Pad0.98x0.95mm_HandSolder.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_0603_1608Metric_Pad0.98x0.95mm_HandSolder.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "ea48f0f1e60287e7a4d9fbbdd31b4ae0dd3747f1",
+  "name": "R_0612_1632Metric.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_0612_1632Metric.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "4b97d48fe8a77a04732f32eaea76e596fd253d8c",
+  "name": "R_0612_1632Metric_Pad1.18x3.40mm_HandSolder.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_0612_1632Metric_Pad1.18x3.40mm_HandSolder.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "44825545f5c9edeac2651d2b9218fa804580df99",
+  "name": "R_0805_2012Metric.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_0805_2012Metric.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "f9cd39b83f67611e3554766299fbc60b9543894c",
+  "name": "R_0805_2012Metric_Pad1.20x1.40mm_HandSolder.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_0805_2012Metric_Pad1.20x1.40mm_HandSolder.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "75033ee6905ba50a530b2722c5ada11244806f9c",
+  "name": "R_0815_2038Metric.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_0815_2038Metric.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "69f04dc8c30f224ef51d9b749bb094c0ecb2a61d",
+  "name": "R_0815_2038Metric_Pad1.20x4.05mm_HandSolder.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_0815_2038Metric_Pad1.20x4.05mm_HandSolder.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "2ebddeb9446a32291197d9189c8225152305fa67",
+  "name": "R_1020_2550Metric.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_1020_2550Metric.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "a8e972791d1da42a460ecf94b22e2dd5491223bc",
+  "name": "R_1020_2550Metric_Pad1.33x5.20mm_HandSolder.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_1020_2550Metric_Pad1.33x5.20mm_HandSolder.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "a02c1ac5e68c9631e76db2366a1395a00b626be2",
+  "name": "R_1206_3216Metric.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_1206_3216Metric.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "df43e2dc81b11955cd218fcd0fbd5d4e603fb2c9",
+  "name": "R_1206_3216Metric_Pad1.30x1.75mm_HandSolder.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_1206_3216Metric_Pad1.30x1.75mm_HandSolder.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "770786660497dd9017c370563b8b8a8f17052b50",
+  "name": "R_1210_3225Metric.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_1210_3225Metric.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "7af92deb9e4ba17526a221122b6209de0d251f30",
+  "name": "R_1210_3225Metric_Pad1.30x2.65mm_HandSolder.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_1210_3225Metric_Pad1.30x2.65mm_HandSolder.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "7dd533cf9062d437e1851cc8a874ba39ab935dd3",
+  "name": "R_1218_3246Metric.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_1218_3246Metric.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "7a98d640bc3a112a0527a9c2cd5553eb5a83d7a6",
+  "name": "R_1218_3246Metric_Pad1.22x4.75mm_HandSolder.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_1218_3246Metric_Pad1.22x4.75mm_HandSolder.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "47fcde2212cc17f998a2efeca7b37a7c88be0594",
+  "name": "R_1225_3264Metric.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_1225_3264Metric.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "99cdf4b2680abf16f2a3058b808bf167a0dcd721",
+  "name": "R_1225_3264Metric_Pad1.47x6.45mm_HandSolder.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_1225_3264Metric_Pad1.47x6.45mm_HandSolder.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "484a0cfc404bd6866c1046431c5cfa5968f3cce7",
+  "name": "R_1812_4532Metric.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_1812_4532Metric.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "888048da4ff0adbc082d5295e714af5a95a8c002",
+  "name": "R_1812_4532Metric_Pad1.30x3.40mm_HandSolder.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_1812_4532Metric_Pad1.30x3.40mm_HandSolder.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "79801d0f1e93276ed9bac63b36914ab48e299f41",
+  "name": "R_2010_5025Metric.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_2010_5025Metric.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "525a8639b8e4a6d234e0eeb503f5a71dc85d39f6",
+  "name": "R_2010_5025Metric_Pad1.40x2.65mm_HandSolder.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_2010_5025Metric_Pad1.40x2.65mm_HandSolder.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "941f8e8cb0cd83328aa4f28b0de0b4ddd02c196e",
+  "name": "R_2512_6332Metric.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_2512_6332Metric.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "83aba10bd005f039cd1daec1f6cd64ed2d04a92f",
+  "name": "R_2512_6332Metric_Pad1.40x3.35mm_HandSolder.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_2512_6332Metric_Pad1.40x3.35mm_HandSolder.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "604700e90ad317bd2234692ed7b3490b13b73243",
+  "name": "R_2816_7142Metric.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_2816_7142Metric.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "e6db149d36257e162f1077bf71d57a7c543862f8",
+  "name": "R_2816_7142Metric_Pad3.20x4.45mm_HandSolder.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_2816_7142Metric_Pad3.20x4.45mm_HandSolder.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "5178a2d952bf3d3ca867668f24876a9e4efbb0d6",
+  "name": "R_4020_10251Metric.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_4020_10251Metric.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "96ee9946e6f4fc67fe0bda9d09d46060b8a6c7e8",
+  "name": "R_4020_10251Metric_Pad1.65x5.30mm_HandSolder.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_4020_10251Metric_Pad1.65x5.30mm_HandSolder.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "486bb07099a7a972bcc70a62f5d64c8aa35ae4cc",
+  "name": "R_Array_Concave_2x0603.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_Array_Concave_2x0603.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "ff8a772c4a6ca97c60926d49787b4296fd30b1bd",
+  "name": "R_Array_Concave_4x0402.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_Array_Concave_4x0402.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "a0cbb90f9c9294336698e470e938b483964f4278",
+  "name": "R_Array_Concave_4x0603.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_Array_Concave_4x0603.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "dfe9428120ff67fbc93e5dbea4479c5abd48e78e",
+  "name": "R_Array_Convex_2x0402.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_Array_Convex_2x0402.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "1dacf89d26146260b91c4223ab43edf74f1e0dd5",
+  "name": "R_Array_Convex_2x0603.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_Array_Convex_2x0603.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "eb6058d90de264b54b0d16696588b963e4f30f6f",
+  "name": "R_Array_Convex_2x0606.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_Array_Convex_2x0606.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "707e045e5049ffcf96f25cdcb7b0617579b8a745",
+  "name": "R_Array_Convex_2x1206.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_Array_Convex_2x1206.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "5ff1144941549c6c043f3b07097c8ed4afe30910",
+  "name": "R_Array_Convex_4x0402.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_Array_Convex_4x0402.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "af0b1afad631f8f25fad2bd20ff9ec49e1720776",
+  "name": "R_Array_Convex_4x0603.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_Array_Convex_4x0603.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "1fc4cda231a86102a8a448ee770242285ec9a947",
+  "name": "R_Array_Convex_4x0612.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_Array_Convex_4x0612.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "933fcaef62a7395de0fbd4f2365f690b0f28b37a",
+  "name": "R_Array_Convex_4x1206.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_Array_Convex_4x1206.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "3e29a7cceabed7942dd54a1e964107880e2bd131",
+  "name": "R_Array_Convex_5x0603.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_Array_Convex_5x0603.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "e1a6699a29f138b8316e71c5222107377328e50d",
+  "name": "R_Array_Convex_5x1206.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_Array_Convex_5x1206.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "e2753384dbad6eec5945cba8fe75fc76308d4a59",
+  "name": "R_Array_Convex_8x0602.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_Array_Convex_8x0602.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "c0f280c6f667343828e575a597b5426bb7b37952",
+  "name": "R_Cat16-2.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_Cat16-2.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "6fd695eaffd5bb3a6e529be2f7cb9e5fdc8fbf37",
+  "name": "R_Cat16-4.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_Cat16-4.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "f601bc42fceccca5c200b22791b5912fac4095b7",
+  "name": "R_Cat16-8.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_Cat16-8.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "6b61421693ea33829c249042cd798f4176414f1b",
+  "name": "R_MELF_MMB-0207.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_MELF_MMB-0207.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "55207b1fe043f6eb2fc9c9c0bb58058542abf6ea",
+  "name": "R_MicroMELF_MMU-0102.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_MicroMELF_MMU-0102.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "48e90efda4cfd81b8e0803b736307fd3107659a5",
+  "name": "R_MiniMELF_MMA-0204.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_MiniMELF_MMA-0204.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "f54ef5f3c92124aaac0cb134c745b12cd00c4389",
+  "name": "R_Shunt_Isabellenhuette_BVR4026.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_Shunt_Isabellenhuette_BVR4026.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "d030115913bf18001474726d2fff954dd2f5b312",
+  "name": "R_Shunt_Ohmite_LVK12.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_Shunt_Ohmite_LVK12.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "7f08dac0a6b48b45345832a61c4d243a7c919262",
+  "name": "R_Shunt_Ohmite_LVK20.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_Shunt_Ohmite_LVK20.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "48b088cb8f231d687485b014683be1d96b42407f",
+  "name": "R_Shunt_Ohmite_LVK24.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_Shunt_Ohmite_LVK24.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "c3ef5f4b0b7eb22001b34b93d29e58cf11a64c73",
+  "name": "R_Shunt_Ohmite_LVK25.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_Shunt_Ohmite_LVK25.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "f73c336f0268801b3057e278bef7dfac94acb382",
+  "name": "R_Shunt_Vishay_WSK2512_6332Metric_T1.19mm.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_Shunt_Vishay_WSK2512_6332Metric_T1.19mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "38a0214a1d3d1ec6fdf881d19e8517cb44803ab3",
+  "name": "R_Shunt_Vishay_WSK2512_6332Metric_T2.21mm.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_Shunt_Vishay_WSK2512_6332Metric_T2.21mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "22b7e6d637cc91f2815f6f4d6e1c04dd436a6b6a",
+  "name": "R_Shunt_Vishay_WSK2512_6332Metric_T2.66mm.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_Shunt_Vishay_WSK2512_6332Metric_T2.66mm.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "d1d0839e4c8a41cf2088bc9393080a21812f4592",
+  "name": "R_Shunt_Vishay_WSKW0612.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_Shunt_Vishay_WSKW0612.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "7b9bf9591810080b3ae43d70f495bb431317d750",
+  "name": "R_Shunt_Vishay_WSR2_WSR3.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_Shunt_Vishay_WSR2_WSR3.kicad_mod",
+  "mode": "100644"
+ },
+ {
+  "id": "330d2cd14d0418ac7b046fe969404ade6f79a625",
+  "name": "R_Shunt_Vishay_WSR2_WSR3_KelvinConnection.kicad_mod",
+  "type": "blob",
+  "path": "Resistor_SMD.pretty/R_Shunt_Vishay_WSR2_WSR3_KelvinConnection.kicad_mod",
+  "mode": "100644"
+ }
+]

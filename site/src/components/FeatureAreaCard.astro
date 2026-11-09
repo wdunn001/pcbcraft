@@ -1,0 +1,67 @@
+---
+// Home page card for one area: pad dot in the layer colour, up to four key points, link to
+// the area page. Rules: points come from features.yaml entries flagged `key`.
+import { keyPoints, type Area } from '../lib/features';
+import { url } from '../lib/site';
+interface Props { area: Area }
+const { area } = Astro.props;
+const points = keyPoints(area.id);
+---
+
+<article class={`card t-${area.tone}`}>
+  <p class="tag"><span class="pad"></span>{area.label}</p>
+  <ul>
+    {points.map((p) => <li><span>{p.name}</span></li>)}
+  </ul>
+  <a class="more" href={url(`features/${area.id}/`)}>
+    All {area.label.toLowerCase()} features<span class="sr-only"> (opens the feature page)</span> <span aria-hidden="true">→</span>
+  </a>
+</article>
+
+<style>
+  .card {
+    display: flex;
+    flex-direction: column;
+    padding: 1.4rem 1.5rem 1.2rem;
+    background: var(--pc-surface);
+    border: 1px solid var(--pc-line);
+    border-radius: 8px;
+    transition: border-color 0.15s ease;
+  }
+  .card:hover {
+    border-color: var(--tone);
+  }
+  .tag {
+    margin: 0 0 0.9rem;
+  }
+  ul {
+    flex: 1;
+    margin: 0 0 1.1rem;
+    padding: 0;
+    list-style: none;
+  }
+  li {
+    display: flex;
+    gap: 0.7rem;
+    padding: 0.38rem 0;
+    color: var(--pc-text);
+    border-top: 1px solid var(--pc-line);
+    font-size: 0.97rem;
+  }
+  li:first-child {
+    border-top: 0;
+  }
+  li::before {
+    content: '';
+    flex: none;
+    width: 0.9rem;
+    height: 2px;
+    margin-top: 0.8em;
+    background: var(--tone);
+  }
+  .more {
+    align-self: flex-start;
+    font-weight: 600;
+    font-size: 0.93rem;
+  }
+</style>

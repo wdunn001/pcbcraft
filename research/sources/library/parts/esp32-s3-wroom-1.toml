@@ -1,0 +1,19 @@
+[part]
+manufacturer = "Espressif"
+mpn = "ESP32-S3-WROOM-1"
+datasheet_path = "research/sources/library/datasheets/espressif/esp32-s3-wroom-1.pdf"
+datasheet_url = "https://www.espressif.com/sites/default/files/documentation/esp32-s3-wroom-1_wroom-1u_datasheet_en.pdf"
+
+package = "Module"
+pin_count = 41
+land_pattern_ref = "See module footprint drawing"
+
+[limits]
+abs_max_vdd = { value = "see datasheet", page = 1, confirmed = false }
+tj_max = { value = "see datasheet", page = 1, confirmed = false }
+
+[[requirement]]
+type = "decoupling"
+text = "Follow manufacturer decoupling and layout guidance in the datasheet."
+page = 1
+confirmed = false

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="PCBCraft mark, concept 2: three stacked board layers">
+  <title>PCBCraft concept 2, Layer stack</title>
+  <rect width="512" height="512" rx="96" fill="#0b1a16"/>
+  <path d="M88 244 L132 200 H344 V412 H88 Z" fill="#1f7a5f"/>
+  <path d="M148 184 L192 140 H404 V352 H148 Z" fill="#d98e4f" stroke="#0b1a16" stroke-width="16" stroke-linejoin="miter"/>
+  <path d="M208 124 L252 80 H464 V292 H208 Z" fill="#f1eee4" stroke="#0b1a16" stroke-width="16" stroke-linejoin="miter"/>
+</svg>

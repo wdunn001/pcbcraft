@@ -1,0 +1,164 @@
+{
+  "_note": "Catalog of product images. One entry per image file in src/assets/screens/. Every image is a crop of a real capture of the app (`cargo xtask screenshots`), never a mockup; origin stays 'capture'. source is the capture file name (without .png) and crop is [x, y, width, height] in pixels of the 1920 by 1240 window. mobile is an optional second crop (about 4:3) used on narrow screens. `use` points a slot at another entry's image. alt is required for every image: scripts/make-screens.mjs and ShotFrame fail without it. Rebuild the files with `node scripts/make-screens.mjs --captures DIR`.",
+  "images": {
+    "hero-layout": {
+      "origin": "capture",
+      "source": "layout-sheet",
+      "crop": [
+        0,
+        0,
+        1920,
+        1240
+      ],
+      "mobile": [
+        470,
+        230,
+        960,
+        720
+      ],
+      "alt": "The PCBCraft Layout tab: the Layers tree on the left, a 60 by 40 millimetre board with three footprints and dashed connection lines in the middle, an empty Properties panel on the right, and the Findings sheet below."
+    },
+    "home-schematic": {
+      "origin": "capture",
+      "source": "schematic",
+      "crop": [
+        420,
+        235,
+        1160,
+        790
+      ],
+      "mobile": [
+        480,
+        290,
+        1020,
+        765
+      ],
+      "alt": "A schematic sheet with a connector J1, a 330 ohm resistor R1 and a green LED D1 joined by wires, with VCC and GND power symbols, row and column markers and a title block."
+    },
+    "home-layout": {
+      "origin": "capture",
+      "source": "layout",
+      "crop": [
+        320,
+        230,
+        1260,
+        788
+      ],
+      "mobile": [
+        470,
+        330,
+        960,
+        720
+      ],
+      "alt": "The board canvas: a 60 by 40 millimetre outline with chamfered corners, two mounting holes and three footprints joined by dashed connection lines, with rulers and a 60 millimetre dimension."
+    },
+    "layout-routed": {
+      "origin": "capture",
+      "source": "showcase-layout",
+      "crop": [
+        330,
+        240,
+        1250,
+        830
+      ],
+      "mobile": [
+        430,
+        255,
+        1060,
+        795
+      ],
+      "alt": "A routed sensor board in the layout view: orange top copper and blue bottom copper traces joining a microcontroller, a USB connector, resistors, capacitors and LEDs inside a rounded board outline, with a 72 millimetre dimension below."
+    },
+    "home-libraries": {
+      "origin": "capture",
+      "source": "layout-library",
+      "crop": [
+        0,
+        112,
+        960,
+        600
+      ],
+      "mobile": [
+        0,
+        112,
+        640,
+        480
+      ],
+      "alt": "The Library tab beside the board: a keyword box, three view buttons, a row of source filter icons, and cards for Resistor, LED, Capacitor, 2-pin connector and Protection diode, each with a short description, its source and pin count."
+    },
+    "home-outputs": {
+      "origin": "capture",
+      "source": "manufacture",
+      "crop": [
+        0,
+        34,
+        1580,
+        988
+      ],
+      "mobile": [
+        540,
+        40,
+        860,
+        645
+      ],
+      "alt": "The Manufacture tab with the Export dialog open: a list of formats grouped as Assembly, Fabrication, Documentation, Exchange and Packages, and a Bill of materials page with file type, columns and a preview of the first rows."
+    },
+    "view3d": {
+      "origin": "capture",
+      "source": "3d",
+      "crop": [
+        320,
+        400,
+        1260,
+        770
+      ],
+      "mobile": [
+        380,
+        420,
+        1120,
+        740
+      ],
+      "alt": "The board in the 3D view from an angle: a green board with parts drawn as plain dark boxes sized from their pads, a pin header, a connector and a white antenna outline in the silkscreen."
+    },
+    "layers-tree": {
+      "origin": "capture",
+      "source": "layout-sheet",
+      "crop": [
+        0,
+        112,
+        320,
+        880
+      ],
+      "alt": "The Layers tree: a filter box, Show all, Hide others and New layer, then Board 60 by 40 mm, Layer 1 Top with Tracks, Solder mask, Silkscreen, Paste and Pads, Layer 2 Bottom, Board edge and Parts, each with a lock and an eye toggle."
+    },
+    "bottom-sheet": {
+      "origin": "capture",
+      "source": "layout-sheet",
+      "crop": [
+        320,
+        988,
+        1260,
+        232
+      ],
+      "mobile": [
+        320,
+        988,
+        900,
+        232
+      ],
+      "alt": "The bottom sheet under the canvas: Findings, Output and Console tabs, an All findings filter, a Run checks button, and three findings about disconnected copper islands on VCC, LED and GND, each with Show, Hide and Mute buttons."
+    }
+  },
+  "slots": {
+    "feature-schematic": "home-schematic",
+    "feature-layout": "layout-routed",
+    "feature-libraries": "home-libraries",
+    "feature-rules": "bottom-sheet",
+    "feature-view3d": "view3d",
+    "feature-outputs": "home-outputs",
+    "feature-machines": "home-outputs",
+    "feature-assistant": "hero-layout",
+    "feature-access": "home-schematic",
+    "feature-browser": "hero-layout"
+  }
+}

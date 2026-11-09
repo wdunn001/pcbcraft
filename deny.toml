@@ -1,0 +1,65 @@
+# cargo-deny configuration. Run with `cargo xtask deny`. See docs/ci.md.
+[graph]
+all-features = true
+
+[advisories]
+# Unmaintained crates are reported for direct and transitive dependencies,
+# yanked versions fail.
+unmaintained = "workspace"
+yanked = "deny"
+ignore = []
+
+[licenses]
+# PCBCraft is MIT OR Apache-2.0. Every dependency license must be permissive
+# enough to distribute the combined work under those terms. No GPL, LGPL or AGPL.
+# MPL-2.0 stays allowed: it is file-level copyleft and fine as an unmodified dependency.
+confidence-threshold = 0.93
+# The allow list is policy, not a record of what is used today, so an entry no
+# crate needs right now is not a warning.
+unused-allowed-license = "allow"
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "MIT-0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "BSL-1.0",
+    "Unicode-3.0",
+    "CC0-1.0",
+    "MPL-2.0",
+]
+# egui ships the Ubuntu and Hack fonts as embedded data. Both are free font
+# licenses; the exception is limited to the one crate that carries them.
+exceptions = [
+    { allow = ["OFL-1.1", "Ubuntu-font-1.0"], crate = "epaint_default_fonts" },
+    # The Mozilla root list shipped as data, used by the assistant's desktop HTTP client.
+    # CDLA-Permissive-2.0 is a permissive data license; limited to the crate that carries it.
+    { allow = ["CDLA-Permissive-2.0"], crate = "webpki-roots" },
+]
+
+
+[licenses.private]
+ignore = true
+
+[bans]
+# Two versions of a crate come from the GUI and platform stacks and cannot be
+# merged from here; they were 55 warnings on every run and never failed it.
+multiple-versions = "allow"
+# Workspace crates depend on each other by path without a version.
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+# Likewise for sources that the lockfile does not use at the moment.
+unused-allowed-source = "allow"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# craft-ui is pinned to a revision in Cargo.toml.
+allow-git = [
+    "https://github.com/storytold/craft-libs",
+    "https://github.com/wdunn001/craft-libs",
+    "https://github.com/wdunn001/collab-craft",
+]

@@ -1,0 +1,14 @@
+manifest.json
+LED_indicator-DrillMap.gbr
+LED_indicator-NPTH.TXT
+LED_indicator-PTH.TXT
+LED_indicator-README.txt
+LED_indicator.GBL
+LED_indicator.GBO
+LED_indicator.GBP
+LED_indicator.GBS
+LED_indicator.GKO
+LED_indicator.GTL
+LED_indicator.GTO
+LED_indicator.GTP
+LED_indicator.GTS

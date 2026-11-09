@@ -1,0 +1,140 @@
+{
+  "name": "Recorded sample",
+  "note": "Made-up recorded answers for the Library tab stories. Not a real catalogue.",
+  "parts": [
+    {
+      "source": "Recorded sample",
+      "mpn": "NR1206-330R-F",
+      "manufacturer": "Northfield Components",
+      "description": "Thick film chip resistor, 330 ohm, 1 percent, 0.25 W, 1206",
+      "kind": "resistor",
+      "distributor": "Distributor A",
+      "sku": "A-311-330FRCT-ND",
+      "stock": 48200,
+      "price_breaks": [
+        {
+          "quantity": 1,
+          "unit_price": 0.1,
+          "currency": "USD"
+        },
+        {
+          "quantity": 10,
+          "unit_price": 0.031,
+          "currency": "USD"
+        },
+        {
+          "quantity": 100,
+          "unit_price": 0.012,
+          "currency": "USD"
+        },
+        {
+          "quantity": 1000,
+          "unit_price": 0.008,
+          "currency": "USD"
+        }
+      ],
+      "lifecycle": "Active",
+      "datasheet_url": "",
+      "product_url": "",
+      "retrieved_at": 1792540800
+    },
+    {
+      "source": "Recorded sample",
+      "mpn": "NR1206-330R-F",
+      "manufacturer": "Northfield Components",
+      "description": "Thick film chip resistor, 330 ohm, 1 percent, 0.25 W, 1206",
+      "kind": "resistor",
+      "distributor": "Distributor B",
+      "sku": "603-NR1206-330R",
+      "stock": 12940,
+      "price_breaks": [
+        {
+          "quantity": 1,
+          "unit_price": 0.11,
+          "currency": "USD"
+        },
+        {
+          "quantity": 10,
+          "unit_price": 0.034,
+          "currency": "USD"
+        },
+        {
+          "quantity": 100,
+          "unit_price": 0.013,
+          "currency": "USD"
+        },
+        {
+          "quantity": 1000,
+          "unit_price": 0.009,
+          "currency": "USD"
+        }
+      ],
+      "lifecycle": "Active",
+      "datasheet_url": "",
+      "product_url": "",
+      "retrieved_at": 1792540800
+    },
+    {
+      "source": "Recorded sample",
+      "mpn": "NR1206-330R-F",
+      "manufacturer": "Northfield Components",
+      "description": "Thick film chip resistor, 330 ohm, 1 percent, 0.25 W, 1206",
+      "kind": "resistor",
+      "distributor": "Distributor C",
+      "sku": "NR1206F330RTR",
+      "stock": 0,
+      "price_breaks": [
+        {
+          "quantity": 1,
+          "unit_price": 0.09,
+          "currency": "USD"
+        },
+        {
+          "quantity": 10,
+          "unit_price": 0.028,
+          "currency": "USD"
+        },
+        {
+          "quantity": 100,
+          "unit_price": 0.011,
+          "currency": "USD"
+        },
+        {
+          "quantity": 1000,
+          "unit_price": 0.007,
+          "currency": "USD"
+        }
+      ],
+      "lifecycle": "Active",
+      "datasheet_url": "",
+      "product_url": "",
+      "retrieved_at": 1792368000
+    },
+    {
+      "source": "Recorded sample",
+      "mpn": "NR0603-330R-J",
+      "manufacturer": "Northfield Components",
+      "description": "Thick film chip resistor, 330 ohm, 5 percent, 0.1 W, 0603",
+      "kind": "resistor",
+      "distributor": "Distributor A",
+      "sku": "A-311-330JRCT-ND",
+      "stock": 210500,
+      "price_breaks": [
+        {
+          "quantity": 1,
+          "unit_price": 0.06,
+          "currency": "USD"
+        },
+        {
+          "quantity": 100,
+          "unit_price": 0.007,
+          "currency": "USD"
+        }
+      ],
+      "lifecycle": "Active",
+      "datasheet_url": "",
+      "product_url": "",
+      "retrieved_at": 1792540800
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "format": "pcbcraft-registry-catalogue",
+  "schema_version": 1,
+  "items": [
+    {
+      "id": "peer-led",
+      "title": "Peer demo LED",
+      "version": "0.1.0",
+      "kind": "part",
+      "tags": [
+        "fixture"
+      ],
+      "bundle_root_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "path": "publications/peer-led/0.1.0"
+    }
+  ]
+}

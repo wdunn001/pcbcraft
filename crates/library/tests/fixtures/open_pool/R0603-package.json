@@ -1,0 +1,23 @@
+{
+    "default_model": "96c366ee-a963-41a0-9cc8-54c646979695",
+    "manufacturer": "",
+    "models": {
+        "96c366ee-a963-41a0-9cc8-54c646979695": {
+            "filename": "3d_models/passive/resistor/R_0603_1608Metric.step",
+            "pitch": 0,
+            "roll": 0,
+            "x": 0,
+            "y": 0,
+            "yaw": 0,
+            "z": 0
+        }
+    },
+    "name": "R0603",
+    "pads": {},
+    "tags": [
+        "generic",
+        "smd"
+    ],
+    "type": "package",
+    "uuid": "fe22ac1d-25b9-4a47-8414-51c990d7f94b"
+}

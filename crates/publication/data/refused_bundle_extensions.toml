@@ -1,0 +1,24 @@
+# File extensions refused inside publication bundles (lowercase, without dot).
+
+extensions = [
+  "exe",
+  "dll",
+  "so",
+  "dylib",
+  "bat",
+  "cmd",
+  "ps1",
+  "sh",
+  "bash",
+  "py",
+  "rb",
+  "js",
+  "mjs",
+  "cjs",
+  "wasm",
+  "com",
+  "scr",
+  "vbs",
+  "jar",
+  "app",
+]

@@ -1,0 +1,68 @@
+# Glossary part 09-test
+schema = 1
+
+[[term]]
+id = "ict"
+term = "In circuit test"
+category = "test"
+short = "Bed of nails test that checks assembly and basic analog values."
+long = "ICT needs dedicated test pads and often disables processors. Coverage trades cost against escape rate."
+synonyms = ["ICT"]
+related = ["test_pad", "dfm"]
+units = ""
+in_pcbcraft = []
+search = "ict bed of nails fixture"
+source = "Test engineering practice"
+
+[[term]]
+id = "test_pad"
+term = "Test pad"
+category = "test"
+short = "Accessible copper point for probes or fixtures."
+long = "Test pads sit on nets that need verification. Size and spacing follow fixture vendor guidelines."
+synonyms = ["TP"]
+related = ["ict", "probe"]
+units = "mm"
+in_pcbcraft = []
+search = "test pad probe access"
+source = "Test engineering practice"
+
+[[term]]
+id = "probe"
+term = "Test probe"
+category = "test"
+short = "Spring pin or needle that contacts a pad during test."
+long = "Probes wear with cycles and need clearance around tall parts. Named nets simplify debug before fixtures exist."
+synonyms = ["pogo pin"]
+related = ["test_pad", "ict"]
+units = ""
+in_pcbcraft = []
+search = "probe pogo debug access"
+source = "Test engineering practice"
+
+[[term]]
+id = "jtag"
+term = "JTAG boundary scan"
+category = "test"
+short = "Serial chain that can observe and drive package pins for test."
+long = "JTAG needs correct header pin order and series resistors on fast lines. It complements functional test for shorts."
+synonyms = ["IEEE 1149"]
+related = ["test_pad", "connector"]
+units = ""
+in_pcbcraft = []
+search = "jtag boundary scan chain"
+source = "Test engineering practice"
+
+[[term]]
+id = "dfm"
+term = "Design for manufacturability"
+category = "test"
+short = "Layout choices that improve yield and test coverage."
+long = "DFM reviews catch small annular rings, tight spacing and missing fiducials before tooling is ordered."
+synonyms = ["DFM"]
+related = ["annular_ring", "panelization"]
+units = ""
+in_pcbcraft = []
+search = "dfm yield manufacturability review"
+source = "Manufacturing practice"
+

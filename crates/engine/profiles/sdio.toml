@@ -1,0 +1,17 @@
+schema = 1
+
+[profile]
+id = "sdio"
+name = "SDIO card"
+category = "interface"
+summary = "SDIO card rule starting points."
+
+[[net_class]]
+name = "SIG"
+clearance = 0.15
+width = 0.2
+patterns = ["*"]
+
+[[value_source]]
+field = "net_class.width"
+source = "sdio_default"

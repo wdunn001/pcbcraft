@@ -1,0 +1,126 @@
+/* PCBCraft theme: one set of tokens for the marketing front and the Starlight docs.
+   Dark first (solder-mask green-black ground, copper and gold accents); the light values
+   apply when `html[data-theme='light']` is set (inline script in MarketingLayout and
+   Starlight's ThemeProvider both set it, from the same `starlight-theme` storage key).
+   Rules: every colour used in text or on a control comes from a `--pc-*` token below.
+   `scripts/check-contrast.mjs` parses the two token blocks and fails when a pair drops below
+   WCAG 2.2 AA (4.5:1 text, 3:1 control borders and focus ring). Change a token, run it.
+   Do not: hard-code a hex value outside this file; use `--pc-line` as the only border of a
+   control (it is decoration, 1.6 to 1.9:1). */
+
+:root,
+[data-theme-scope='dark'] {
+  /* Dark tokens */
+  --pc-bg: #0A1411;
+  --pc-surface: #111F1A;
+  --pc-raised: #182A23;
+  --pc-line: #2C4A3E;
+  --pc-edge: #5E8576;
+  --pc-text: #E8F0EB;
+  --pc-muted: #9DB3A8;
+  --pc-copper: #E39A5B;
+  --pc-mask: #4FCB8C;
+  --pc-gold: #E6BE5A;
+  --pc-cyan: #5CC8E8;
+  --pc-red: #FF8A80;
+  --pc-onacc: #0A1411;
+  /* Aside backgrounds (accent mixed into bg), checked against text and the accent colour */
+  --pc-note-low: #162D2F;
+  --pc-tip-low: #142E22;
+  --pc-caution-low: #292C1B;
+  --pc-danger-low: #2C2521;
+  --pc-grid: rgba(232, 240, 235, 0.05);
+  --pc-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 12px 32px rgba(0, 0, 0, 0.45);
+
+  --pc-font-body: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', sans-serif;
+  --pc-font-head: 'IBM Plex Sans Condensed', 'IBM Plex Sans', system-ui, sans-serif;
+  --pc-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  color-scheme: dark;
+}
+
+:root[data-theme='light'],
+[data-theme-scope='light'] {
+  /* Light tokens */
+  --pc-bg: #F4F3EC;
+  --pc-surface: #FFFFFF;
+  --pc-raised: #E9E8DF;
+  --pc-line: #B9C4BC;
+  --pc-edge: #667B70;
+  --pc-text: #101C17;
+  --pc-muted: #44574E;
+  --pc-copper: #8F4A12;
+  --pc-mask: #14663F;
+  --pc-gold: #7A5A00;
+  --pc-cyan: #0B6785;
+  --pc-red: #B3261E;
+  --pc-onacc: #FFFFFF;
+  --pc-note-low: #DDE5E2;
+  --pc-tip-low: #DEE5DB;
+  --pc-caution-low: #E8E4D4;
+  --pc-danger-low: #EEDFD7;
+  --pc-grid: rgba(16, 28, 23, 0.06);
+  --pc-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 10px 28px rgba(16, 28, 23, 0.12);
+
+  color-scheme: light;
+}
+
+/* Starlight mapping. In Starlight "white" is the highest-contrast text colour and "black"
+   is the page ground in both themes; gray-1..4 are text, gray-5 a control border, gray-6/7
+   surfaces. */
+:root,
+:root[data-theme='light'] {
+  --sl-font: var(--pc-font-body);
+  --sl-font-mono: var(--pc-font-mono);
+
+  --sl-color-white: var(--pc-text);
+  --sl-color-gray-1: var(--pc-text);
+  --sl-color-gray-2: var(--pc-text);
+  --sl-color-gray-3: var(--pc-muted);
+  --sl-color-gray-4: var(--pc-muted);
+  --sl-color-gray-5: var(--pc-edge);
+  --sl-color-gray-6: var(--pc-raised);
+  --sl-color-gray-7: var(--pc-surface);
+  --sl-color-black: var(--pc-bg);
+
+  --sl-color-accent-low: var(--pc-raised);
+  --sl-color-accent: var(--pc-copper);
+  --sl-color-accent-high: var(--pc-copper);
+
+  --sl-color-text: var(--pc-text);
+  --sl-color-text-accent: var(--pc-copper);
+  --sl-color-text-invert: var(--pc-onacc);
+  --sl-color-bg: var(--pc-bg);
+  --sl-color-bg-nav: var(--pc-bg);
+  --sl-color-bg-sidebar: var(--pc-bg);
+  --sl-color-bg-inline-code: var(--pc-raised);
+  --sl-color-bg-accent: var(--pc-copper);
+  --sl-color-hairline-light: var(--pc-line);
+  --sl-color-hairline: var(--pc-line);
+  --sl-color-hairline-shade: var(--pc-line);
+
+  --sl-color-blue-low: var(--pc-note-low);
+  --sl-color-blue: var(--pc-cyan);
+  --sl-color-blue-high: var(--pc-cyan);
+  --sl-color-green-low: var(--pc-tip-low);
+  --sl-color-green: var(--pc-mask);
+  --sl-color-green-high: var(--pc-mask);
+  --sl-color-orange-low: var(--pc-caution-low);
+  --sl-color-orange: var(--pc-gold);
+  --sl-color-orange-high: var(--pc-gold);
+  --sl-color-red-low: var(--pc-danger-low);
+  --sl-color-red: var(--pc-red);
+  --sl-color-red-high: var(--pc-red);
+  --sl-color-purple-low: var(--pc-note-low);
+  --sl-color-purple: var(--pc-cyan);
+  --sl-color-purple-high: var(--pc-cyan);
+
+  --sl-content-width: 46rem;
+  --sl-nav-height: 3.75rem;
+}
+
+/* A scoped block (brand page previews) shows the other theme inside the page. */
+[data-theme-scope] {
+  color: var(--pc-text);
+  background: var(--pc-bg);
+}

@@ -1,0 +1,1276 @@
+//! Stories for the unified Layers tree in the left aside (#756).
+use super::super::*;
+use super::board::right_click;
+use super::support::*;
+
+pub(crate) fn pcb_app() -> (egui::Context, App) {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    app.change_tab(Tab::Pcb);
+    app.refresh();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    (ctx, app)
+}
+
+#[test]
+fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    assert!(
+        paints_text(&ctx, &mut app, "Layer 1 · Top")?,
+        "the tree opens on the top layer: {}",
+        app.message
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Tracks")?,
+        "the copper sublayer is a row of the tree: {}",
+        app.message
+    );
+    // Search a net, select it, see it highlighted.
+    let net = app.project.nets[0].clone();
+    app.tree.query = net.name.clone();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    press_on(
+        &ctx,
+        &mut app,
+        &format!("nets/net:{}", net.id),
+        egui::Key::Enter,
+    );
+    assert_eq!(
+        app.highlight_net,
+        Some(net.id),
+        "selecting a net row lights the net on the drawing: {}",
+        app.message
+    );
+    app.tree.query.clear();
+    // Focus a layer: the others dim.
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    press_on(&ctx, &mut app, "side:top/copper", egui::Key::F);
+    assert_eq!(
+        app.focus_layer.as_deref(),
+        Some("copper:front"),
+        "F focuses the layer under the cursor: {}",
+        app.message
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "FOCUSED ON Top copper")?,
+        "the drawing says what is focused: {}",
+        app.message
+    );
+    key(&ctx, &mut app, egui::Key::F);
+    assert_eq!(app.focus_layer, None, "F again brings everything back");
+    // The board outline row opens the board settings in Properties.
+    press_on(&ctx, &mut app, "root", egui::Key::Enter);
+    assert!(
+        paints_text(&ctx, &mut app, "Board settings")?,
+        "the board row opens board settings: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_hides_and_locks_a_layer_from_the_tree() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    press_on(&ctx, &mut app, "side:top", egui::Key::Space);
+    assert!(
+        app.preferences
+            .hidden_layers
+            .iter()
+            .any(|h| h == "group:side:top"),
+        "Space hides the layer group: {}",
+        app.message
+    );
+    key(&ctx, &mut app, egui::Key::Space);
+    assert!(
+        !app.preferences
+            .hidden_layers
+            .iter()
+            .any(|h| h == "group:side:top"),
+        "Space shows it again"
+    );
+    app.project.board.tracks.push(pcbcraft_doc::Track {
+        preserved: pcbcraft_doc::PreservedSource::default(),
+        id: 9_999,
+        net: app.project.nets[0].id,
+        start: Point::new(10.0, 10.0),
+        end: Point::new(20.0, 10.0),
+        width: 0.25,
+        layer: pcbcraft_doc::Layer::Front,
+        arc: None,
+    });
+    let spot = Point::new(15.0, 10.0);
+    assert_eq!(app.pick_object(spot, 10.0), Some(9_999));
+    key(&ctx, &mut app, egui::Key::L);
+    assert!(app.tree.locked.contains("copper:front"));
+    assert_eq!(
+        app.pick_object(spot, 10.0),
+        None,
+        "a locked layer cannot be picked on the drawing"
+    );
+    key(&ctx, &mut app, egui::Key::L);
+    assert_eq!(app.pick_object(spot, 10.0), Some(9_999));
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_locks_a_layer_row_and_clicks_pass_through_it() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    app.project.board.tracks.push(pcbcraft_doc::Track {
+        id: 9_998,
+        net: app.project.nets[0].id,
+        start: Point::new(10.0, 10.0),
+        end: Point::new(20.0, 10.0),
+        width: 0.25,
+        layer: pcbcraft_doc::Layer::Front,
+        arc: None,
+        preserved: pcbcraft_doc::PreservedSource::default(),
+    });
+    let (spot, lo, hi) = (
+        Point::new(15.0, 10.0),
+        Point::new(9.0, 9.0),
+        Point::new(21.0, 11.0),
+    );
+    app.canvas_click(spot, 10.0);
+    assert_eq!(app.selection(), vec![9_998], "an unlocked track is clicked");
+    assert!(app.ids_in_rect(lo, hi).contains(&9_998), "and boxed");
+    app.set_selection(vec![]);
+    press_on(&ctx, &mut app, "side:top/copper", egui::Key::L);
+    assert!(app.tree.locked.contains("copper:front"), "L locks the row");
+    app.canvas_click(spot, 10.0);
+    assert!(
+        !app.selection().contains(&9_998),
+        "a click passes through a locked row"
+    );
+    assert!(
+        !app.ids_in_rect(lo, hi).contains(&9_998),
+        "a drag box skips a locked row"
+    );
+    key(&ctx, &mut app, egui::Key::L);
+    app.canvas_click(spot, 10.0);
+    assert_eq!(app.selection(), vec![9_998], "unlocked, it is picked again");
+    Ok(())
+}
+
+#[test]
+fn selecting_on_the_canvas_reveals_the_row_in_the_tree() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    app.tree.expanded.remove("components");
+    let id = app.project.board.footprints[0].id;
+    app.select(Some(id));
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        app.tree.expanded.contains("components"),
+        "the Parts group opens for a part picked on the drawing"
+    );
+    assert_eq!(
+        app.tree.cursor.as_deref(),
+        Some(format!("components/fp:{id}").as_str())
+    );
+    let reference = app
+        .project
+        .component(app.project.board.footprints[0].component)
+        .map(|c| c.reference.clone())
+        .ok_or("no part")?;
+    assert!(
+        paints_text(&ctx, &mut app, &reference)?,
+        "the part's row is on screen: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_board_of_two_thousand_parts_keeps_the_tree_interactive() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    let template = app.project.board.footprints[0].clone();
+    for i in 0..2000u64 {
+        let mut f = template.clone();
+        f.id = 1_000_000 + i;
+        app.project.board.footprints.push(f);
+    }
+    app.revision = app.revision.wrapping_add(1);
+    app.tree.expanded.insert("components".to_owned());
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let start = pcbcraft_clock::instant_now();
+    for _ in 0..5 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let each = start.elapsed() / 5;
+    // Machine speed is only a fair measure in an optimised build.
+    if !cfg!(debug_assertions) {
+        assert!(
+            each.as_millis() < 400,
+            "a frame with 2,000 parts took {each:?}"
+        );
+    }
+    Ok(())
+}
+
+/// Where the painted text `label` sits on the current frame, if anywhere.
+fn text_at(ctx: &egui::Context, app: &mut App, label: &str) -> Option<egui::Pos2> {
+    let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
+    let mut found = None;
+    for shape in &output.shapes {
+        if let egui::Shape::Text(text) = &shape.shape
+            && text.galley.text() == label
+        {
+            found.get_or_insert(text.pos + text.galley.size() / 2.0);
+        }
+    }
+    found
+}
+
+#[test]
+fn a_newcomer_hides_a_layer_from_its_right_click_menu() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let row = text_at(&ctx, &mut app, "Tracks").ok_or("the Tracks row is not on screen")?;
+    right_click(&ctx, &mut app, row);
+    authoring::tests::tap(&ctx, &mut app, "Hide")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        app.preferences
+            .hidden_layers
+            .iter()
+            .any(|h| h == "sub:side:top:tracks"),
+        "the menu hides tracks on the drawing: {}",
+        app.message
+    );
+    Ok(())
+}
+
+/// Put a track, a zone and a text label on the top copper of the sample board.
+fn top_with_track_zone_and_text(ctx: &egui::Context, app: &mut App) {
+    let net = app.project.nets[0].id;
+    app.run(
+        "track.add",
+        json!({"net": net, "start": {"x": 10.0, "y": 10.0}, "end": {"x": 20.0, "y": 10.0}, "width": 0.37}),
+    );
+    app.run(
+        "zone.place",
+        json!({"net": net, "layer": "F.Cu", "outline": [
+            {"x": 30.0, "y": 30.0}, {"x": 40.0, "y": 30.0}, {"x": 40.0, "y": 40.0},
+            {"x": 30.0, "y": 40.0}, {"x": 30.0, "y": 30.0}]}),
+    );
+    app.run(
+        "text.place",
+        json!({"text": "HELLO", "position": {"x": 25.0, "y": 25.0}, "layer": "F.Cu"}),
+    );
+    app.refresh();
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+}
+
+/// What the canvas paints this frame as lines: the real frame, not a stored flag. Only shapes
+/// clipped to the wide drawing area count, so the side tree's own row marks stay out.
+fn painted_lines(ctx: &egui::Context, app: &mut App) -> usize {
+    let screen = ctx.content_rect();
+    frame(ctx, app, vec![], egui::Modifiers::NONE)
+        .shapes
+        .iter()
+        .filter(|s| {
+            s.clip_rect.width() > screen.width() * 0.4 && s.clip_rect.contains(screen.center())
+        })
+        .filter(|s| matches!(s.shape, egui::Shape::LineSegment { .. }))
+        .count()
+}
+
+/// What of the top layer the painter draws, by kind.
+fn top_painted(app: &App) -> crate::board_visibility::LayerCount {
+    app.layer_counts(pcbcraft_doc::Layer::Front).1
+}
+
+#[test]
+fn a_newcomer_cannot_click_a_track_the_hidden_layer_does_not_paint() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    top_with_track_zone_and_text(&ctx, &mut app);
+    let track = app
+        .project
+        .board
+        .tracks
+        .last()
+        .map(|t| t.id)
+        .ok_or("no track")?;
+    let spot = Point::new(15.0, 10.0);
+    assert_eq!(
+        app.pick_object(spot, 10.0),
+        Some(track),
+        "the track is clickable"
+    );
+    press_on(&ctx, &mut app, "side:top/copper", egui::Key::Space);
+    assert_eq!(
+        app.pick_object(spot, 10.0),
+        None,
+        "tracks off: nothing to click"
+    );
+    press_on(&ctx, &mut app, "side:top/copper", egui::Key::Space);
+    assert_eq!(app.pick_object(spot, 10.0), Some(track), "tracks on again");
+    press_on(&ctx, &mut app, "side:top", egui::Key::Space);
+    assert_eq!(
+        app.pick_object(spot, 10.0),
+        None,
+        "layer hidden: nothing to click"
+    );
+    press_on(&ctx, &mut app, "side:top", egui::Key::Space);
+    assert_eq!(
+        app.pick_object(spot, 10.0),
+        Some(track),
+        "layer shown again"
+    );
+    Ok(())
+}
+
+/// How many circles the board outline handles paint for `app` as it stands.
+fn outline_handle_circles(app: &App) -> usize {
+    let ctx = egui::Context::default();
+    let mut output = ctx.run_ui(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(1440.0, 940.0),
+            )),
+            ..Default::default()
+        },
+        |root_ui| {
+            egui::CentralPanel::default().show(root_ui, |ui| {
+                let rect = ui.max_rect();
+                let painter = ui.painter().clone();
+                app.paint_outline_handles(&painter, rect, app.pcb);
+            });
+        },
+    );
+    output.textures_delta.clear();
+    output
+        .shapes
+        .iter()
+        .filter(|s| matches!(s.shape, egui::Shape::Circle(_)))
+        .count()
+}
+
+#[test]
+fn a_newcomer_sees_the_board_outline_handles_only_on_the_board() -> Result<(), String> {
+    let (_ctx, mut app) = pcb_app();
+    app.tool = Tool::Select;
+    app.project.board.outline = Some(vec![
+        Point::new(0.0, 0.0),
+        Point::new(40.0, 0.0),
+        Point::new(40.0, 30.0),
+        Point::new(0.0, 30.0),
+    ]);
+    assert!(
+        outline_handle_circles(&app) > 0,
+        "the Layout tab paints the outline handles"
+    );
+    app.change_tab(Tab::Schematic);
+    assert_eq!(
+        outline_handle_circles(&app),
+        0,
+        "the Schematic tab paints no board outline handles"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_hides_a_layer_and_gets_it_back_as_it_was() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    top_with_track_zone_and_text(&ctx, &mut app);
+    let all = top_painted(&app);
+    assert!(
+        all.tracks > 0 && all.pads > 0 && all.zones > 0 && all.labels > 0,
+        "the top layer holds tracks, pads, zones and text: {all:?}"
+    );
+    let lines_all = painted_lines(&ctx, &mut app);
+    // Turn off the Pads sub-layer first.
+    press_on(&ctx, &mut app, "side:top/components", egui::Key::Space);
+    assert!(
+        !app.board_sub_effective("side:top", layer_visibility::SubLayer::Pads),
+        "pads are off before the layer is hidden"
+    );
+    let pads_off = top_painted(&app);
+    assert_eq!(pads_off.pads, 0, "no pad is painted: {pads_off:?}");
+    assert_eq!(pads_off.tracks, all.tracks, "tracks are still painted");
+    // Hide the whole top layer from its own eye.
+    press_on(&ctx, &mut app, "side:top", egui::Key::Space);
+    let hidden = top_painted(&app);
+    assert_eq!(
+        (
+            hidden.pads,
+            hidden.tracks,
+            hidden.zones,
+            hidden.labels,
+            hidden.silkscreen,
+            hidden.drawn
+        ),
+        (0, 0, 0, 0, 0, 0),
+        "hiding the layer removes its pads, tracks, zones, text and artwork: {hidden:?}"
+    );
+    let lines_hidden = painted_lines(&ctx, &mut app);
+    assert!(
+        lines_hidden < lines_all,
+        "the frame paints fewer lines with the layer hidden ({lines_hidden} against {lines_all})"
+    );
+    // While hidden, turn the Tracks sub-layer off and on: the canvas does not change.
+    press_on(&ctx, &mut app, "side:top/copper", egui::Key::Space);
+    assert!(
+        !layer_visibility::sub_stored(
+            &app.preferences.hidden_layers,
+            "side:top",
+            layer_visibility::SubLayer::Tracks
+        ),
+        "the stored flag of tracks changed while the layer is hidden"
+    );
+    assert_eq!(
+        painted_lines(&ctx, &mut app),
+        lines_hidden,
+        "the canvas is unchanged while the layer is hidden"
+    );
+    press_on(&ctx, &mut app, "side:top/copper", egui::Key::Space);
+    assert!(
+        layer_visibility::sub_stored(
+            &app.preferences.hidden_layers,
+            "side:top",
+            layer_visibility::SubLayer::Tracks
+        ),
+        "tracks are back on in storage"
+    );
+    assert_eq!(
+        painted_lines(&ctx, &mut app),
+        lines_hidden,
+        "the canvas is still unchanged while the layer is hidden"
+    );
+    // Show the layer: every sub-layer is as it was.
+    press_on(&ctx, &mut app, "side:top", egui::Key::Space);
+    let back = top_painted(&app);
+    assert_eq!(back.pads, 0, "pads stay off, as they were: {back:?}");
+    assert_eq!(
+        (back.tracks, back.zones, back.labels),
+        (all.tracks, all.zones, all.labels),
+        "tracks, zones and text come back because their sub-layers stayed on"
+    );
+    assert!(
+        painted_lines(&ctx, &mut app) > lines_hidden,
+        "the frame paints the lines again"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_turns_off_tracks_then_hides_and_shows_the_layer() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    top_with_track_zone_and_text(&ctx, &mut app);
+    let all = top_painted(&app);
+    assert!(all.tracks > 0 && all.pads > 0, "{all:?}");
+    press_on(&ctx, &mut app, "side:top/copper", egui::Key::Space);
+    assert!(
+        app.preferences
+            .hidden_layers
+            .iter()
+            .any(|h| h == "sub:side:top:tracks"),
+        "Space on the tracks row stores tracks off"
+    );
+    let tracks_off = top_painted(&app);
+    assert_eq!(tracks_off.tracks, 0, "no track is painted: {tracks_off:?}");
+    assert_eq!(tracks_off.pads, all.pads, "pads are still painted");
+    press_on(&ctx, &mut app, "side:top", egui::Key::Space);
+    assert!(
+        app.preferences
+            .hidden_layers
+            .iter()
+            .any(|h| h == "group:side:top"),
+        "hiding the layer stores the layer as hidden"
+    );
+    assert!(
+        app.preferences
+            .hidden_layers
+            .iter()
+            .any(|h| h == "sub:side:top:tracks"),
+        "the layer's eye leaves the tracks setting alone"
+    );
+    let hidden = top_painted(&app);
+    assert_eq!(
+        (hidden.pads, hidden.tracks, hidden.zones, hidden.labels),
+        (0, 0, 0, 0)
+    );
+    press_on(&ctx, &mut app, "side:top", egui::Key::Space);
+    assert!(
+        app.preferences
+            .hidden_layers
+            .iter()
+            .any(|h| h == "sub:side:top:tracks"),
+        "tracks stay off in storage after hide and show"
+    );
+    let shown = top_painted(&app);
+    assert_eq!(shown.tracks, 0, "tracks stay off on the canvas: {shown:?}");
+    assert_eq!(
+        (shown.pads, shown.zones, shown.labels),
+        (all.pads, all.zones, all.labels),
+        "everything else comes back"
+    );
+    Ok(())
+}
+
+/// The track and graphic counts a drawing story compares before and after.
+fn drawn(app: &App) -> (usize, usize, usize) {
+    (
+        app.project.board.tracks.len(),
+        app.project.board.zones.len(),
+        app.project.graphics.len(),
+    )
+}
+
+#[test]
+fn a_newcomer_draws_silkscreen_by_picking_the_silkscreen_layer() -> Result<(), String> {
+    use crate::draw_target::{Side, Target};
+    let (ctx, mut app) = pcb_app();
+    press_on(&ctx, &mut app, "side:top/silk", egui::Key::Enter);
+    assert_eq!(
+        app.current_target(),
+        Target::Silk(Side::Top),
+        "clicking Silkscreen makes it the drawing target: {}",
+        app.message
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Layer 1 of 2 · Top silkscreen")?,
+        "the status bar names the target"
+    );
+    // Line, Box and Circle on the silkscreen make silkscreen graphics.
+    for (icon, shape) in [
+        ("tool-line", "line"),
+        ("tool-box", "rect"),
+        ("tool-circle", "circle"),
+    ] {
+        authoring::tests::tap_icon(&ctx, &mut app, icon)?;
+        app.canvas_click(Point::new(10.0, 10.0), 10.0);
+        app.canvas_click(Point::new(20.0, 14.0), 10.0);
+        let made = app
+            .project
+            .graphics
+            .iter()
+            .any(|g| g.shape == shape && g.sublayer == "F.SilkS");
+        assert!(
+            made,
+            "{icon} draws a {shape} on the silkscreen: {}",
+            app.message
+        );
+    }
+    // The same Line on Copper is a track.
+    press_on(&ctx, &mut app, "side:top/copper", egui::Key::Enter);
+    assert_eq!(
+        app.current_target(),
+        Target::Copper(pcbcraft_doc::Layer::Front)
+    );
+    app.highlight_net = app.project.nets.first().map(|n| n.id);
+    tap_strip(&ctx, &mut app, "icon:tool-line")?;
+    let before = drawn(&app);
+    app.canvas_click(Point::new(30.0, 10.0), 10.0);
+    app.canvas_click(Point::new(40.0, 10.0), 10.0);
+    assert_eq!(
+        drawn(&app).0,
+        before.0 + 1,
+        "Line on Copper is a track: {}",
+        app.message
+    );
+    // Text on the silkscreen is board text on the top side.
+    app.set_target(Target::Silk(Side::Top));
+    tap_strip(&ctx, &mut app, "icon:tool-words")?;
+    app.art_text = "REV A".into();
+    app.canvas_click(Point::new(12.0, 20.0), 10.0);
+    assert!(
+        app.project
+            .board
+            .texts
+            .iter()
+            .any(|t| t.text == "REV A" && t.layer == pcbcraft_doc::Layer::Front),
+        "Text prints on the top silkscreen: {}",
+        app.message
+    );
+    // The Layer field changes the target and the tree follows.
+    app.set_target(Target::Silk(Side::Bottom));
+    assert!(
+        paints_text(&ctx, &mut app, "Bottom silkscreen")?,
+        "the Layer field shows the target picked elsewhere"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_draws_the_board_edge_from_the_tree() -> Result<(), String> {
+    use crate::draw_target::Target;
+    let (ctx, mut app) = pcb_app();
+    press_on(&ctx, &mut app, "edge", egui::Key::Enter);
+    assert_eq!(
+        app.current_target(),
+        Target::Edge,
+        "clicking Board edge makes it the target: {}",
+        app.message
+    );
+    tap_strip(&ctx, &mut app, "icon:tool-box")?;
+    app.canvas_click(Point::new(1.0, 1.0), 10.0);
+    app.canvas_click(Point::new(59.0, 39.0), 10.0);
+    let outline = app
+        .project
+        .board
+        .outline
+        .as_ref()
+        .ok_or_else(|| format!("Box on the board edge sets the outline: {}", app.message))?;
+    assert_eq!(outline.len(), 4, "a box has four corners");
+    assert!((app.project.board.width - 58.0).abs() < 0.01);
+    assert!((app.project.board.height - 38.0).abs() < 0.01);
+    // Line on the board edge chains corners until Enter closes the outline.
+    tap_strip(&ctx, &mut app, "icon:tool-line")?;
+    for (x, y) in [(1.0, 1.0), (59.0, 1.0), (59.0, 39.0), (1.0, 39.0)] {
+        app.canvas_click(Point::new(x, y), 10.0);
+    }
+    key(&ctx, &mut app, egui::Key::Enter);
+    assert_eq!(
+        app.project.board.outline.as_ref().map(Vec::len),
+        Some(4),
+        "Line on the edge chains corners into an outline after Enter: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_adds_an_inner_copper_pair_from_the_tree() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    assert_eq!(app.project.copper_layer_count(), 2);
+    let row =
+        text_at(&ctx, &mut app, "Layer 1 · Top").ok_or("the top layer row is not on screen")?;
+    right_click(&ctx, &mut app, row);
+    authoring::tests::tap(&ctx, &mut app, "Add copper layer pair below")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert_eq!(
+        app.project.copper_layer_count(),
+        4,
+        "the menu adds two inner layers: {}",
+        app.message
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Layer 4 · Bottom")?,
+        "the bottom layer is now layer 4"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Layer 2 · In1.Cu")?,
+        "the new inner layers are rows of the tree"
+    );
+    // Rename the first inner layer.
+    app.tree.rename = Some((
+        crate::layers_tree::RenameFor::Layer("In1.Cu".into()),
+        "GND".into(),
+    ));
+    // The row turns into a field first; Enter then keeps the new name.
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    key(&ctx, &mut app, egui::Key::Enter);
+    assert!(
+        app.project
+            .board
+            .layer_records
+            .iter()
+            .any(|r| r.name == "GND"),
+        "Rename changes the layer name: {}",
+        app.message
+    );
+    // One undo takes the rename back, a second takes the pair back.
+    app.tool_call("undo", json!({}));
+    app.tool_call("undo", json!({}));
+    assert_eq!(app.project.copper_layer_count(), 2, "undo removes the pair");
+    Ok(())
+}
+
+/// Save the board as a project file when `PCBCRAFT_SAMPLE_DIR` names a
+/// folder, so screenshots can start from the state a story built.
+fn keep_sample(app: &mut App, name: &str) {
+    if let Ok(dir) = std::env::var("PCBCRAFT_SAMPLE_DIR") {
+        let path = std::path::Path::new(&dir).join(format!("{name}.pcbcraft"));
+        app.tool_call("save", json!({"path": path.to_string_lossy()}));
+    }
+}
+
+#[test]
+fn a_four_layer_board_lists_every_layer_in_the_tree() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    app.run("board.stackup_add_pair", json!({"after": "F.Cu"}));
+    let net = app.project.nets.first().map(|n| n.id).ok_or("no net")?;
+    app.run(
+        "track.add",
+        json!({"net": net, "start": {"x": 5.0, "y": 5.0}, "end": {"x": 20.0, "y": 5.0}, "width": 0.25, "layer": "In1.Cu"}),
+    );
+    app.tree.expanded.insert("inner:1".into());
+    for label in [
+        "Layer 1 · Top",
+        "Layer 2 · In1.Cu",
+        "Layer 3 · In2.Cu",
+        "Layer 4 · Bottom",
+    ] {
+        assert!(
+            paints_text(&ctx, &mut app, label)?,
+            "the tree lists {label}: {}",
+            app.message
+        );
+    }
+    press_on(&ctx, &mut app, "inner:1/copper", egui::Key::Enter);
+    assert_eq!(
+        app.current_target(),
+        crate::draw_target::Target::Copper(pcbcraft_doc::Layer::from_index(1)?),
+        "an inner copper row is a drawing target"
+    );
+    keep_sample(&mut app, "four-layer");
+    Ok(())
+}
+
+#[test]
+fn a_silkscreen_line_drawn_on_the_layout_is_kept_for_the_capture() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    press_on(&ctx, &mut app, "side:top/silk", egui::Key::Enter);
+    tap_strip(&ctx, &mut app, "icon:tool-line")?;
+    app.canvas_click(Point::new(8.0, 4.0), 10.0);
+    app.canvas_click(Point::new(30.0, 4.0), 10.0);
+    assert!(
+        app.project.graphics.iter().any(|g| g.sublayer == "F.SilkS"),
+        "{}",
+        app.message
+    );
+    keep_sample(&mut app, "silk-line");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_draws_on_bottom_copper_of_a_four_layer_board() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    app.run("board.stackup_add_pair", json!({"after":"F.Cu"}));
+    app.refresh();
+    assert_eq!(
+        app.project.copper_layer_count(),
+        4,
+        "the board now has four copper layers: {}",
+        app.message
+    );
+    // Layers tree > Bottom layer row.
+    tap_left(&ctx, &mut app, &t!("tree.layer.bottom", n = 4))?;
+    let net = app.project.nets[0].id;
+    let routing_on = app.project.layer_key(app.route_layer);
+    app.run(
+        "track.add",
+        json!({"net":net,"start":{"x":5.0,"y":5.0},"end":{"x":15.0,"y":5.0},"width":0.25,"layer":routing_on}),
+    );
+    app.refresh();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let track = app
+        .project
+        .board
+        .tracks
+        .last()
+        .cloned()
+        .ok_or("the track should exist")?;
+    assert_eq!(
+        track.layer,
+        app.project.bottom_layer(),
+        "a track drawn on Bottom lands on the last copper layer: {}",
+        app.message
+    );
+    let rows = object_detail_rows(&app.project, track.id);
+    let shown = rows
+        .iter()
+        .find(|(name, _)| name == &t!("schematic.object_detail_rows.layer"))
+        .map(|(_, value)| value.clone())
+        .ok_or("Properties lists the track's layer")?;
+    assert_eq!(shown, "B.Cu", "Properties names the bottom layer");
+    let gerber = pcbcraft_io::gerber_copper(&app.project, app.project.bottom_layer())?;
+    assert!(
+        gerber.contains("Copper,L4,Bot") && gerber.contains("D01*"),
+        "the track is in the bottom Gerber file"
+    );
+    let inner = pcbcraft_io::gerber_copper(&app.project, pcbcraft_doc::Layer::Back)?;
+    assert!(
+        !inner.contains("D01*"),
+        "no inner Gerber file carries the bottom track"
+    );
+    Ok(())
+}
+
+/// Type `text` over what the focused field holds.
+fn type_over(ctx: &egui::Context, app: &mut App, text: &str) {
+    frame(
+        ctx,
+        app,
+        vec![egui::Event::Key {
+            key: egui::Key::A,
+            physical_key: Some(egui::Key::A),
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::COMMAND,
+        }],
+        egui::Modifiers::COMMAND,
+    );
+    frame(
+        ctx,
+        app,
+        vec![egui::Event::Text(text.to_owned())],
+        egui::Modifiers::NONE,
+    );
+}
+
+#[test]
+fn a_newcomer_presses_f2_to_rename_a_net_and_a_layer() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    // A net: F2 on its row, type, Enter.
+    let net = app.project.nets[0].id;
+    app.tree.expanded.insert("nets".to_owned());
+    press_on(&ctx, &mut app, &format!("nets/net:{net}"), egui::Key::F2);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(app.tree.rename.is_some(), "F2 starts a rename on a net row");
+    type_over(&ctx, &mut app, "SIGNAL_A");
+    key(&ctx, &mut app, egui::Key::Enter);
+    assert_eq!(
+        app.project.net_name(net),
+        "SIGNAL_A",
+        "Enter renames the net: {}",
+        app.message
+    );
+    // Escape on the same row keeps the name.
+    press_on(&ctx, &mut app, &format!("nets/net:{net}"), egui::Key::F2);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    type_over(&ctx, &mut app, "OTHER");
+    key(&ctx, &mut app, egui::Key::Escape);
+    assert_eq!(app.project.net_name(net), "SIGNAL_A", "Escape cancels");
+    // A stackup layer.
+    app.tool_call("board.stackup_add_pair", json!({"after": "F.Cu"}));
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    press_on(&ctx, &mut app, "inner:1", egui::Key::F2);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    type_over(&ctx, &mut app, "PWR");
+    key(&ctx, &mut app, egui::Key::Enter);
+    assert!(
+        app.project
+            .board
+            .layer_records
+            .iter()
+            .any(|r| r.name == "PWR"),
+        "F2 renames a PCB layer: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_saves_a_four_layer_board_and_the_file_names_the_bottom_layer() -> Result<(), String> {
+    let (_ctx, mut app) = pcb_app();
+    app.run("board.stackup_add_pair", json!({"after":"F.Cu"}));
+    app.refresh();
+    assert_eq!(app.project.copper_layer_count(), 4, "{}", app.message);
+    let net = app.project.nets[0].id;
+    let bottom = app.project.bottom_layer();
+    app.run(
+        "track.add",
+        json!({"net":net,"start":{"x":5.0,"y":5.0},"end":{"x":15.0,"y":5.0},"width":0.25,"layer":bottom}),
+    );
+    app.refresh();
+    let dir = std::env::temp_dir().join(format!("pcbcraft-story-stackup-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let (one, two) = (dir.join("a.pcbcraft"), dir.join("b.pcbcraft"));
+    pcbcraft_io::save(&app.project, &one)?;
+    let text = std::fs::read_to_string(&one).map_err(|e| e.to_string())?;
+    assert!(
+        text.contains("\"layer\": \"B.Cu\""),
+        "the file names the bottom copper B.Cu"
+    );
+    assert!(
+        !text.contains("In3.Cu"),
+        "the file never calls the bottom In3.Cu"
+    );
+    let reopened = pcbcraft_io::load(&one)?;
+    let track = reopened.board.tracks.last().ok_or("the track is saved")?;
+    assert_eq!(
+        track.layer,
+        reopened.bottom_layer(),
+        "it reopens on the bottom"
+    );
+    pcbcraft_io::save(&reopened, &two)?;
+    let first = std::fs::read(&one).map_err(|e| e.to_string())?;
+    let second = std::fs::read(&two).map_err(|e| e.to_string())?;
+    std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
+    assert_eq!(first, second, "saving again changes nothing");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_sees_where_the_last_page_ends() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tab = Tab::Schematic;
+    app.tool_call(
+        "component.add",
+        json!({"kind":"resistor","reference":"R1","position":{"x":10.0,"y":10.0}}),
+    );
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    // Add a second page via the page switcher.
+    authoring::tests::tap(&ctx, &mut app, "+")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert_eq!(app.project.sheets.len(), 1, "one click adds one page");
+    // Build the schematic tree rows and look for the divider.
+    let hidden: Vec<String> = Vec::new();
+    let colours = crate::palette::palette(true, [0, 200, 160]);
+    let env = layers_tree::Env {
+        project: &app.project,
+        tab: layers_tree::TreeTab::Schematic,
+        colours,
+        hidden: &hidden,
+        focus: None,
+        selected: None,
+        subject: None,
+        relations: None,
+        target: crate::draw_target::Target::Copper(pcbcraft_doc::Layer::Front),
+        revision: 1,
+        parts_selected: 0,
+        show_empty: false,
+        stale: None,
+    };
+    let mut view = layers_tree::TreeView::default();
+    let rows = layers_tree::rows(&env, &mut view);
+    // The divider should be between the last page row and the components row.
+    let divider_index = rows
+        .iter()
+        .position(|r| r.kind == layers_tree::RowKind::Divider);
+    assert!(divider_index.is_some(), "the divider row exists");
+    let divider_index = match divider_index {
+        Some(i) => i,
+        None => return Ok(()),
+    };
+    // There should be a page row above the divider.
+    let above_page = rows[..divider_index].iter().any(|r| r.page.is_some());
+    assert!(above_page, "a page row is above the divider");
+    // There should be a components row below the divider.
+    let below_components = rows[divider_index..].iter().any(|r| r.key == "components");
+    assert!(below_components, "the components row is below the divider");
+    Ok(())
+}
+
+/// Colours of every straight line the frame paints.
+fn line_colours(ctx: &egui::Context, app: &mut App) -> Vec<egui::Color32> {
+    let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
+    output
+        .shapes
+        .iter()
+        .filter_map(|s| match &s.shape {
+            egui::Shape::LineSegment { stroke, .. } => Some(stroke.color),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Fill colours of every round dot the frame paints (vias are round).
+fn dot_colours(ctx: &egui::Context, app: &mut App) -> Vec<egui::Color32> {
+    let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
+    let mut colours: Vec<egui::Color32> = output
+        .shapes
+        .iter()
+        .filter_map(|s| match &s.shape {
+            egui::Shape::Circle(c) if c.radius >= 2.0 && c.center.x > left_aside() + 20.0 => {
+                Some(c.fill)
+            }
+            _ => None,
+        })
+        .collect();
+    colours.sort_by_key(|c| c.to_array());
+    colours
+}
+
+/// The sample board with one signal routed on both copper faces and a via
+/// joining them, so a story can see each face and the through via.
+fn routed_app() -> (egui::Context, App) {
+    let (ctx, mut app) = pcb_app();
+    app.run("net.create", json!({"name": "SIGX"}));
+    app.refresh();
+    if let Some(net) = app
+        .project
+        .nets
+        .iter()
+        .find(|n| n.name == "SIGX")
+        .map(|n| n.id)
+    {
+        for layer in ["F.Cu", "B.Cu"] {
+            app.run(
+                "track.add",
+                json!({"net": net, "start": [5.0, 5.0], "end": [15.0, 5.0], "width": 0.3, "layer": layer}),
+            );
+        }
+        app.run(
+            "via.place",
+            json!({"net": net, "position": {"x": 15.0, "y": 5.0}, "diameter": 0.6, "drill": 0.3}),
+        );
+    }
+    app.select(None);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    (ctx, app)
+}
+
+#[test]
+fn a_newcomer_focuses_a_layer_and_the_rest_fades() -> Result<(), String> {
+    let (ctx, mut app) = routed_app();
+    let bottom = app.project.bottom_layer();
+    assert!(
+        app.project.board.tracks.iter().any(|t| t.layer == bottom)
+            && app
+                .project
+                .board
+                .tracks
+                .iter()
+                .any(|t| t.layer == pcbcraft_doc::Layer::Front),
+        "the sample board has copper on both faces"
+    );
+    let before = line_colours(&ctx, &mut app);
+    press_on(&ctx, &mut app, "side:top/copper", egui::Key::F);
+    assert_eq!(app.focus_layer.as_deref(), Some("copper:front"));
+    let after = line_colours(&ctx, &mut app);
+    let faded = before
+        .iter()
+        .any(|b| after.contains(&b.linear_multiply(0.22)) && !after.contains(b));
+    assert!(
+        faded,
+        "a bottom track is still painted, at reduced strength: {}",
+        app.message
+    );
+    assert!(
+        before.iter().any(|b| after.contains(b)),
+        "the focused layer keeps its full strength"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_focuses_either_copper_face_and_vias_stay_bright() -> Result<(), String> {
+    let (ctx, mut app) = routed_app();
+    assert!(!app.project.board.vias.is_empty(), "the sample has vias");
+    let before = dot_colours(&ctx, &mut app);
+    for (row, focus) in [
+        ("side:top/copper", "copper:front"),
+        ("side:bottom/copper", "copper:back"),
+    ] {
+        press_on(&ctx, &mut app, row, egui::Key::F);
+        assert_eq!(app.focus_layer.as_deref(), Some(focus), "{}", app.message);
+        let after = dot_colours(&ctx, &mut app);
+        assert_eq!(
+            before, after,
+            "through vias keep their strength under {focus}"
+        );
+        key(&ctx, &mut app, egui::Key::F);
+        assert_eq!(app.focus_layer, None);
+    }
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_picks_a_layer_on_the_schematic_and_its_parts_light_up() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    app.change_tab(Tab::Schematic);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert_eq!(app.sheet_lit_for_test(), None, "nothing is lit at first");
+    let accent = app.colours().accent;
+    let lit_paths = |ctx: &egui::Context, app: &mut App| -> usize {
+        frame(ctx, app, vec![], egui::Modifiers::NONE)
+            .shapes
+            .iter()
+            .filter(|s| match &s.shape {
+                egui::Shape::Path(p) => p.stroke.color == egui::epaint::ColorMode::Solid(accent),
+                _ => false,
+            })
+            .count()
+    };
+    let quiet = lit_paths(&ctx, &mut app);
+    tap_left(&ctx, &mut app, &t!("tree.sch.symbols"))?;
+    assert_eq!(app.tab, Tab::Schematic, "picking a layer keeps the tab");
+    let (parts, nets) = app
+        .sheet_lit_for_test()
+        .ok_or("picking Symbols lights something")?;
+    assert!(
+        parts > 0 && nets > 0,
+        "the layer's parts ({parts}) and nets ({nets}) are lit"
+    );
+    assert!(
+        lit_paths(&ctx, &mut app) > quiet,
+        "the lit nets are painted in the accent colour"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_focuses_a_drawn_layer_and_the_rest_fades() -> Result<(), String> {
+    let (ctx, mut app) = routed_app();
+    app.tool_call("board.layer_add", json!({"name": "Cut", "kind": "cut"}));
+    app.refresh();
+    let layer = app
+        .project
+        .board
+        .user_layers
+        .iter()
+        .find(|l| l.name == "Cut")
+        .map(|l| l.id)
+        .ok_or("the cut layer should be added")?;
+    app.tool_call(
+        "board.layer_line_add",
+        json!({"layer": layer, "x1": 25.0, "y1": 5.0, "x2": 35.0, "y2": 5.0}),
+    );
+    app.refresh();
+    // Let the opening fade finish, so `before` is the settled drawing.
+    for _ in 0..30 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let before = line_colours(&ctx, &mut app);
+    assert!(!before.is_empty(), "the board paints copper before focus");
+    app.tree.expanded.insert("user".to_owned());
+    let focus_key = format!("user/art:{layer}");
+    press_on(&ctx, &mut app, &focus_key, egui::Key::F);
+    let art_focus = "art:Cut".to_owned();
+    assert_eq!(
+        app.focus_layer.as_deref(),
+        Some(art_focus.as_str()),
+        "the cut layer is focused"
+    );
+    let after = line_colours(&ctx, &mut app);
+    let faded = before
+        .iter()
+        .any(|b| after.contains(&b.linear_multiply(0.22)) && !after.contains(b));
+    assert!(
+        faded,
+        "copper is still painted, at reduced strength: {}",
+        app.message
+    );
+    press_on(&ctx, &mut app, &focus_key, egui::Key::F);
+    assert!(app.focus_layer.is_none(), "focus is cleared");
+    let after_clear = line_colours(&ctx, &mut app);
+    let restored = before.iter().all(|b| after_clear.contains(b));
+    assert!(restored, "full strength returns when focus clears");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_sees_attached_files_and_notes_in_the_tree() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    // Attach a file.
+    let attached = app.tool_call(
+        "file.attach",
+        json!({"name": "datasheet.pdf", "data": "fake pdf content"}),
+    );
+    assert!(attached, "file.attach failed: {}", app.message);
+    // Set a project note.
+    let noted = app.tool_call(
+        "project.set_meta",
+        json!({"key": "notes", "value": "Test board for evaluation"}),
+    );
+    assert!(noted, "project.set_meta failed: {}", app.message);
+    app.refresh();
+    // The Attached files section appears.
+    assert!(
+        scrolled_to_left(&ctx, &mut app, "Attached files")?,
+        "the Attached files section is in the tree: {}",
+        app.message
+    );
+    // Open the group; the file row appears.
+    app.tree.expanded.insert("files".to_owned());
+    assert!(
+        scrolled_to_left(&ctx, &mut app, "datasheet.pdf")?,
+        "the attached file row is in the tree: {}",
+        app.message
+    );
+    // The Project notes row appears.
+    assert!(
+        scrolled_to_left(&ctx, &mut app, "Project notes")?,
+        "the Project notes row is in the tree: {}",
+        app.message
+    );
+    // The note preview is shown.
+    assert!(
+        scrolled_to_left(&ctx, &mut app, "Test board for evaluation")?,
+        "the note preview is shown: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_makes_a_drawn_layer_a_dotted_perforation() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    app.tool_call("board.layer_add", json!({"name": "Snap", "kind": "other"}));
+    app.refresh();
+    let id = app
+        .project
+        .board
+        .user_layers
+        .iter()
+        .find(|l| l.name == "Snap")
+        .map(|l| l.id)
+        .ok_or("the Snap layer should be added")?;
+    app.tree.expanded.insert("user".to_owned());
+    let focus_key = format!("user/art:{id}");
+    press_on(&ctx, &mut app, &focus_key, egui::Key::Enter);
+    tap_properties_segment(&ctx, &mut app, "Kind", 1, 5)?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    tap_properties(&ctx, &mut app, "checkbox:Dotted")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let layer = app
+        .project
+        .board
+        .user_layers
+        .iter()
+        .find(|l| l.id == id)
+        .ok_or("the Snap layer should still exist")?;
+    assert_eq!(
+        layer.kind,
+        pcbcraft_doc::ArtKind::Perforation,
+        "the kind picker sets the layer kind"
+    );
+    assert!(layer.dotted, "the Dotted checkbox sets the dotted flag");
+    app.tool_call("undo", json!({}));
+    app.refresh();
+    let layer = app
+        .project
+        .board
+        .user_layers
+        .iter()
+        .find(|l| l.id == id)
+        .ok_or("the Snap layer should still exist after undo")?;
+    assert!(!layer.dotted, "undo reverses the dotted flag");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_deletes_a_drawn_layer_from_the_tree_and_undoes_it() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    app.tool_call("board.layer_add", json!({"name": "Snap", "kind": "other"}));
+    app.refresh();
+    let id = app
+        .project
+        .board
+        .user_layers
+        .iter()
+        .find(|l| l.name == "Snap")
+        .map(|l| l.id)
+        .ok_or("the Snap layer should be added")?;
+    app.tree.expanded.insert("user".to_owned());
+    let focus_key = format!("user/art:{id}");
+    press_on(&ctx, &mut app, &focus_key, egui::Key::Enter);
+    app.tool_call("board.layer_delete", json!({"layer": id}));
+    app.refresh();
+    assert!(
+        app.project.board.user_layers.is_empty(),
+        "layer_delete removes the layer"
+    );
+    app.tool_call("undo", json!({}));
+    app.refresh();
+    assert!(
+        app.project
+            .board
+            .user_layers
+            .iter()
+            .any(|l| l.name == "Snap"),
+        "undo restores the layer"
+    );
+    Ok(())
+}

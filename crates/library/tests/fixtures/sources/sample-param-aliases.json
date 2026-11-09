@@ -1,0 +1,32 @@
+{
+  "Sample parts": {
+    "resistor": {
+      "Resistance": "resistance",
+      "Tolerance": "tolerance_range",
+      "Package / Case": "package_key",
+      "Package": "package_key",
+      "Voltage - Rated": "rated_voltage_dc",
+      "Rated Voltage": "rated_voltage_dc",
+      "Power (Watts)": "power",
+      "Power": "power",
+      "Operating Temperature": "temperature_range"
+    },
+    "capacitor": {
+      "Capacitance": "capacitance",
+      "Tolerance": "tolerance_range",
+      "Package / Case": "package_key",
+      "Package": "package_key",
+      "Voltage - Rated": "rated_voltage_dc",
+      "Rated Voltage": "rated_voltage_dc",
+      "Dielectric": "dielectric"
+    },
+    "inductor": {
+      "Inductance": "inductance",
+      "Tolerance": "tolerance_range",
+      "Package / Case": "package_key",
+      "Package": "package_key",
+      "Current Rating": "rated_current",
+      "Operating Temperature": "temperature_range"
+    }
+  }
+}

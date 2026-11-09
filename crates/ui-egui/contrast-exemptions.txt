@@ -1,0 +1,3 @@
+# One exemption per line: pair-name = reason. The test fails on an exemption
+# that no longer fails, so this list can only shrink. Pair names are
+# theme-independent (the part after the theme prefix).

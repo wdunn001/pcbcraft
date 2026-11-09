@@ -1,0 +1,54 @@
+//! Back-drill in the fabrication files (issue #645): its own Excellon file
+//! per pass, and no change for a project without one.
+
+mod common;
+use common::*;
+
+#[test]
+fn a_backdrill_pass_gets_its_own_drill_file() -> T {
+    let files = pcbcraft_io::gerber_files(&backdrill_board()?)?;
+    let bottom = files
+        .get("pcb-BackDrill-L6-L5.drl")
+        .ok_or("no file for the pass from the bottom")?;
+    let top = files
+        .get("pcb-BackDrill-L1-L2.drl")
+        .ok_or("no file for the pass from the top")?;
+    golden("backdrill_from_bottom.drl", bottom)?;
+    golden("backdrill_from_top.drl", top)?;
+    assert_eq!(
+        files.keys().filter(|k| k.contains("BackDrill")).count(),
+        2,
+        "one file per pass"
+    );
+    let plated = files.get("pcb-Plated.drl").ok_or("no plated file")?;
+    assert!(
+        !plated.contains("C0.500") && !plated.contains("C0.600"),
+        "the through file keeps only the via drills: {plated}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_project_without_backdrills_exports_the_same_files_as_before() -> T {
+    let with = backdrill_board()?;
+    let mut without = with.clone();
+    for v in &mut without.board.vias {
+        v.backdrill = None;
+    }
+    let a = pcbcraft_io::gerber_files(&with)?;
+    let b = pcbcraft_io::gerber_files(&without)?;
+    for (name, text) in &b {
+        if [
+            "README-fabrication.txt",
+            "pcb-DrillMap.gbr",
+            "pcb-job.gbrjob",
+        ]
+        .contains(&name.as_str())
+        {
+            continue;
+        }
+        assert_eq!(a.get(name), Some(text), "{name} must not change");
+    }
+    assert!(!b.keys().any(|k| k.contains("BackDrill")));
+    Ok(())
+}

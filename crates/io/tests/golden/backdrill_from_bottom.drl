@@ -1,0 +1,14 @@
+M48
+NonPlated,6,5,Blind
+FMAT,2
+METRIC,TZ
+; #@! TA.AperFunction,NonPlated,NPTH,BackDrill
+T1C0.500
+; #@! TD
+%
+G90
+G05
+T1
+X10.000Y10.000
+X12.000Y10.000
+M30

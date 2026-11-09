@@ -1,0 +1,15 @@
+# The page loads the wasm only when webgpu-check.js found WebGPU or WebGL 2
+# (window.pcbcraftGraphics). Trunk's own preload hints are dropped because a
+# preload downloads the wasm whether or not the check passed. The loader is the
+# committed module pcbcraft-start.js, not inline script, so a Content-Security-Policy
+# of `script-src 'self' 'wasm-unsafe-eval'` lets it run. Trunk writes the hashed
+# file names into data attributes of the tag; the loader reads them from there.
+[build]
+filehash = true
+pattern_preload = ""
+pattern_script = """<script type="module" src="{base}pcbcraft-start.js" data-pcbcraft-bindings="{base}{js}" data-pcbcraft-wasm="{base}{wasm}"></script>"""
+
+# Trunk downloads wasm-opt (binaryen) on first use. CI keeps the download in the
+# tool cache (see docs/ci.md), keyed on this version, so bump both together.
+[tools]
+wasm_opt = "version_131"

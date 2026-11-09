@@ -1,0 +1,19 @@
+# Minimal [[companion]] rows for rules unit tests (full bundles live with #421 profiles).
+
+[[companion]]
+id = "usb-series"
+name = "USB series resistor"
+net_patterns = ["USB_*"]
+required_kind = "resistor"
+value_min = "22"
+value_max = "33"
+finding_code = "missing_series_resistor"
+
+[[companion]]
+id = "cc-rd"
+name = "USB-C CC pulldown"
+net_patterns = ["CC1", "CC2"]
+required_kind = "resistor"
+value_min = "5.0k"
+value_max = "5.6k"
+finding_code = "missing_cc_pulldown"

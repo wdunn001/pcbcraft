@@ -1,0 +1,37 @@
+series_id = "SSW"
+manufacturer = "Samtec"
+drawing_url = "https://www.samtec.com/products/ssw/"
+verify_note = "Generated from the series table; verify against the manufacturer drawing."
+
+[geometry]
+land_pattern_family = "header_single"
+dual_row_land_pattern_family = "header_double"
+pitch_mm = 2.54
+th_pad_mm = 2.00
+th_drill_mm = 1.57
+row_spacing_mm = 2.54
+post_size_mm = 0.635
+housing_height_mm = 2.54
+pin_above_board_mm = 4.06
+
+[limits]
+positions_per_row_min = 1
+positions_per_row_max = 40
+rows_min = 1
+rows_max = 2
+
+[[lead_codes]]
+code = "07"
+tail_below_board_mm = 3.05
+
+[[lead_codes]]
+code = "14"
+tail_below_board_mm = 6.35
+
+[[lead_codes]]
+code = "G"
+tail_below_board_mm = 3.05
+
+[part_number_template]
+single_row = "SSW-{positions:03}-{lead}-G-S"
+dual_row = "SSW-{positions:03}-{lead}-G-D"

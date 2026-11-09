@@ -1,0 +1,122 @@
+{
+  "sections": {
+    "use": "Using PCBCraft",
+    "connect": "Connect and extend",
+    "reference": "Reference",
+    "contributing": "Contributing"
+  },
+  "pages": {
+    "capabilities.md": {
+      "section": "use"
+    },
+    "page-layouts.md": {
+      "section": "use"
+    },
+    "library-tab.md": {
+      "section": "use"
+    },
+    "tool-modifiers.md": {
+      "section": "use"
+    },
+    "layout.md": {
+      "section": "use"
+    },
+    "part-sourcing.md": {
+      "section": "use"
+    },
+    "passive-series.md": {
+      "section": "reference"
+    },
+    "tooltips.md": {
+      "section": "use"
+    },
+    "accessibility.md": {
+      "section": "use"
+    },
+    "localization.md": {
+      "section": "use"
+    },
+    "mcp.md": {
+      "section": "connect"
+    },
+    "mcp-http.md": {
+      "section": "connect"
+    },
+    "plugins.md": {
+      "section": "connect"
+    },
+    "firmware-target-plugin.md": {
+      "section": "connect"
+    },
+    "architecture.md": {
+      "section": "reference"
+    },
+    "validation.md": {
+      "section": "reference"
+    },
+    "ci.md": {
+      "section": "contributing"
+    },
+    "testing-standard.md": {
+      "section": "contributing"
+    },
+    "doc-standard.md": {
+      "section": "contributing"
+    },
+    "TAGGING.md": {
+      "section": "contributing"
+    },
+    "design-system.md": {
+      "section": "contributing"
+    },
+    "workbench-patterns.md": {
+      "section": "contributing"
+    },
+    "agents/README.md": {
+      "section": "contributing",
+      "slug": "agent-briefs"
+    },
+    "agents/worker.md": {
+      "section": "contributing",
+      "slug": "agent-worker"
+    },
+    "agents/reviewer.md": {
+      "section": "contributing",
+      "slug": "agent-reviewer"
+    },
+    "agents/researcher.md": {
+      "section": "contributing",
+      "slug": "agent-researcher"
+    },
+    "agents/enricher.md": {
+      "section": "contributing",
+      "slug": "agent-enricher"
+    }
+  },
+  "siteLinks": {
+    "getting-started.md": "guide/getting-started"
+  },
+  "excluded": {
+    "README.md": "The site's documentation index lists the pages, so the repository index would repeat it.",
+    "getting-started.md": "The site has its own getting started guide under Guide, written for the browser app.",
+    "kicad-libraries.md": "The wording names another design tool and needs fixing before the page is published.",
+    "adr-0001-simulation.md": "A decision record for the simulation work. It is not mapped until the feature ships.",
+    "adr-0002-hitl-serial-usb.md": "A decision record for hardware in the loop transports. It is not mapped until the feature ships.",
+    "assistant.md": "Describes assistant work that is still being designed.",
+    "assistant-backends.md": "Wire format notes for assistant work that is still being designed.",
+    "design/assistant-shared-core.md": "A design note for assistant work that is still being designed.",
+    "mcp-conformance.md": "A test report for maintainers. The connection pages already cover what a user needs.",
+    "part-search-index.md": "Describes the tag and vector data format, which a maintainer edits.",
+    "portal-api.md": "Describes a service interface for the sharing portal, which has not shipped.",
+    "portal-config.example.toml": "A sample file for the sharing portal, which has not shipped.",
+    "publication-scan.md": "A maintainer procedure for checking what the repository publishes.",
+    "samtec-library.md": "Describes one vendor library. It waits for the library section of the site.",
+    "samtec-first-slice-spot-check.md": "A drawing spot-check record for maintainers.",
+    "sharing/static-registry.md": "Describes a sharing registry that has not shipped.",
+    "step-reader-spike.md": "The result of a short comparison spike for maintainers.",
+    "vendor-handoff.md": "Describes an optional module that has no user guide yet."
+  },
+  "excludedPatterns": {
+    "adr-*.md": "Decision records for work that has not shipped. They are not published until the feature ships."
+  }
+}

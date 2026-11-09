@@ -1,0 +1,60 @@
+schema = 1
+id = "blue_uas_style_drone"
+title = "Blue UAS-style drone and radio rules (fixture data)"
+description = "FY2020 NDAA Section 848 and American Security Drone Act origin checks for flight controllers, radios, cameras and related roles; synthetic Blue UAS framework evidence; per-market radio band limits. PCBCraft shows evidence only and does not confer listing or certification."
+
+[interpretation]
+default = "module"
+module_help = "Treat each placed module as the compliance unit; generic silicon without a drone role is not origin-checked."
+silicon_help = "Also read silicon vendor country on covered roles when declared."
+
+[[rules]]
+id = "ndaa848_origin"
+kind = "origin"
+roles = ["flight_controller", "esc", "radio_link", "camera", "gimbal", "gnss", "companion_computer"]
+covered_countries_list = "synthetic_covered_origin_countries"
+severity_hit = "error"
+severity_unverified = "warning"
+text = "FY2020 NDAA Section 848 and ASDA-style origin: for covered drone roles, country of manufacture and maker country are compared to the bundled covered-country list using the project manufacturer table and board assembler metadata."
+citation = "10 U.S.C. 4872 note (FY2020 NDAA Section 848); American Security Drone Act of 2023 (Pub. L. 118-31)."
+
+[[rules]]
+id = "ndaa848_declaration"
+kind = "declaration_required"
+regime = "ndaa_848"
+roles = ["flight_controller", "esc", "radio_link", "camera", "gimbal", "gnss", "companion_computer"]
+severity_hit = "warning"
+severity_unverified = "warning"
+text = "A manufacturer NDAA Section 848 statement is stored as a dated declaration with source; it is shown as a statement, never as certification."
+citation = "10 U.S.C. 4872 note (FY2020 NDAA Section 848)."
+
+[[rules]]
+id = "blue_uas_framework"
+kind = "classification_report"
+framework_list = "synthetic_blue_uas_framework"
+roles = ["flight_controller", "radio_link", "camera", "gimbal"]
+severity_hit = "info"
+severity_unverified = "info"
+text = "When a part number appears on the bundled Blue UAS-style framework snapshot, the app shows list id, snapshot date and row as evidence; it does not predict or confer listing."
+citation = "DIU Blue UAS framework (public component list; snapshot dated in data)."
+
+[[rules]]
+id = "radio_band_market"
+kind = "attribute_limit"
+roles = ["radio_link"]
+bands_list = "synthetic_radio_bands"
+attribute = "radio_band_mhz"
+severity_hit = "error"
+severity_unverified = "warning"
+text = "Declared radio centre frequencies are compared to the per-market band table; a module with an existing grant (FCC ID or CE RED record) is recorded as evidence, a bare transceiver is not."
+citation = "47 CFR Part 15 (US ISM); ETSI EN 300 220 / RED annexes (EU short-range)."
+
+[[rules]]
+id = "eu_red_cyber_docs"
+kind = "classification_report"
+roles = ["radio_link"]
+markets = ["EU"]
+severity_hit = "info"
+severity_unverified = "info"
+text = "EU Radio Equipment Directive and cybersecurity delegated act are listed as documentation items for products with radios; no legal determination is made."
+citation = "Directive 2014/53/EU; Commission Delegated Regulation (EU) 2022/30."

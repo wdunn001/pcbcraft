@@ -1,0 +1,643 @@
+schema = 1
+
+[provenance]
+source_repository = "https://www.st.com/resource/en/reference_manual/rm0440-stm32g4-series-advanced-armbased-32bit-mcus-stmicroelectronics.pdf"
+revision = "RM0440 Rev 7"
+licence = "ST document licence (pin names and mux facts transcribed for PCBCraft)"
+fetched = "2026-10-30"
+
+[mcu]
+id = "stm32g431cb"
+name = "STM32G431CB"
+vendor = "STMicroelectronics"
+family = "STM32G4"
+
+[[package]]
+id = "lqfp48"
+name = "LQFP-48"
+pins = [
+  "VBAT",
+  "PC13",
+  "PC14",
+  "PC15",
+  "PF0",
+  "PF1",
+  "NRST",
+  "PC0",
+  "PC1",
+  "PC2",
+  "PC3",
+  "VDD",
+  "VSS",
+  "PF2",
+  "PA0",
+  "PA1",
+  "PA2",
+  "PA3",
+  "VSS",
+  "VDD",
+  "PA4",
+  "PA5",
+  "PA6",
+  "PA7",
+  "PC4",
+  "PC5",
+  "PB0",
+  "PB1",
+  "PB2",
+  "PB10",
+  "PB11",
+  "VSS",
+  "VDD",
+  "PB12",
+  "PB13",
+  "PB14",
+  "PB15",
+  "PA8",
+  "PA9",
+  "PA10",
+  "PA11",
+  "PA12",
+  "PA13",
+  "VSS",
+  "VDD",
+  "PA14",
+  "PA15",
+  "VDD",
+]
+
+[[peripheral]]
+kind = "uart"
+instance = "USART1"
+signals = [
+  "TX",
+  "RX",
+  "CK",
+  "CTS",
+  "RTS",
+]
+
+[[peripheral]]
+kind = "uart"
+instance = "USART2"
+signals = [
+  "TX",
+  "RX",
+  "CK",
+  "CTS",
+  "RTS",
+]
+
+[[peripheral]]
+kind = "uart"
+instance = "USART3"
+signals = [
+  "TX",
+  "RX",
+  "CK",
+  "CTS",
+  "RTS",
+]
+
+[[peripheral]]
+kind = "spi"
+instance = "SPI1"
+signals = [
+  "NSS",
+  "SCK",
+  "MISO",
+  "MOSI",
+]
+
+[[peripheral]]
+kind = "spi"
+instance = "SPI2"
+signals = [
+  "NSS",
+  "SCK",
+  "MISO",
+  "MOSI",
+]
+
+[[peripheral]]
+kind = "spi"
+instance = "SPI3"
+signals = [
+  "NSS",
+  "SCK",
+  "MISO",
+  "MOSI",
+]
+
+[[peripheral]]
+kind = "i2c"
+instance = "I2C2"
+signals = [
+  "SCL",
+  "SDA",
+  "SMBALERT",
+]
+
+[[peripheral]]
+kind = "usb"
+instance = "USB.FS"
+signals = [
+  "DM",
+  "DP",
+]
+
+[[peripheral]]
+kind = "timer"
+instance = "TIM1"
+channels = [
+  "CH1",
+  "CH2",
+  "CH3",
+  "CH4",
+  "CH1N",
+  "CH2N",
+  "CH3N",
+  "ETR",
+]
+
+[[peripheral]]
+kind = "timer"
+instance = "TIM2"
+channels = [
+  "CH1",
+  "CH2",
+  "CH3",
+  "CH4",
+]
+
+[[peripheral]]
+kind = "timer"
+instance = "TIM3"
+channels = [
+  "CH1",
+  "CH2",
+  "CH3",
+  "CH4",
+]
+
+[[peripheral]]
+kind = "timer"
+instance = "TIM8"
+channels = [
+  "CH1",
+  "CH2",
+  "CH3",
+  "CH4",
+]
+
+[[peripheral]]
+kind = "timer"
+instance = "TIM13"
+channels = [
+  "CH1",
+]
+
+[[peripheral]]
+kind = "timer"
+instance = "TIM14"
+channels = [
+  "CH1",
+]
+
+[[pin]]
+name = "VBAT"
+power_domain = "VBAT"
+
+[[pin]]
+name = "PC13"
+[[pin.alternate]]
+af = 0
+signal = "GPIOC.13"
+
+[[pin]]
+name = "PC14"
+[[pin.alternate]]
+af = 0
+signal = "GPIOC.14"
+
+[[pin]]
+name = "PC15"
+[[pin.alternate]]
+af = 0
+signal = "GPIOC.15"
+
+[[pin]]
+name = "PF0"
+[[pin.alternate]]
+af = 0
+signal = "GPIOF.0"
+[[pin.alternate]]
+af = 4
+signal = "I2C2.SDA"
+
+[[pin]]
+name = "PF1"
+[[pin.alternate]]
+af = 0
+signal = "GPIOF.1"
+[[pin.alternate]]
+af = 4
+signal = "I2C2.SCL"
+
+[[pin]]
+name = "NRST"
+[pin.boot_strap]
+required_level = "high"
+
+[[pin]]
+name = "PC0"
+[[pin.alternate]]
+af = 0
+signal = "GPIOC.0"
+
+[[pin]]
+name = "PC1"
+[[pin.alternate]]
+af = 0
+signal = "GPIOC.1"
+
+[[pin]]
+name = "PC2"
+[[pin.alternate]]
+af = 0
+signal = "GPIOC.2"
+
+[[pin]]
+name = "PC3"
+[[pin.alternate]]
+af = 0
+signal = "GPIOC.3"
+
+[[pin]]
+name = "VDD"
+power_domain = "VDD"
+
+[[pin]]
+name = "VSS"
+power_domain = "VSS"
+
+[[pin]]
+name = "PF2"
+[[pin.alternate]]
+af = 0
+signal = "GPIOF.2"
+
+[[pin]]
+name = "PA0"
+[[pin.alternate]]
+af = 0
+signal = "GPIOA.0"
+[[pin.alternate]]
+af = 1
+signal = "TIM2.CH1"
+[[pin.alternate]]
+af = 2
+signal = "USART2.CTS"
+[[pin.alternate]]
+af = 7
+signal = "USART1.CTS"
+
+[[pin]]
+name = "PA1"
+[[pin.alternate]]
+af = 0
+signal = "GPIOA.1"
+[[pin.alternate]]
+af = 1
+signal = "TIM2.CH2"
+[[pin.alternate]]
+af = 2
+signal = "USART2.RTS"
+[[pin.alternate]]
+af = 7
+signal = "USART1.RTS"
+
+[[pin]]
+name = "PA2"
+[[pin.alternate]]
+af = 0
+signal = "GPIOA.2"
+[[pin.alternate]]
+af = 1
+signal = "TIM2.CH3"
+[[pin.alternate]]
+af = 2
+signal = "USART2.TX"
+[[pin.alternate]]
+af = 7
+signal = "USART1.TX"
+
+[[pin]]
+name = "PA3"
+[[pin.alternate]]
+af = 0
+signal = "GPIOA.3"
+[[pin.alternate]]
+af = 1
+signal = "TIM2.CH4"
+[[pin.alternate]]
+af = 2
+signal = "USART2.RX"
+[[pin.alternate]]
+af = 7
+signal = "USART1.RX"
+
+[[pin]]
+name = "VSS"
+power_domain = "VSS"
+
+[[pin]]
+name = "VDD"
+power_domain = "VDD"
+
+[[pin]]
+name = "PA4"
+[[pin.alternate]]
+af = 0
+signal = "GPIOA.4"
+[[pin.alternate]]
+af = 5
+signal = "SPI1.NSS"
+[[pin.alternate]]
+af = 7
+signal = "USART2.CK"
+
+[[pin]]
+name = "PA5"
+[[pin.alternate]]
+af = 0
+signal = "GPIOA.5"
+[[pin.alternate]]
+af = 1
+signal = "TIM2.CH1"
+[[pin.alternate]]
+af = 5
+signal = "SPI1.SCK"
+
+[[pin]]
+name = "PA6"
+[[pin.alternate]]
+af = 0
+signal = "GPIOA.6"
+[[pin.alternate]]
+af = 1
+signal = "TIM3.CH1"
+[[pin.alternate]]
+af = 5
+signal = "SPI1.MISO"
+[[pin.alternate]]
+af = 13
+signal = "TIM13.CH1"
+
+[[pin]]
+name = "PA7"
+[[pin.alternate]]
+af = 0
+signal = "GPIOA.7"
+[[pin.alternate]]
+af = 1
+signal = "TIM3.CH2"
+[[pin.alternate]]
+af = 5
+signal = "SPI1.MOSI"
+[[pin.alternate]]
+af = 14
+signal = "TIM14.CH1"
+
+[[pin]]
+name = "PC4"
+[[pin.alternate]]
+af = 0
+signal = "GPIOC.4"
+
+[[pin]]
+name = "PC5"
+[[pin.alternate]]
+af = 0
+signal = "GPIOC.5"
+
+[[pin]]
+name = "PB0"
+[[pin.alternate]]
+af = 0
+signal = "GPIOB.0"
+[[pin.alternate]]
+af = 1
+signal = "TIM3.CH3"
+[[pin.alternate]]
+af = 6
+signal = "TIM8.CH2"
+
+[[pin]]
+name = "PB1"
+[[pin.alternate]]
+af = 0
+signal = "GPIOB.1"
+[[pin.alternate]]
+af = 1
+signal = "TIM3.CH4"
+[[pin.alternate]]
+af = 6
+signal = "TIM8.CH3"
+
+[[pin]]
+name = "PB2"
+[[pin.alternate]]
+af = 0
+signal = "GPIOB.2"
+[[pin.alternate]]
+af = 5
+signal = "SPI3.MOSI"
+
+[[pin]]
+name = "PB10"
+[[pin.alternate]]
+af = 0
+signal = "GPIOB.10"
+[[pin.alternate]]
+af = 1
+signal = "TIM2.CH3"
+[[pin.alternate]]
+af = 4
+signal = "I2C2.SCL"
+[[pin.alternate]]
+af = 7
+signal = "USART3.TX"
+
+[[pin]]
+name = "PB11"
+[[pin.alternate]]
+af = 0
+signal = "GPIOB.11"
+[[pin.alternate]]
+af = 1
+signal = "TIM2.CH4"
+[[pin.alternate]]
+af = 4
+signal = "I2C2.SDA"
+[[pin.alternate]]
+af = 7
+signal = "USART3.RX"
+
+[[pin]]
+name = "VSS"
+power_domain = "VSS"
+
+[[pin]]
+name = "VDD"
+power_domain = "VDD"
+
+[[pin]]
+name = "PB12"
+[[pin.alternate]]
+af = 0
+signal = "GPIOB.12"
+[[pin.alternate]]
+af = 4
+signal = "I2C2.SMBALERT"
+[[pin.alternate]]
+af = 5
+signal = "SPI2.NSS"
+[[pin.alternate]]
+af = 7
+signal = "USART3.CK"
+
+[[pin]]
+name = "PB13"
+[[pin.alternate]]
+af = 0
+signal = "GPIOB.13"
+[[pin.alternate]]
+af = 1
+signal = "TIM1.CH1N"
+[[pin.alternate]]
+af = 4
+signal = "I2C2.SCL"
+[[pin.alternate]]
+af = 5
+signal = "SPI2.SCK"
+
+[[pin]]
+name = "PB14"
+[[pin.alternate]]
+af = 0
+signal = "GPIOB.14"
+[[pin.alternate]]
+af = 1
+signal = "TIM1.CH2N"
+[[pin.alternate]]
+af = 4
+signal = "I2C2.SDA"
+[[pin.alternate]]
+af = 5
+signal = "SPI2.MISO"
+
+[[pin]]
+name = "PB15"
+[[pin.alternate]]
+af = 0
+signal = "GPIOB.15"
+[[pin.alternate]]
+af = 1
+signal = "TIM1.CH3N"
+[[pin.alternate]]
+af = 5
+signal = "SPI2.MOSI"
+
+[[pin]]
+name = "PA8"
+[[pin.alternate]]
+af = 0
+signal = "GPIOA.8"
+[[pin.alternate]]
+af = 1
+signal = "TIM1.CH1"
+[[pin.alternate]]
+af = 7
+signal = "USART1.CK"
+
+[[pin]]
+name = "PA9"
+[[pin.alternate]]
+af = 0
+signal = "GPIOA.9"
+[[pin.alternate]]
+af = 1
+signal = "TIM1.CH2"
+[[pin.alternate]]
+af = 7
+signal = "USART1.TX"
+
+[[pin]]
+name = "PA10"
+[[pin.alternate]]
+af = 0
+signal = "GPIOA.10"
+[[pin.alternate]]
+af = 1
+signal = "TIM1.CH3"
+[[pin.alternate]]
+af = 7
+signal = "USART1.RX"
+
+[[pin]]
+name = "PA11"
+[[pin.alternate]]
+af = 0
+signal = "GPIOA.11"
+[[pin.alternate]]
+af = 1
+signal = "TIM1.CH4"
+[[pin.alternate]]
+af = 10
+signal = "USB.FS.DM"
+
+[[pin]]
+name = "PA12"
+[[pin.alternate]]
+af = 0
+signal = "GPIOA.12"
+[[pin.alternate]]
+af = 1
+signal = "TIM1.ETR"
+[[pin.alternate]]
+af = 10
+signal = "USB.FS.DP"
+
+[[pin]]
+name = "PA13"
+[[pin.alternate]]
+af = 0
+signal = "GPIOA.13"
+
+[[pin]]
+name = "VSS"
+power_domain = "VSS"
+
+[[pin]]
+name = "VDD"
+power_domain = "VDD"
+
+[[pin]]
+name = "PA14"
+[[pin.alternate]]
+af = 0
+signal = "GPIOA.14"
+
+[[pin]]
+name = "PA15"
+[[pin.alternate]]
+af = 0
+signal = "GPIOA.15"
+[[pin.alternate]]
+af = 5
+signal = "SPI1.NSS"
+
+[[pin]]
+name = "VDD"
+power_domain = "VDD"

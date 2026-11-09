@@ -1,0 +1,3 @@
+Reference,Value,Footprint,MPN,Manufacturer,Quantity
+U1,LM358,project:DIP8_Custom,,,1
+"J1, J2, J3",Power,starter pads,,,3

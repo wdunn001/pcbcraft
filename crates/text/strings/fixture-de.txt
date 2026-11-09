@@ -1,0 +1,3 @@
+# Test-only language used by the number and language stories.
+language.name = Deutsch (test)
+menu.file = Datei

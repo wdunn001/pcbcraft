@@ -1,0 +1,5 @@
+{
+  "name": "PCBCraft",
+  "user": "ubuntu",
+  "install": "bash .cursor/cloud-install.sh"
+}

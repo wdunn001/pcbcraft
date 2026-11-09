@@ -1,0 +1,289 @@
+[
+ {
+  "id": "615e7954f053bac9c0edcee38586047a108d0431",
+  "name": "CREDITS.md",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/CREDITS.md",
+  "mode": "100644"
+ },
+ {
+  "id": "e7414f9d1296f5200436c207fa2f2f26cbcffdd6",
+  "name": "R_01005_0402Metric.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_01005_0402Metric.step",
+  "mode": "100644"
+ },
+ {
+  "id": "5c748dfc2b7f5bf2007430305deee9837da8fa06",
+  "name": "R_0201_0603Metric.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_0201_0603Metric.step",
+  "mode": "100644"
+ },
+ {
+  "id": "7f0c353f8ebaa364e1f12149ab1768d9da85f02a",
+  "name": "R_0402_1005Metric.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_0402_1005Metric.step",
+  "mode": "100644"
+ },
+ {
+  "id": "a885593ca3dd3dd354835d6f586626a712c61c2a",
+  "name": "R_0603_1608Metric.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+  "mode": "100644"
+ },
+ {
+  "id": "31e252369f5e295e9ff975e3a9c7f7dfc1192058",
+  "name": "R_0612_1632Metric.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_0612_1632Metric.step",
+  "mode": "100644"
+ },
+ {
+  "id": "56fa3aff63e34ff594185da0ba1ff2008a26646d",
+  "name": "R_0805_2012Metric.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_0805_2012Metric.step",
+  "mode": "100644"
+ },
+ {
+  "id": "8519bf8f9c7b382998c8fe1021f33af199d44aee",
+  "name": "R_0815_2038Metric.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_0815_2038Metric.step",
+  "mode": "100644"
+ },
+ {
+  "id": "c76ebe646365df018a8016e68c9a9ebe2133d497",
+  "name": "R_1020_2550Metric.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_1020_2550Metric.step",
+  "mode": "100644"
+ },
+ {
+  "id": "6053a5f515116a15a1860e88fd6d0b34b1eb1eb9",
+  "name": "R_1206_3216Metric.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_1206_3216Metric.step",
+  "mode": "100644"
+ },
+ {
+  "id": "2c2158b49485824566fceb90bd70ddf00b621516",
+  "name": "R_1210_3225Metric.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_1210_3225Metric.step",
+  "mode": "100644"
+ },
+ {
+  "id": "94757a55e6fb729013964ec85563799b809ae36c",
+  "name": "R_1218_3246Metric.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_1218_3246Metric.step",
+  "mode": "100644"
+ },
+ {
+  "id": "663038375d7ae595a26546feee1a0ea1bc1be04e",
+  "name": "R_1806_4516Metric.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_1806_4516Metric.step",
+  "mode": "100644"
+ },
+ {
+  "id": "90e967489853d73b15499e9bdee54dc2635e60d6",
+  "name": "R_1812_4532Metric.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_1812_4532Metric.step",
+  "mode": "100644"
+ },
+ {
+  "id": "86489c3ea78513da2e72f05e0c212b5b6e4b9f53",
+  "name": "R_2010_5025Metric.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_2010_5025Metric.step",
+  "mode": "100644"
+ },
+ {
+  "id": "230b938ab2717cf2955368817d797f291f49a6cc",
+  "name": "R_2512_6332Metric.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_2512_6332Metric.step",
+  "mode": "100644"
+ },
+ {
+  "id": "fa0318a1fad48779e8e8bd6fbbe81c0c36b73180",
+  "name": "R_2816_7142Metric.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_2816_7142Metric.step",
+  "mode": "100644"
+ },
+ {
+  "id": "311813d671a9bbb855b50b1f1569c74c4c560202",
+  "name": "R_4020_10251Metric.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_4020_10251Metric.step",
+  "mode": "100644"
+ },
+ {
+  "id": "4e5682f0fe85d3fa4ba6e3c5ad703df26c74d287",
+  "name": "R_Array_Concave_2x0603.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_Array_Concave_2x0603.step",
+  "mode": "100644"
+ },
+ {
+  "id": "f60a8854ff897b83c75808c5d1b82db15849e316",
+  "name": "R_Array_Concave_4x0402.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_Array_Concave_4x0402.step",
+  "mode": "100644"
+ },
+ {
+  "id": "69f622b2368b2ef5237982ac3fbce0618a5d4ff6",
+  "name": "R_Array_Concave_4x0603.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_Array_Concave_4x0603.step",
+  "mode": "100644"
+ },
+ {
+  "id": "033bb7fe8657e722ca3327e6d17015d93c2a0317",
+  "name": "R_Array_Convex_2x0402.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_Array_Convex_2x0402.step",
+  "mode": "100644"
+ },
+ {
+  "id": "d50b768e0b64daaf118486c1562e08b527e835e2",
+  "name": "R_Array_Convex_2x0603.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_Array_Convex_2x0603.step",
+  "mode": "100644"
+ },
+ {
+  "id": "e7b5d090835c2c43eafe8bdbdebd2d353855a864",
+  "name": "R_Array_Convex_2x1206.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_Array_Convex_2x1206.step",
+  "mode": "100644"
+ },
+ {
+  "id": "517616ecca708a1f34221fb26b079fc221f636b4",
+  "name": "R_Array_Convex_4x0402.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_Array_Convex_4x0402.step",
+  "mode": "100644"
+ },
+ {
+  "id": "2d8502b2f7e2ec6f282753c350cd51d6ae94f093",
+  "name": "R_Array_Convex_4x0603.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_Array_Convex_4x0603.step",
+  "mode": "100644"
+ },
+ {
+  "id": "04dfc63ad9ad6b650586ed867940c1486ff51239",
+  "name": "R_Array_Convex_4x1206.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_Array_Convex_4x1206.step",
+  "mode": "100644"
+ },
+ {
+  "id": "213dd7f64a7f018db64572e1117edf2e546fb6eb",
+  "name": "R_Array_Convex_5x0603.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_Array_Convex_5x0603.step",
+  "mode": "100644"
+ },
+ {
+  "id": "0bdc53049e8c6245ec9f6583dec6f0a837ce02bb",
+  "name": "R_Array_Convex_5x1206.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_Array_Convex_5x1206.step",
+  "mode": "100644"
+ },
+ {
+  "id": "86aa352c488fca0d723248a6090d761d22b0b91f",
+  "name": "R_Array_Convex_8x0602.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_Array_Convex_8x0602.step",
+  "mode": "100644"
+ },
+ {
+  "id": "75b27819ec9c5a816d6f7aa90d3a39b3d77cbb26",
+  "name": "R_Cat16-2.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_Cat16-2.step",
+  "mode": "100644"
+ },
+ {
+  "id": "aaba9d226b48a8d30c1fbecc8b380ec0c7ec601c",
+  "name": "R_Cat16-4.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_Cat16-4.step",
+  "mode": "100644"
+ },
+ {
+  "id": "951bf046d0476b3bf79fcbb726d10c526378bac4",
+  "name": "R_Cat16-8.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_Cat16-8.step",
+  "mode": "100644"
+ },
+ {
+  "id": "b09acd1add7add7d9dfc6abdcdaf65c33eb31d92",
+  "name": "R_MELF_MMB-0207.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_MELF_MMB-0207.step",
+  "mode": "100644"
+ },
+ {
+  "id": "c0d4abd8d85d3bbbb456e66930b43664e52dd6ff",
+  "name": "R_MicroMELF_MMU-0102.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_MicroMELF_MMU-0102.step",
+  "mode": "100644"
+ },
+ {
+  "id": "2fa6a1937dc7d2dc84d37ffd50fb90b2097a28e4",
+  "name": "R_MiniMELF_MMA-0204.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_MiniMELF_MMA-0204.step",
+  "mode": "100644"
+ },
+ {
+  "id": "d5b59510ef58d232cf20bb7cf6e2de85b7c67b13",
+  "name": "R_Shunt_Ohmite_LVK12.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_Shunt_Ohmite_LVK12.step",
+  "mode": "100644"
+ },
+ {
+  "id": "12780ba9cbc85956d5878fd8210fad6a68c506f1",
+  "name": "R_Shunt_Ohmite_LVK20.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_Shunt_Ohmite_LVK20.step",
+  "mode": "100644"
+ },
+ {
+  "id": "edb8091679fff0ceacec15938a4b97622cb79fa8",
+  "name": "R_Shunt_Ohmite_LVK24.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_Shunt_Ohmite_LVK24.step",
+  "mode": "100644"
+ },
+ {
+  "id": "dbb98d549ea3e675276cddf5f5ad2de9d877ce18",
+  "name": "R_Shunt_Ohmite_LVK25.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_Shunt_Ohmite_LVK25.step",
+  "mode": "100644"
+ },
+ {
+  "id": "1bd569e144ddbde0b5369b6a217bbc93d061302f",
+  "name": "R_Shunt_Vishay_WSKW0612.step",
+  "type": "blob",
+  "path": "Resistor_SMD.3dshapes/R_Shunt_Vishay_WSKW0612.step",
+  "mode": "100644"
+ }
+]

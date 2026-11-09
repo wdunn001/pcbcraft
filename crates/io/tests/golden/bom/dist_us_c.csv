@@ -1,0 +1,42 @@
+Part Number,Description,Quantity
+MP-100nF,Analog supply filter,1
+MP-100nF,Flash decoupling,1
+MP-100nF,Sensor decoupling,3
+MP-100nF,Supply decoupling,3
+MP-10k,Reset pull-up,1
+MP-10uF,Supply input capacitor,1
+MP-16MHz,Main crystal,1
+MP-18pF,Crystal load capacitor,2
+MP-1k,Charge indicator resistor,1
+MP-1k,LED series resistor,6
+MP-1uF,Analog supply bulk,1
+MP-1uF,Sensor rail capacitor,1
+MP-22uF,Regulator input capacitor,1
+MP-22uF,Regulator output capacitor,1
+MP-2k,Charge current set,1
+MP-3V3,Supply test point,1
+MP-47k,I2C pull-up,2
+MP-47uF,Battery decoupling,1
+MP-47uF,Bulk capacitor,1
+MP-51k,USB CC1 pull-down,1
+MP-51k,USB CC2 pull-down,1
+MP-500mA,Resettable fuse,1
+MP-Amber,Charge indicator,1
+MP-Amber,Status LED,2
+MP-Battery,Two-pin battery connector,1
+MP-Charger,Single-cell linear charger,1
+MP-Climate,"Temperature, humidity and pressure sensor",1
+MP-Debug,Programming and serial header,1
+MP-Flash,Serial flash memory,1
+MP-Green,Status LED,3
+MP-LDO3V3,Low-dropout regulator,1
+MP-Light,Ambient light sensor,1
+MP-MCU,"32-bit microcontroller, USB device",1
+MP-Red,Status LED,1
+MP-Reset,Reset button,1
+MP-Switch,High-side switch for the sensor rail,1
+MP-TVS,Transient suppressor on the USB supply,1
+MP-USBC,Power and USB 2.0 receptacle,1
+MP-User1,User button,1
+MP-User2,User button,1
+MP-VBAT,Battery test point,1

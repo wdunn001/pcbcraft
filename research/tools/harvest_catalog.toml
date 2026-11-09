@@ -1,0 +1,524 @@
+# Manufacturer-hosted datasheet targets for harvest #326.
+# mfr_slug becomes datasheets/<mfr_slug>/<id>.pdf
+
+[[part]]
+id = "rp2040"
+manufacturer = "Raspberry Pi"
+mpn = "RP2040"
+mfr_slug = "raspberry-pi"
+url = "https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf"
+title = "RP2040 Datasheet"
+package = "QFN-56"
+pin_count = 56
+land_pattern_ref = "See datasheet land pattern section"
+
+[[part]]
+id = "rp2350"
+manufacturer = "Raspberry Pi"
+mpn = "RP2350"
+mfr_slug = "raspberry-pi"
+url = "https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf"
+title = "RP2350 Datasheet"
+package = "QFN-60"
+pin_count = 60
+land_pattern_ref = "See datasheet land pattern section"
+
+[[part]]
+id = "rp2040-hardware-design"
+manufacturer = "Raspberry Pi"
+mpn = "RP2040 design guide"
+mfr_slug = "raspberry-pi"
+url = "https://datasheets.raspberrypi.com/rp2040/hardware-design-with-rp2040.pdf"
+title = "Hardware design with RP2040"
+package = "N/A"
+pin_count = 0
+land_pattern_ref = "N/A"
+
+[[part]]
+id = "esp32-s3"
+manufacturer = "Espressif"
+mpn = "ESP32-S3"
+mfr_slug = "espressif"
+url = "https://www.espressif.com/sites/default/files/documentation/esp32-s3_datasheet_en.pdf"
+title = "ESP32-S3 Series Datasheet"
+package = "QFN-56"
+pin_count = 56
+land_pattern_ref = "See datasheet package section"
+
+[[part]]
+id = "esp32-c3"
+manufacturer = "Espressif"
+mpn = "ESP32-C3"
+mfr_slug = "espressif"
+url = "https://www.espressif.com/sites/default/files/documentation/esp32-c3_datasheet_en.pdf"
+title = "ESP32-C3 Series Datasheet"
+package = "QFN-32"
+pin_count = 32
+land_pattern_ref = "See datasheet package section"
+
+[[part]]
+id = "esp32-s3-wroom-1"
+manufacturer = "Espressif"
+mpn = "ESP32-S3-WROOM-1"
+mfr_slug = "espressif"
+url = "https://www.espressif.com/sites/default/files/documentation/esp32-s3-wroom-1_wroom-1u_datasheet_en.pdf"
+title = "ESP32-S3-WROOM-1 Datasheet"
+package = "Module"
+pin_count = 41
+land_pattern_ref = "See module footprint drawing"
+
+[[part]]
+id = "ap2112k-3.3"
+manufacturer = "Diodes Incorporated"
+mpn = "AP2112K-3.3"
+mfr_slug = "diodes"
+url = "https://www.diodes.com/assets/Datasheets/AP2112.pdf"
+title = "AP2112 600mA CMOS LDO"
+package = "SOT-23-5"
+pin_count = 5
+land_pattern_ref = "See recommended land pattern"
+
+[[part]]
+id = "2n7002"
+manufacturer = "Diodes Incorporated"
+mpn = "2N7002"
+mfr_slug = "diodes"
+url = "https://www.diodes.com/assets/Datasheets/2N7002.pdf"
+title = "2N7002 N-channel MOSFET"
+package = "SOT-23"
+pin_count = 3
+land_pattern_ref = "See mechanical data"
+
+[[part]]
+id = "bss138"
+manufacturer = "Diodes Incorporated"
+mpn = "BSS138"
+mfr_slug = "diodes"
+url = "https://www.diodes.com/assets/Datasheets/BSS138.pdf"
+title = "BSS138 N-channel MOSFET"
+package = "SOT-23"
+pin_count = 3
+land_pattern_ref = "See mechanical data"
+
+[[part]]
+id = "lm1117-3.3"
+manufacturer = "Texas Instruments"
+mpn = "LM1117-3.3"
+mfr_slug = "ti"
+url = "https://www.ti.com/lit/ds/symlink/lm1117.pdf"
+title = "LM1117-N 800mA LDO"
+package = "SOT-223"
+pin_count = 3
+land_pattern_ref = "See mechanical data"
+
+[[part]]
+id = "tps54331"
+manufacturer = "Texas Instruments"
+mpn = "TPS54331"
+mfr_slug = "ti"
+url = "https://www.ti.com/lit/ds/symlink/tps54331.pdf"
+title = "TPS54331 3A buck converter"
+package = "SOIC-8"
+pin_count = 8
+land_pattern_ref = "See mechanical data"
+
+[[part]]
+id = "tps62160"
+manufacturer = "Texas Instruments"
+mpn = "TPS62160"
+mfr_slug = "ti"
+url = "https://www.ti.com/lit/ds/symlink/tps62160.pdf"
+title = "TPS62160 1A buck converter"
+package = "QFN-16"
+pin_count = 16
+land_pattern_ref = "See mechanical data"
+
+[[part]]
+id = "pca9306"
+manufacturer = "Texas Instruments"
+mpn = "PCA9306"
+mfr_slug = "ti"
+url = "https://www.ti.com/lit/ds/symlink/pca9306.pdf"
+title = "PCA9306 I2C level shifter"
+package = "VSSOP-8"
+pin_count = 8
+land_pattern_ref = "See mechanical data"
+
+[[part]]
+id = "sn65hvd230"
+manufacturer = "Texas Instruments"
+mpn = "SN65HVD230"
+mfr_slug = "ti"
+url = "https://www.ti.com/lit/ds/symlink/sn65hvd230.pdf"
+title = "SN65HVD230 CAN transceiver"
+package = "SOIC-8"
+pin_count = 8
+land_pattern_ref = "See mechanical data"
+
+[[part]]
+id = "tlv9062"
+manufacturer = "Texas Instruments"
+mpn = "TLV9062"
+mfr_slug = "ti"
+url = "https://www.ti.com/lit/ds/symlink/tlv9062.pdf"
+title = "TLV9062 dual op amp"
+package = "SOIC-8"
+pin_count = 8
+land_pattern_ref = "See mechanical data"
+
+[[part]]
+id = "opa2340"
+manufacturer = "Texas Instruments"
+mpn = "OPA2340"
+mfr_slug = "ti"
+url = "https://www.ti.com/lit/ds/symlink/opa2340.pdf"
+title = "OPA2340 dual op amp"
+package = "SOIC-8"
+pin_count = 8
+land_pattern_ref = "See mechanical data"
+
+[[part]]
+id = "tusb322i"
+manufacturer = "Texas Instruments"
+mpn = "TUSB322I"
+mfr_slug = "ti"
+url = "https://www.ti.com/lit/ds/symlink/tusb322i.pdf"
+title = "TUSB322I USB Type-C CC logic"
+package = "WQFN-12"
+pin_count = 12
+land_pattern_ref = "See mechanical data"
+
+[[part]]
+id = "tja1050"
+manufacturer = "NXP Semiconductors"
+mpn = "TJA1050"
+mfr_slug = "nxp"
+url = "https://www.nxp.com/docs/en/data-sheet/TJA1050.pdf"
+title = "TJA1050 high-speed CAN transceiver"
+package = "SOIC-8"
+pin_count = 8
+land_pattern_ref = "See mechanical data"
+
+[[part]]
+id = "usb4105-gf-a"
+manufacturer = "GCT"
+mpn = "USB4105-GF-A"
+mfr_slug = "gct"
+url = "https://www.gct.co/files/drawings/usb4105.pdf"
+title = "USB4105 USB Type-C receptacle"
+package = "USB-C mid-mount"
+pin_count = 24
+land_pattern_ref = "See mechanical drawing"
+
+[[part]]
+id = "usb4085-gf-a"
+manufacturer = "GCT"
+mpn = "USB4085-GF-A"
+mfr_slug = "gct"
+url = "https://www.gct.co/files/drawings/usb4085.pdf"
+title = "USB4085 USB Type-C receptacle"
+package = "USB-C mid-mount"
+pin_count = 24
+land_pattern_ref = "See mechanical drawing"
+
+[[part]]
+id = "pj-002a"
+manufacturer = "CUI Devices"
+mpn = "PJ-002A"
+mfr_slug = "cui"
+url = "https://www.cuidevices.com/product/resource/pj-002a.pdf"
+title = "PJ-002A barrel jack"
+package = "Through-hole barrel jack"
+pin_count = 3
+land_pattern_ref = "See mechanical drawing"
+
+[[part]]
+id = "pj-102a"
+manufacturer = "CUI Devices"
+mpn = "PJ-102A"
+mfr_slug = "cui"
+url = "https://www.cuidevices.com/product/resource/pj-102a.pdf"
+title = "PJ-102A barrel jack"
+package = "Through-hole barrel jack"
+pin_count = 3
+land_pattern_ref = "See mechanical drawing"
+
+[[part]]
+id = "abm8-272-k2b-t3"
+manufacturer = "Abracon"
+mpn = "ABM8-272-K2B-T3"
+mfr_slug = "abracon"
+url = "https://abracon.com/resonators/ABM8.pdf"
+title = "ABM8 crystal"
+package = "HC-49/US"
+pin_count = 2
+land_pattern_ref = "See land pattern in datasheet"
+
+[[part]]
+id = "lm2596"
+manufacturer = "Texas Instruments"
+mpn = "LM2596"
+mfr_slug = "ti"
+url = "https://www.ti.com/lit/ds/symlink/lm2596.pdf"
+title = "LM2596 buck regulator"
+package = "TO-263"
+pin_count = 5
+land_pattern_ref = "See mechanical data"
+
+[[part]]
+id = "bq24074"
+manufacturer = "Texas Instruments"
+mpn = "BQ24074"
+mfr_slug = "ti"
+url = "https://www.ti.com/lit/ds/symlink/bq24074.pdf"
+title = "BQ24074 battery charger"
+package = "VQFN-16"
+pin_count = 16
+land_pattern_ref = "See mechanical data"
+
+[[part]]
+id = "esp32"
+manufacturer = "Espressif"
+mpn = "ESP32"
+mfr_slug = "espressif"
+url = "https://www.espressif.com/sites/default/files/documentation/esp32_datasheet_en.pdf"
+title = "ESP32 Series Datasheet"
+package = "QFN-48"
+pin_count = 48
+land_pattern_ref = "See datasheet package section"
+
+[[part]]
+id = "esp32-s3-mini-1"
+manufacturer = "Espressif"
+mpn = "ESP32-S3-MINI-1"
+mfr_slug = "espressif"
+url = "https://www.espressif.com/sites/default/files/documentation/esp32-s3-mini-1_mini-1u_datasheet_en.pdf"
+title = "ESP32-S3-MINI-1 module datasheet"
+package = "Module"
+pin_count = 41
+land_pattern_ref = "See module footprint drawing"
+
+[[part]]
+id = "tlv700"
+manufacturer = "Texas Instruments"
+mpn = "TLV700"
+mfr_slug = "ti"
+url = "https://www.ti.com/lit/ds/symlink/tlv700.pdf"
+title = "TLV700 200mA LDO"
+package = "SOT-23-5"
+pin_count = 5
+land_pattern_ref = "See mechanical data"
+
+[[part]]
+id = "tps7a02"
+manufacturer = "Texas Instruments"
+mpn = "TPS7A02"
+mfr_slug = "ti"
+url = "https://www.ti.com/lit/ds/symlink/tps7a02.pdf"
+title = "TPS7A02 200mA LDO"
+package = "X2SON-4"
+pin_count = 4
+land_pattern_ref = "See mechanical data"
+
+[[part]]
+id = "tps563200"
+manufacturer = "Texas Instruments"
+mpn = "TPS563200"
+mfr_slug = "ti"
+url = "https://www.ti.com/lit/ds/symlink/tps563200.pdf"
+title = "TPS563200 3A buck converter"
+package = "SOIC-8"
+pin_count = 8
+land_pattern_ref = "See mechanical data"
+
+[[part]]
+id = "tca9406"
+manufacturer = "Texas Instruments"
+mpn = "TCA9406"
+mfr_slug = "ti"
+url = "https://www.ti.com/lit/ds/symlink/tca9406.pdf"
+title = "TCA9406 I2C buffer"
+package = "VSSOP-8"
+pin_count = 8
+land_pattern_ref = "See mechanical data"
+
+[[part]]
+id = "sn74lvc1g125"
+manufacturer = "Texas Instruments"
+mpn = "SN74LVC1G125"
+mfr_slug = "ti"
+url = "https://www.ti.com/lit/ds/symlink/sn74lvc1g125.pdf"
+title = "SN74LVC1G125 bus buffer"
+package = "SOT-23-5"
+pin_count = 5
+land_pattern_ref = "See mechanical data"
+
+[[part]]
+id = "ap7361"
+manufacturer = "Diodes Incorporated"
+mpn = "AP7361"
+mfr_slug = "diodes"
+url = "https://www.diodes.com/assets/Datasheets/AP7361.pdf"
+title = "AP7361 600mA LDO"
+package = "SOT-23-5"
+pin_count = 5
+land_pattern_ref = "See recommended land pattern"
+
+[[part]]
+id = "usb4110-gf-a"
+manufacturer = "GCT"
+mpn = "USB4110-GF-A"
+mfr_slug = "gct"
+url = "https://www.gct.co/files/drawings/usb4110.pdf"
+title = "USB4110 USB Type-C receptacle"
+package = "USB-C mid-mount"
+pin_count = 24
+land_pattern_ref = "See mechanical drawing"
+
+[[part]]
+id = "sn74hc595"
+manufacturer = "Texas Instruments"
+mpn = "SN74HC595"
+mfr_slug = "ti"
+url = "https://www.ti.com/lit/ds/symlink/sn74hc595.pdf"
+title = "SN74HC595 shift register"
+package = "SOIC-16"
+pin_count = 16
+land_pattern_ref = "See mechanical data"
+
+[[part]]
+id = "ina219"
+manufacturer = "Texas Instruments"
+mpn = "INA219"
+mfr_slug = "ti"
+url = "https://www.ti.com/lit/ds/symlink/ina219.pdf"
+title = "INA219 current shunt monitor"
+package = "MSOP-10"
+pin_count = 10
+land_pattern_ref = "See mechanical data"
+
+[[part]]
+id = "tps61023"
+manufacturer = "Texas Instruments"
+mpn = "TPS61023"
+mfr_slug = "ti"
+url = "https://www.ti.com/lit/ds/symlink/tps61023.pdf"
+title = "TPS61023 boost converter"
+package = "WSON-6"
+pin_count = 6
+land_pattern_ref = "See mechanical data"
+
+[[part]]
+id = "bq25895"
+manufacturer = "Texas Instruments"
+mpn = "BQ25895"
+mfr_slug = "ti"
+url = "https://www.ti.com/lit/ds/symlink/bq25895.pdf"
+title = "BQ25895 switch-mode charger"
+package = "VQFN-24"
+pin_count = 24
+land_pattern_ref = "See mechanical data"
+
+[[part]]
+id = "lp5907"
+manufacturer = "Texas Instruments"
+mpn = "LP5907"
+mfr_slug = "ti"
+url = "https://www.ti.com/lit/ds/symlink/lp5907.pdf"
+title = "LP5907 250mA LDO"
+package = "X2SON-4"
+pin_count = 4
+land_pattern_ref = "See mechanical data"
+
+# Expected gaps (manufacturer blocks automated download or URL unknown)
+
+[[gap]]
+id = "tsw-103-07-g-s"
+manufacturer = "Samtec"
+mpn = "TSW-103-07-G-S"
+reason = "Manufacturer PDF host did not resolve on automated fetch"
+
+[[gap]]
+id = "ssw-103-01-f-s"
+manufacturer = "Samtec"
+mpn = "SSW-103-01-F-S"
+reason = "Manufacturer PDF host did not resolve on automated fetch"
+
+[[gap]]
+id = "irlb8721"
+manufacturer = "Infineon"
+mpn = "IRLB8721"
+reason = "Manufacturer download returned empty body on automated fetch"
+
+
+[[gap]]
+id = "stm32g0b1"
+manufacturer = "STMicroelectronics"
+mpn = "STM32G0B1"
+reason = "Manufacturer site returned 403 or timeout on automated fetch"
+
+[[gap]]
+id = "usblc6-2"
+manufacturer = "STMicroelectronics"
+mpn = "USBLC6-2"
+reason = "Manufacturer site returned 403 or timeout on automated fetch"
+
+[[gap]]
+id = "mcp1700"
+manufacturer = "Microchip"
+mpn = "MCP1700"
+reason = "Manufacturer site returned 403 or timeout on automated fetch"
+
+[[gap]]
+id = "mcp2515"
+manufacturer = "Microchip"
+mpn = "MCP2515"
+reason = "Manufacturer site returned 403 or timeout on automated fetch"
+
+[[gap]]
+id = "ncp1117"
+manufacturer = "onsemi"
+mpn = "NCP1117"
+reason = "Manufacturer site returned 403 or timeout on automated fetch"
+
+[[gap]]
+id = "esd9b3.3"
+manufacturer = "onsemi"
+mpn = "ESD9B3.3"
+reason = "Manufacturer site returned 403 or timeout on automated fetch"
+
+[[gap]]
+id = "lt3080"
+manufacturer = "Analog Devices"
+mpn = "LT3080"
+reason = "Manufacturer site returned 403 or timeout on automated fetch"
+
+[[gap]]
+id = "ft232r"
+manufacturer = "FTDI"
+mpn = "FT232R"
+reason = "Manufacturer site returned 403 or timeout on automated fetch"
+
+[[gap]]
+id = "ch340g"
+manufacturer = "WCH"
+mpn = "CH340G"
+reason = "Manufacturer site returned 403 or timeout on automated fetch"
+
+[[gap]]
+id = "b2b-ph-sm4-tb"
+manufacturer = "JST"
+mpn = "B2B-PH-SM4-TB"
+reason = "Manufacturer site returned 403 or timeout on automated fetch"
+
+[[gap]]
+id = "53048-0210"
+manufacturer = "Molex"
+mpn = "53048-0210"
+reason = "Manufacturer site returned 403 or timeout on automated fetch"
+
+[[gap]]
+id = "rt9013-33gb"
+manufacturer = "Richtek"
+mpn = "RT9013-33GB"
+reason = "Published URL guesses returned 404"
