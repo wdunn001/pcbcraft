@@ -55,7 +55,7 @@ pub(crate) fn outcomes(transport: &WebTransport) -> Vec<(&'static str, Outcome)>
 pub(crate) fn draw_unreachable(ui: &mut egui::Ui, transport: &WebTransport, muted: egui::Color32) {
     for (_, outcome) in outcomes(transport) {
         if let Outcome::Explained(line) = outcome {
-            ui.label(egui::RichText::new(line).small().color(muted));
+            ui.label(crate::fonts::caption(line).color(muted));
         }
     }
 }
