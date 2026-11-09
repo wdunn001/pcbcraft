@@ -864,12 +864,8 @@ impl App {
                         painter.add(egui::Shape::line(line, Stroke::new(2.0, self.accent())));
                     }
                 }
-                Tool::Route(Some((id, pad))) => {
-                    if let Some(start) = self
-                        .project
-                        .footprint(*id)
-                        .and_then(|f| f.pad_position(pad))
-                    {
+                Tool::Route(Some(from)) => {
+                    if let Some(start) = from.position(&self.project) {
                         self.path(
                             &painter,
                             rect,
@@ -1631,7 +1627,7 @@ impl App {
         }
         best.map(|(_, id)| id)
     }
-    fn pick_via(&self, pos: Point, zoom: f32) -> Option<Id> {
+    pub(super) fn pick_via(&self, pos: Point, zoom: f32) -> Option<Id> {
         self.project
             .board
             .vias
@@ -1712,9 +1708,9 @@ impl App {
                     }
                     self.tool = Tool::Wire(Some(pin));
                 } else if self.tab == Tab::Pcb
-                    && let Some((id, pad)) = self.pick_pad(pos, zoom)
+                    && let Some(end) = self.pick_route_end(pos, zoom)
                 {
-                    self.tool = Tool::Route(Some((id, pad)));
+                    self.tool = Tool::Route(Some(end));
                 } else if self.tab == Tab::Pcb
                     && self.selected.is_none()
                     && let Some(id) = self.pick_track(pos, zoom)
@@ -1761,11 +1757,12 @@ impl App {
                 self.schematic_wire_click(pos, zoom);
             }
             Tool::Route(start) => {
-                if let Some((id, pad)) = self.pick_pad(pos, zoom) {
-                    if let Some((from, from_pad)) = start {
-                        self.finish_route(from, &from_pad, id, &pad);
-                    } else {
-                        self.tool = Tool::Route(Some((id, pad)));
+                if let Some(to) = self.pick_route_end(pos, zoom) {
+                    match start {
+                        // Clicking the same end twice would ask the router to
+                        // route a net to itself, so treat it as picking again.
+                        Some(from) if from != to => self.finish_route(&from, &to),
+                        _ => self.tool = Tool::Route(Some(to)),
                     }
                 } else {
                     self.message = t!("board.canvas_click.pick_a_pad_to_start");

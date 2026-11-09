@@ -1063,7 +1063,8 @@ fn a_newcomer_right_clicks_a_pad_and_starts_a_route() -> Result<(), String> {
     authoring::tests::tap(&ctx, &mut app, "Start route")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        matches!(&app.tool, Tool::Route(Some((f, n))) if *f == id && *n == number),
+        matches!(&app.tool,
+            Tool::Route(Some(route_drag::RouteEnd::Pad(f, n))) if *f == id && *n == number),
         "Start route arms the route tool on that pad: {}",
         app.message
     );

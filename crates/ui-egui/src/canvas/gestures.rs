@@ -502,7 +502,7 @@ impl App {
                 self.tool = Tool::Wire(Some(pin.clone()));
             }
             (ClickAction::StartRoute, Hit::Pad(id, pad)) => {
-                self.tool = Tool::Route(Some((*id, pad.clone())));
+                self.tool = Tool::Route(Some(route_drag::RouteEnd::Pad(*id, pad.clone())));
             }
             (ClickAction::StartRoute, Hit::TrackEnd(id, end)) => {
                 if let Some(t) = self.project.board.tracks.iter().find(|t| t.id == *id) {
