@@ -160,6 +160,14 @@ nets' tracks; shove mode also pushes other nets' tracks aside within fixed limit
 A refusal gives a plain reason and changes nothing. `track.set_end` stays the
 unchecked move.
 
+A run is one track record per straight piece. A corner is therefore two records
+sharing a point. A drag on one end carries every other piece that meets it. A
+corner stays a corner. The ids of the carried copper come back in `carried`. A
+piece is carried when it shares the point on the same net and the same layer.
+Pieces joined through a via sit on another layer and stay put, since the via
+does not move. A carried piece whose far end is the new position has become
+nothing and is dropped. That is what straightening a corner away means.
+
 `library.inspect_symbol` and `library.inspect_footprint` accept `include_source`.
 When true, up to 512 KiB of original nodes are returned for editing; larger source
 nodes report `source_truncated`. The GUI disables copying truncated definitions.

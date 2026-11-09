@@ -461,6 +461,62 @@ fn drag_end_keeps_the_other_end_and_walks_around_a_foreign_pad() -> Result<(), E
     Ok(())
 }
 
+/// A run is one record per straight piece, and a corner is two records sharing
+/// a point. Dragging one has to carry the other, or the run comes apart at the
+/// bend and the editor leaves a pile of unrelated sticks.
+#[test]
+fn dragging_a_corner_carries_the_rest_of_the_run() -> Result<(), Error> {
+    let mut f = fixture(40.0, 30.0, &[(0, 5.0, 15.0, 1.0), (0, 35.0, 25.0, 1.0)])?;
+    let run = f.track(
+        0,
+        &[(5.0, 15.0), (15.0, 15.0), (15.0, 25.0), (35.0, 25.0)],
+        0.25,
+    )?;
+    assert_eq!(run.len(), 3, "the run is three straight pieces");
+    let first = *run.first().ok_or_else(missing)?;
+
+    let r = f.drag(first, "end", (18.0, 12.0), "octilinear")?;
+    let carried = r["result"]["carried"]
+        .as_array()
+        .map(|a| a.len())
+        .unwrap_or(0);
+    assert!(carried > 0, "the piece past the corner came along: {r}");
+
+    // No piece of the net may be left with a loose end. Every endpoint is
+    // either shared with another piece or sits on one of the two pads.
+    let net = *f.nets.first().ok_or_else(missing)?;
+    let mine: Vec<Track> =
+        f.s.project
+            .board
+            .tracks
+            .iter()
+            .filter(|t| t.net == net)
+            .cloned()
+            .collect();
+    let pads = [Point::new(5.0, 15.0), Point::new(35.0, 25.0)];
+    for t in &mine {
+        for at in [t.start, t.end] {
+            let shared = mine
+                .iter()
+                .filter(|o| o.id != t.id)
+                .any(|o| o.start.distance(at) < 1e-6 || o.end.distance(at) < 1e-6);
+            let on_pad = pads.iter().any(|p| p.distance(at) < 1e-6);
+            assert!(
+                shared || on_pad,
+                "loose end at {at:?} after the drag; the run came apart"
+            );
+        }
+    }
+    assert!(
+        !pcbcraft_rules::drc(&f.s.project)
+            .iter()
+            .any(|x| x.code == "unrouted"),
+        "the net is still routed end to end"
+    );
+    assert!(f.errors().is_empty(), "{:?}", f.errors());
+    Ok(())
+}
+
 #[test]
 fn drag_the_start_end_keeps_the_far_end() -> Result<(), Error> {
     let (mut f, id) = drag_fixture()?;
