@@ -4178,13 +4178,21 @@ pub fn bom_csv(p: &Project, fields: &[String], variant: Option<&str>) -> Result<
 /// - Do not reformat references here; `bom_reference_ranges` does that.
 #[derive(Clone, Debug)]
 pub struct BomLine {
+    /// Designators of the identical parts this line covers, naturally sorted.
     pub references: Vec<String>,
+    /// How many parts this line covers, equal to the reference count.
     pub quantity: usize,
+    /// The value printed on the board for these parts.
     pub value: String,
+    /// The footprint each part uses, library:definition or the fallback text.
     pub footprint: String,
+    /// The manufacturer name read from the part fields.
     pub manufacturer: String,
+    /// The manufacturer part number read from the part fields.
     pub mpn: String,
+    /// Distributor part numbers seen on these parts, deduplicated and sorted.
     pub distributor_pns: Vec<String>,
+    /// Values for the extra property columns, in the order of the columns.
     pub property_values: Vec<String>,
 }
 
@@ -4209,8 +4217,10 @@ pub struct BomLine {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum BomDnp {
+    /// Show DNP parts in their own section after the assembled lines.
     #[default]
     List,
+    /// Leave DNP parts out of the written artifact entirely.
     Exclude,
 }
 
@@ -4235,8 +4245,11 @@ pub enum BomDnp {
 /// - Do not mutate this after construction; it is immutable by convention.
 #[derive(Clone, Debug)]
 pub struct BomArtifact {
+    /// The lines of the assembled build, one per unique part.
     pub lines: Vec<BomLine>,
+    /// The lines the chosen build variant marks do not populate.
     pub dnp_lines: Vec<BomLine>,
+    /// The total number of parts across the assembled lines.
     pub part_count: usize,
 }
 
