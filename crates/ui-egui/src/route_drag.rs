@@ -155,9 +155,7 @@ impl App {
             Some((v.position.distance(pos), RouteEnd::Via(v.position, v.net)))
         });
         match (pad, via) {
-            (Some((pad_gap, p)), Some((via_gap, v))) => {
-                Some(if via_gap < pad_gap { v } else { p })
-            }
+            (Some((pad_gap, p)), Some((via_gap, v))) => Some(if via_gap < pad_gap { v } else { p }),
             (Some((_, p)), None) => Some(p),
             (None, Some((_, v))) => Some(v),
             (None, None) => None,
