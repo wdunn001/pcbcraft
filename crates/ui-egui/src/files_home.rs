@@ -31,7 +31,7 @@
 //! # Do not
 //! - Run a dialog's work here; open the dialog.
 //! - Read a file or its metadata on the window thread.
-//! - Touch the real recents file in a test; set `RECENTS_PATH_TEST` to a temp dir.
+//! - Touch the real recents file in a test; give the session its own settings folder through `UserConfig` so the real one is never written.
 
 mod home;
 mod props;
