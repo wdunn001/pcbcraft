@@ -261,12 +261,12 @@ fn a_package_is_duplicated_under_a_new_id() -> Result<(), String> {
         .ok_or("missing id must error")?
         .to_string();
     assert!(err.contains("nope"), "error names the id: {err}");
-    // The list still has exactly 12 packages after the errors.
+    // The list still has exactly 13 packages after the errors.
     let list2 = s
         .query("package.list", json!({}), None)
         .map_err(|e| e.to_string())?;
     let all2 = list2["result"]["packages"].as_array().ok_or("packages")?;
-    assert_eq!(all2.len(), 12);
+    assert_eq!(all2.len(), 13);
     Ok(())
 }
 
