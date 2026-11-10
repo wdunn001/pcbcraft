@@ -76,6 +76,7 @@ tooltips     [--strict] check tooltip text against docs/tooltips.md
   coverage     [--bless] [--base REF] [--no-run] tests under cargo-llvm-cov, per-crate table, gate and ratchet
   e2e          full a_newcomer suite plus the tooltip and story coverage gate
   showcase     regenerate the sample projects in examples/ from engine commands
+  test-standards [--bless] test hygiene ratchet over crates/ and apps/ against ci/test-standards-baseline.txt
   screenshots  [--out DIR] [--bin PATH] capture the desktop UI views as PNG files
   visual-gate  compare current screenshots against baselines in target/baselines (run screenshots first)
   board3d-bench  run the six-hundred-part 3D render regression test
@@ -931,6 +932,7 @@ fn run() -> Result<(), String> {
         "bench" => bench()?,
         "coverage" => coverage::run(&root()?, args.get(1..).unwrap_or(&[]))?,
         "e2e" => e2e()?,
+        "test-standards" => test_standards::run(&root()?, args.get(1..).unwrap_or(&[]))?,
         "a11y" => a11y_gate()?,
         "i18n" => i18n_gate(args.get(1..).unwrap_or(&[]))?,
         "wasm" => wasm(args.get(1..).unwrap_or(&[]))?,
