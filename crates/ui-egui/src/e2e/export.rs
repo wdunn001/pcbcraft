@@ -923,13 +923,13 @@ fn a_newcomer_exports_twice_picks_the_first_package_and_finds_the_changed_part_i
     );
 
     pick_complete_fab_package(&ctx, &mut app)?;
-    tap_id(&ctx, &mut app, "button:Previous package")?;
+    authoring::tests::tap(&ctx, &mut app, "Previous package")?;
     assert!(
         app.chooser_open(),
         "the Previous package button opens the chooser"
     );
-    tap_id(&ctx, &mut app, "button:first-export.zip")?;
-    tap_id(&ctx, &mut app, "button:Use this package")?;
+    authoring::tests::tap(&ctx, &mut app, "first-export.zip")?;
+    authoring::tests::tap(&ctx, &mut app, "Use this package")?;
     assert!(
         !app.chooser_open(),
         "the chooser closes once a package is taken"
@@ -948,14 +948,14 @@ fn a_newcomer_exports_twice_picks_the_first_package_and_finds_the_changed_part_i
     );
 
     // Clearing forgets the pick; picking again brings it back.
-    tap_id(&ctx, &mut app, "button:Clear previous package")?;
+    authoring::tests::tap(&ctx, &mut app, "Clear previous package")?;
     assert!(
         app.edit.dialog.previous_package.is_empty(),
         "Clear previous package forgets the pick"
     );
-    tap_id(&ctx, &mut app, "button:Previous package")?;
-    tap_id(&ctx, &mut app, "button:first-export.zip")?;
-    tap_id(&ctx, &mut app, "button:Use this package")?;
+    authoring::tests::tap(&ctx, &mut app, "Previous package")?;
+    authoring::tests::tap(&ctx, &mut app, "first-export.zip")?;
+    authoring::tests::tap(&ctx, &mut app, "Use this package")?;
 
     authoring::tests::tap(&ctx, &mut app, "Export package")?;
     for _ in 0..4 {
