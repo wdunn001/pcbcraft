@@ -15,10 +15,10 @@
 //! # Do not
 //! - Keep state of the document here; read it from `App::project` each frame.
 pub(crate) mod artifact_kind;
+pub(crate) mod artifact_preview;
 mod layer_shape;
 mod outline_table;
 mod shape;
-
 use super::*;
 use crate::fonts::{self, Role};
 use crate::theme;

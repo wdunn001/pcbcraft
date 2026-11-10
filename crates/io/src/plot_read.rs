@@ -27,11 +27,16 @@ const MAX_OPS: usize = 1_000_000;
 const MAX_APERTURES: usize = 64;
 const MAX_HITS: usize = 50_000;
 
+/// A directive carried in Gerber file comments, such as a layer name or
+/// polarity note; the reader keeps them so callers can inspect the intent of
+/// the file.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PlotHint {
     pub message: String,
 }
 
+/// A layer's purpose, guessed from its filename, used to group and label
+/// layers when previewing fabrication output.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlotLayerKind {
     FrontCopper,
@@ -45,6 +50,8 @@ pub enum PlotLayerKind {
     Unknown,
 }
 
+/// One D-code aperture with its raw template text and parsed size in
+/// millimetres; `function` is the attr_X attribute when the file carried one.
 #[derive(Clone, Debug)]
 pub struct PlotAperture {
     pub code: u32,
@@ -54,6 +61,7 @@ pub struct PlotAperture {
     pub function: Option<String>,
 }
 
+/// One aperture flash at a point, named by its D-code.
 #[derive(Clone, Debug)]
 pub struct PlotFlash {
     pub x_mm: f64,
@@ -61,12 +69,19 @@ pub struct PlotFlash {
     pub aperture: u32,
 }
 
+/// One draw (line or arc) between points, stroked with its aperture.
 #[derive(Clone, Debug)]
 pub struct PlotStroke {
     pub points: Vec<(f64, f64)>,
     pub aperture: u32,
 }
 
+/// One parsed Gerber layer: its apertures, flashes, strokes, regions and
+/// counts, ready to preview without re-parsing the file.
+///
+/// # Rules
+/// - Contents are capped by the parser (`MAX_OPS`, `MAX_APERTURES`); a file
+///   over the cap is refused, not truncated.
 #[derive(Clone, Debug)]
 pub struct PlotLayer {
     pub id: String,
@@ -104,6 +119,8 @@ impl PlotLayer {
             .sum()
     }
 }
+/// One Excellon drill tool: its number, cutter diameter and how often the
+/// file used it.
 #[derive(Clone, Debug)]
 pub struct PlotDrillTool {
     /// Tool index from `T` lines in the drill body.
@@ -120,9 +137,6 @@ pub struct PlotDrillTool {
 ///
 /// # Rules
 /// - Round holes set `slot_end` to none; `G85` slot lines store the far end in millimetres.
-///
-/// # Dependencies
-/// - crates/io/src/plot_read.rs
 #[derive(Clone, Debug)]
 pub struct PlotDrillHit {
     /// Tool number active when this hit was written.
@@ -140,9 +154,6 @@ pub struct PlotDrillHit {
 /// # Rules
 /// - `layers` includes a synthetic drill overlay when any hits were read.
 /// - `hints` collects non-fatal parse notes from individual Gerber layers.
-///
-/// # Dependencies
-/// - crates/io/src/plot_read.rs
 #[derive(Clone, Debug)]
 pub struct PlotPackage {
     /// Gerber layers in filename order, plus an optional drill overlay layer.

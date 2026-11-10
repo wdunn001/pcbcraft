@@ -142,6 +142,35 @@ pub(crate) fn selection_bounds(project: &Project, id: Id) -> Option<(Point, Poin
 
 /// The world rectangle each tab should show by default: the board outline on
 /// the PCB tab, the whole drawing sheet on the schematic tab.
+/// Track records that one stroke can stand for, with the segments themselves.
+///
+/// The key is what has to match: the layer, the net, and the width as bits so
+/// it can be compared. Width is a float and is only ever tested for equality
+/// here, never ordered or measured.
+type CopperGroup = ((Layer, Id, u64), Vec<(Point, Point)>);
+
+/// Points in from each canvas edge where a held drag starts scrolling.
+pub(crate) const EDGE_BAND: f32 = 40.0;
+/// Points per second the view scrolls with the pointer at the very edge.
+pub(crate) const EDGE_SCROLL_SPEED: f32 = 900.0;
+
+/// How far a pointer at `at` has pushed into the scroll band of `rect`.
+///
+/// Each axis runs from -1 at the near edge to 1 at the far edge, and is 0
+/// through the middle of the canvas. The ramp is linear across the band, so a
+/// small overshoot creeps and a firm one moves. A pointer dragged off the
+/// panel reads as a full push rather than stopping.
+///
+/// # Do not
+/// - Scale this by zoom. The band is a screen distance, same at every zoom.
+pub(crate) fn edge_push(rect: Rect, at: Pos2) -> Vec2 {
+    let ramp = |gap: f32| (1.0 - gap / EDGE_BAND).clamp(0.0, 1.0);
+    Vec2::new(
+        ramp(rect.right() - at.x) - ramp(at.x - rect.left()),
+        ramp(rect.bottom() - at.y) - ramp(at.y - rect.top()),
+    )
+}
+
 pub(crate) fn view_bounds(project: &Project, pcb: bool, page: Id) -> (Point, Point) {
     if !pcb {
         return sheet::sheet_bounds(project, page);
@@ -671,6 +700,21 @@ impl App {
             ui.ctx().data_mut(|d| d.remove_temp::<(i32, i32)>(fit_key));
             camera.pan_screen(d);
         }
+        // A primary-button drag held against an edge scrolls the view, so a
+        // selection box, a part or a track end can be taken past what is
+        // already on screen. This runs before `cursor` is read, so the gesture
+        // below sees the pointer over the board the scroll just revealed.
+        if response.dragged_by(egui::PointerButton::Primary)
+            && let Some(at) = ui.input(|i| i.pointer.latest_pos())
+        {
+            let dt = ui.input(|i| i.stable_dt);
+            if self.edge_scroll(&mut camera, rect, at, dt) {
+                ui.ctx().data_mut(|d| d.remove_temp::<(i32, i32)>(fit_key));
+                // The pointer may be held still, which sends no further
+                // events, so the next frame has to be asked for.
+                ui.ctx().request_repaint();
+            }
+        }
         if space_pan && response.contains_pointer() {
             let dragging = ui.input(|i| i.pointer.primary_down());
             ui.ctx().set_cursor_icon(if dragging {
@@ -963,6 +1007,7 @@ impl App {
             }
         }
         self.paint_route_drag(ui, &painter, rect, camera, cursor);
+        self.paint_canvas_refusal(&painter, rect, camera, cursor);
         self.paint_layer_shapes(&painter, rect, camera, &self.project);
         self.paint_outline_handles(&painter, rect, camera);
         if response.drag_started_by(egui::PointerButton::Primary)
@@ -1627,6 +1672,86 @@ impl App {
         }
         best.map(|(_, id)| id)
     }
+    /// Say on the drawing why the last canvas command was refused.
+    ///
+    /// A refused route leaves no copper behind, so the track the user drew
+    /// appears to vanish. The reason is a good one ("pad 5 has no copper on
+    /// In1.Cu") and it was only ever written to the status bar, which is not
+    /// where anyone is looking at that moment.
+    ///
+    /// # Rules
+    /// - Follow the pointer when there is one, so the reason lands where the
+    ///   copper was expected. Fall back to the top of the canvas.
+    /// - Red, matching the Via tool's own refusal text.
+    ///
+    /// # Dependencies
+    /// - crates/ui-egui/src/lib.rs (`canvas_refusal`, set by `run`)
+    ///
+    /// # Do not
+    /// - Clear it here. It stands until the next command succeeds.
+    pub(crate) fn paint_canvas_refusal(
+        &self,
+        painter: &egui::Painter,
+        rect: Rect,
+        camera: Camera,
+        cursor: Option<Point>,
+    ) {
+        let Some(reason) = &self.canvas_refusal else {
+            return;
+        };
+        let (at, align) = match cursor {
+            Some(p) => (
+                camera.screen(p, rect) + Vec2::new(14.0, 14.0),
+                Align2::LEFT_TOP,
+            ),
+            None => (rect.center_top() + Vec2::new(0.0, 24.0), Align2::CENTER_TOP),
+        };
+        painter.text(
+            at,
+            align,
+            reason,
+            crate::fonts::Role::Mono.font(),
+            Color32::from_rgb(230, 70, 70),
+        );
+    }
+
+    /// Scroll the view while a drag is held against an edge of the canvas.
+    ///
+    /// Returns whether the camera moved, which is also whether the next frame
+    /// has to be asked for so a pointer held still keeps scrolling.
+    ///
+    /// # Rules
+    /// - Speed follows `edge_push`, so it rises with the depth into the band.
+    /// - The centre stays inside what is drawn, so the view cannot run away
+    ///   past the board.
+    ///
+    /// # Dependencies
+    /// - crates/ui-egui/src/canvas.rs (`edge_push`, `view_bounds`)
+    /// - crates/ui-egui/src/lib.rs (`Camera::pan_screen` for the orientation)
+    ///
+    /// # Do not
+    /// - Call this for a hover. Only a held drag scrolls.
+    pub(crate) fn edge_scroll(&self, camera: &mut Camera, rect: Rect, at: Pos2, dt: f32) -> bool {
+        let push = edge_push(rect, at);
+        if push == Vec2::ZERO || dt <= 0.0 {
+            return false;
+        }
+        // A long frame would jump the view, so the step is capped.
+        let step = dt.clamp(0.0, 0.05) * EDGE_SCROLL_SPEED;
+        let before = camera.center;
+        camera.pan_screen(-push * step);
+        let (lo, hi) = view_bounds(
+            &self.sheet_view(),
+            self.tab == Tab::Pcb,
+            self.schematic_page(),
+        );
+        camera.center = Point::new(
+            camera.center.x.clamp(lo.x.min(hi.x), lo.x.max(hi.x)),
+            camera.center.y.clamp(lo.y.min(hi.y), lo.y.max(hi.y)),
+        );
+        camera.center.distance(before) > 1e-9
+    }
+
     pub(super) fn pick_via(&self, pos: Point, zoom: f32) -> Option<Id> {
         self.project
             .board
@@ -2498,27 +2623,54 @@ impl App {
                 ));
             }
         }
-        for t in stack.far_to_near(
+        // Copper is drawn a run at a time, not a record at a time. A bend is
+        // two records sharing a point, and two flat-ended strokes meeting at
+        // an angle leave a notch on the outside of the corner; handing the
+        // run over as one path lets the tessellator miter the join. Records
+        // are grouped by what has to match for one stroke to stand for all of
+        // them: layer, net and width. The selected track keeps its own stroke
+        // so the accent still picks out one piece.
+        let ordered = stack.far_to_near(
             p.board
                 .tracks
                 .iter()
                 .filter(|t| sub_on(t.layer, crate::layer_visibility::SubLayer::Tracks)),
             |t| t.layer,
-        ) {
+        );
+        let mut groups: Vec<CopperGroup> = Vec::new();
+        for t in &ordered {
+            if self.selected == Some(t.id) {
+                continue;
+            }
+            let k = (t.layer, t.net, t.width.to_bits());
+            match groups.last_mut() {
+                Some((at, runs)) if *at == k => runs.push((t.start, t.end)),
+                _ => groups.push((k, vec![(t.start, t.end)])),
+            }
+        }
+        for ((layer, net, width), segs) in &groups {
+            let colour = if *layer == Layer::Front {
+                self.copper(Some(*net), self.colours().canvas.front)
+            } else {
+                self.copper(Some(*net), self.colours().canvas.back)
+            }
+            .linear_multiply(stack.copper_alpha(*layer) * self.lit_alpha(*layer));
+            let stroke = Stroke::new(
+                (f64::from_bits(*width) as f32 * camera.zoom).max(1.0),
+                colour,
+            );
+            for run in crate::track_runs::assemble(segs) {
+                let points: Vec<Pos2> = run.iter().map(|q| camera.screen(*q, rect)).collect();
+                painter.add(egui::Shape::line(points, stroke));
+            }
+        }
+        for t in &ordered {
+            if self.selected != Some(t.id) {
+                continue;
+            }
             painter.line_segment(
                 [camera.screen(t.start, rect), camera.screen(t.end, rect)],
-                Stroke::new(
-                    (t.width as f32 * camera.zoom).max(1.0),
-                    if self.selected == Some(t.id) {
-                        self.accent()
-                    } else if t.layer == Layer::Front {
-                        self.copper(Some(t.net), self.colours().canvas.front)
-                            .linear_multiply(stack.copper_alpha(t.layer) * self.lit_alpha(t.layer))
-                    } else {
-                        self.copper(Some(t.net), self.colours().canvas.back)
-                            .linear_multiply(stack.copper_alpha(t.layer) * self.lit_alpha(t.layer))
-                    },
-                ),
+                Stroke::new((t.width as f32 * camera.zoom).max(1.0), self.accent()),
             );
         }
         for v in p.board.vias.iter().filter(|v| self.via_shown(v)) {
@@ -3137,6 +3289,89 @@ mod library_render_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_scroll_band_only_bites_near_an_edge() {
+        let rect = Rect::from_min_size(Pos2::new(100.0, 50.0), Vec2::new(800.0, 600.0));
+        assert_eq!(
+            edge_push(rect, rect.center()),
+            Vec2::ZERO,
+            "the middle of the canvas does not scroll"
+        );
+        let inside = edge_push(
+            rect,
+            Pos2::new(rect.right() - EDGE_BAND - 1.0, rect.center().y),
+        );
+        assert_eq!(inside, Vec2::ZERO, "just inside the band is still still");
+
+        // Depth into the band sets the speed, so a small overshoot creeps.
+        let little = edge_push(
+            rect,
+            Pos2::new(rect.right() - EDGE_BAND * 0.75, rect.center().y),
+        );
+        let lots = edge_push(
+            rect,
+            Pos2::new(rect.right() - EDGE_BAND * 0.25, rect.center().y),
+        );
+        assert!(
+            little.x > 0.0 && lots.x > little.x,
+            "deeper pushes harder: {little:?} then {lots:?}"
+        );
+        assert!(
+            (edge_push(rect, Pos2::new(rect.right() + 200.0, rect.center().y)).x - 1.0).abs()
+                < 1e-6,
+            "dragged off the panel is a full push, not a stop"
+        );
+        // Opposite edges push opposite ways, and corners push both axes.
+        assert!(edge_push(rect, Pos2::new(rect.left(), rect.center().y)).x < 0.0);
+        assert!(edge_push(rect, Pos2::new(rect.center().x, rect.top())).y < 0.0);
+        let corner = edge_push(rect, rect.min);
+        assert!(corner.x < 0.0 && corner.y < 0.0, "a corner takes both");
+    }
+
+    #[test]
+    fn a_drag_held_at_the_edge_scrolls_the_view_and_stops_at_the_board() {
+        let mut app = App::create(
+            pcbcraft_mcp::shared(pcbcraft_engine::Session::default()),
+            Preferences::default(),
+            None,
+            None,
+        );
+        app.refresh();
+        app.tool_call("sample_design", serde_json::json!({}));
+        app.tab = Tab::Pcb;
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        let (lo, hi) = view_bounds(&app.sheet_view(), true, 0);
+        let mut camera = fit_camera(lo, hi, (rect.width(), rect.height()));
+        camera.center = Point::new((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
+
+        let start = camera.center;
+        let at = Pos2::new(rect.right() - 2.0, rect.center().y);
+        assert!(
+            app.edge_scroll(&mut camera, rect, at, 1.0 / 60.0),
+            "a drag at the edge moves the view"
+        );
+        assert!(
+            camera.center.x > start.x,
+            "the view follows the pointer outward: {start:?} then {:?}",
+            camera.center
+        );
+        assert!(
+            !app.edge_scroll(&mut camera, rect, rect.center(), 1.0 / 60.0),
+            "back inside the canvas it stops"
+        );
+
+        // Held against the edge it keeps going, then stops at the drawn edge
+        // rather than running away.
+        for _ in 0..600 {
+            app.edge_scroll(&mut camera, rect, at, 1.0 / 60.0);
+        }
+        assert!(
+            camera.center.x <= hi.x.max(lo.x) + 1e-6,
+            "the centre stays inside what is drawn: {:?} against {hi:?}",
+            camera.center
+        );
+    }
 
     #[test]
     fn a_fresh_view_frames_the_whole_board_instead_of_a_corner_of_it() -> Result<(), String> {

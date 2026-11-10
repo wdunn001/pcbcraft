@@ -269,3 +269,24 @@ fn a_newcomer_reads_which_side_a_placement_file_is_for() -> Result<(), String> {
     );
     Ok(())
 }
+
+/// The Properties card of a plot file says what the file would draw.
+#[test]
+fn a_newcomer_sees_what_a_copper_plot_contains() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    let (copper, _place) = add_plots(&mut app)?;
+    app.select_subject(Selection::Artifact(crate::artifact_rows::rest_of(
+        app.project
+            .artifacts
+            .iter()
+            .find(|a| a.id == copper)
+            .ok_or("the copper plot record should exist")?,
+    )));
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "Contents")?,
+        "the copper plot Properties card shows a Contents row: {}",
+        app.message
+    );
+    Ok(())
+}

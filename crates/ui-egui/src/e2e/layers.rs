@@ -960,6 +960,13 @@ fn line_colours(ctx: &egui::Context, app: &mut App) -> Vec<egui::Color32> {
         .iter()
         .filter_map(|s| match &s.shape {
             egui::Shape::LineSegment { stroke, .. } => Some(stroke.color),
+            // Copper is drawn a run at a time, as one path, so a bend can be
+            // mitered instead of leaving a notch. The colour still says which
+            // layer it belongs to, which is all this is reading.
+            egui::Shape::Path(path) => match path.stroke.color {
+                egui::epaint::ColorMode::Solid(c) => Some(c),
+                _ => None,
+            },
             _ => None,
         })
         .collect()

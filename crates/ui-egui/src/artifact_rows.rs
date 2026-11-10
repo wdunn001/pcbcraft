@@ -543,6 +543,15 @@ impl App {
                 t!("artifact.settings.tip"),
             );
         }
+        if let Some(preview) = crate::properties::artifact_preview::preview_line(&self.project, &a)
+        {
+            fact(
+                ui,
+                t!("artifact.preview.label"),
+                preview,
+                t!("artifact.preview.tip"),
+            );
+        }
         fact(
             ui,
             t!("artifact.path"),
