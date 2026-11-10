@@ -142,6 +142,13 @@ pub(crate) fn selection_bounds(project: &Project, id: Id) -> Option<(Point, Poin
 
 /// The world rectangle each tab should show by default: the board outline on
 /// the PCB tab, the whole drawing sheet on the schematic tab.
+/// Track records that one stroke can stand for, with the segments themselves.
+///
+/// The key is what has to match: the layer, the net, and the width as bits so
+/// it can be compared. Width is a float and is only ever tested for equality
+/// here, never ordered or measured.
+type CopperGroup = ((Layer, Id, u64), Vec<(Point, Point)>);
+
 /// Points in from each canvas edge where a held drag starts scrolling.
 pub(crate) const EDGE_BAND: f32 = 40.0;
 /// Points per second the view scrolls with the pointer at the very edge.
@@ -2586,7 +2593,7 @@ impl App {
                 .filter(|t| sub_on(t.layer, crate::layer_visibility::SubLayer::Tracks)),
             |t| t.layer,
         );
-        let mut groups: Vec<((Layer, Id, u64), Vec<(Point, Point)>)> = Vec::new();
+        let mut groups: Vec<CopperGroup> = Vec::new();
         for t in &ordered {
             if self.selected == Some(t.id) {
                 continue;
