@@ -9623,6 +9623,49 @@ mod tests {
     }
 
     #[test]
+    fn an_escape_via_beside_its_pad_wins_the_click() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.tab = Tab::Pcb;
+        // This is the shape a real board grows: a surface-mount pad with its
+        // escape via a fraction of a millimetre away. pick_pad carries more
+        // slop than pick_via, so a pad-first rule never lets the via be aimed
+        // at, which is the whole point of routing from one.
+        let pad = app
+            .project
+            .footprint(10)
+            .and_then(|f| f.pad_position("1"))
+            .ok_or("the sample should have a footprint 10 with a pad 1")?;
+        let beside = Point::new(pad.x + 0.6, pad.y);
+        app.tool_call(
+            "via.place",
+            json!({"net":4,"position":{"x":beside.x,"y":beside.y},
+                   "diameter":0.45,"drill":0.25}),
+        );
+        if !app.project.board.vias.iter().any(|v| v.position == beside) {
+            return Err(format!("the escape via should be placed: {}", app.message));
+        }
+        // Press on the via itself. The pad is only 0.6mm away and would be
+        // picked by the old rule.
+        assert!(
+            matches!(app.pick_route_end(beside, 8.0),
+                Some(route_drag::RouteEnd::Via(at, _)) if at == beside),
+            "the nearer via wins: {:?}",
+            app.pick_route_end(beside, 8.0)
+        );
+        // Press on the pad and the pad still wins, so nothing regressed.
+        assert!(
+            matches!(app.pick_route_end(pad, 8.0),
+                Some(route_drag::RouteEnd::Pad(id, ref n)) if id == 10 && n == "1"),
+            "the nearer pad still wins: {:?}",
+            app.pick_route_end(pad, 8.0)
+        );
+        Ok(())
+    }
+
+    #[test]
     fn clicking_a_via_starts_a_track_from_it() -> Result<(), String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
         let mut app = App::create(shared, Preferences::default(), None, None);

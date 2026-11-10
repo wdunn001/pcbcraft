@@ -136,20 +136,32 @@ impl App {
     /// Pick whichever end of a route the press at `pos` lands on.
     ///
     /// # Rules
-    /// - A pad wins over a via when both are under the pointer, because a pad
-    ///   is the more specific thing to have aimed at.
+    /// - Whichever of the two the pointer is nearer wins. A pad may not win on
+    ///   being a pad: `pick_pad` carries more slop than `pick_via`, and an
+    ///   escape via sits a fraction of a millimetre from the pad it serves, so
+    ///   a pad-first rule swallows every via worth aiming at.
     /// - A via carries its net, since `track.route` needs telling for a
     ///   point-form end.
     ///
     /// # Dependencies
     /// - `crates/ui-egui/src/canvas.rs` (`pick_pad`, `pick_via`)
     pub(super) fn pick_route_end(&self, pos: Point, zoom: f32) -> Option<RouteEnd> {
-        if let Some((id, pad)) = self.pick_pad(pos, zoom) {
-            return Some(RouteEnd::Pad(id, pad));
+        let pad = self.pick_pad(pos, zoom).and_then(|(id, number)| {
+            let at = self.project.footprint(id)?.pad_position(&number)?;
+            Some((at.distance(pos), RouteEnd::Pad(id, number)))
+        });
+        let via = self.pick_via(pos, zoom).and_then(|id| {
+            let v = self.project.board.vias.iter().find(|v| v.id == id)?;
+            Some((v.position.distance(pos), RouteEnd::Via(v.position, v.net)))
+        });
+        match (pad, via) {
+            (Some((pad_gap, p)), Some((via_gap, v))) => {
+                Some(if via_gap < pad_gap { v } else { p })
+            }
+            (Some((_, p)), None) => Some(p),
+            (None, Some((_, v))) => Some(v),
+            (None, None) => None,
         }
-        let id = self.pick_via(pos, zoom)?;
-        let via = self.project.board.vias.iter().find(|v| v.id == id)?;
-        Some(RouteEnd::Via(via.position, via.net))
     }
 
     /// Route two ends: a differential pair when both are pads with mates, else one net.
