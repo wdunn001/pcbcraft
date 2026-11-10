@@ -157,6 +157,7 @@ pub const CHECK_CODES: &[(&str, &str)] = &[
     ("backdrill_stub_too_long", "error"),
     ("via_count", "warning"),
     ("decoupling_distance", "warning"),
+    ("decoupling_ground_via", "warning"),
     ("keepout", "error"),
     ("toolpath_gap", "warning"),
     ("impedance_target", "error"),
@@ -165,7 +166,6 @@ pub const CHECK_CODES: &[(&str, &str)] = &[
     ("parallel_crosstalk", "warning"),
     ("net_electrically_long", "warning"),
     ("testpoint_coverage", "warning"),
-    ("missing_decoupling", "warning"),
     ("acute_angle", "warning"),
     ("track_radius", "error"),
 ];
@@ -2172,6 +2172,9 @@ pub fn drc(project: &Project) -> Vec<Finding> {
         });
     }
     result.extend(track_layer_findings(project, &items));
+    // The decoupling distance and the capacitor ground return both measure
+    // placed copper, so they run here rather than in erc.
+    result.extend(decoupling::decoupling_path_findings(project));
     for c in &project.components {
         if !board.footprints.iter().any(|f| f.component == c.id) {
             result.push(Finding {
@@ -3760,9 +3763,8 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn erc_applies_decoupling_distance_when_ic_is_placed() -> Result<(), String> {
+    fn erc_counts_a_far_capacitor_as_present_once_both_parts_are_placed() -> Result<(), String> {
         let mut p = Project::default();
-        p.decoupling.max_distance_mm = 3.0;
         let vdd = 101;
         let ic = 201;
         let cap_id = 202;
@@ -3803,7 +3805,10 @@ mod tests {
             .footprints
             .push(simple_footprint(302, cap_id, Point::new(10.0, 0.0), vdd));
         p.validate()?;
-        assert!(erc(&p).iter().any(|f| f.code == "missing_decoupling"));
+        // The capacitor is on the net, so presence is satisfied. How far its
+        // copper path runs is the `decoupling_distance` finding in `drc`.
+        assert!(!erc(&p).iter().any(|f| f.code == "missing_decoupling"));
+        assert!(!erc(&p).iter().any(|f| f.code == "decoupling_distance"));
         p.board.footprints[1].position = Point::new(2.0, 0.0);
         p.validate()?;
         assert!(!erc(&p).iter().any(|f| f.code == "missing_decoupling"));

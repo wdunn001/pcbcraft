@@ -4302,10 +4302,14 @@ pub fn valid_parameter_value(value: f64) -> bool {
 /// to an integrated circuit power pin, and the value the finding suggests.
 ///
 /// # Rules
-/// - `max_distance_mm` is measured pad centre to pad centre, in millimetres,
-///   between the power pad and the nearest pad of a capacitor on the same net.
-/// - The defaults are 3.0 mm and "100 nF"; they stay out of the saved file
-///   until changed.
+/// - `max_distance_mm` is measured along the shortest copper path from the
+///   power pin's pad to the nearest capacitor pad on the same net, in
+///   millimetres.
+/// - When `max_distance_mm` is left at the 3.0 mm default,
+///   `DecouplingRule::distance_for_value` picks the engineering limit for the
+///   capacitor value instead: 2.0 mm for a 100 nF local capacitor, 5.0 mm for
+///   a 1 uF rail capacitor, and 20.0 mm for bulk.
+/// - The defaults 3.0 mm and "100 nF" stay out of the saved file until changed.
 ///
 /// # Dependencies
 /// - crates/rules/src/decoupling.rs reads it; `rules.decoupling_set` in
@@ -4322,19 +4326,24 @@ pub struct DecouplingRule {
     /// Capacitor value the finding suggests, as plain text.
     pub suggested_value: String,
 }
+/// Project limit the `missing_decoupling` check falls back to, in millimetres.
+const DEFAULT_DECOUPLING_DISTANCE_MM: f64 = 3.0;
+
 impl Default for DecouplingRule {
     fn default() -> Self {
         Self {
-            max_distance_mm: 3.0,
+            max_distance_mm: DEFAULT_DECOUPLING_DISTANCE_MM,
             suggested_value: "100 nF".into(),
         }
     }
 }
+
 impl DecouplingRule {
     /// True when nothing was changed from the defaults.
     pub fn is_default(&self) -> bool {
         *self == Self::default()
     }
+
     /// Refuse a distance outside 0.1 to 50 mm or a value that is empty or long.
     pub fn validate(&self) -> Result<(), String> {
         if !self.max_distance_mm.is_finite() || !(0.1..=50.0).contains(&self.max_distance_mm) {
@@ -4346,6 +4355,60 @@ impl DecouplingRule {
         }
         Ok(())
     }
+
+    /// Copper path limit in millimetres for a capacitor whose value text is
+    /// `value`: 2.0 mm for a small local capacitor such as 100 n, 5.0 mm for a
+    /// 1 u rail capacitor and 20.0 mm for bulk. The numbers are engineering
+    /// defaults for the two codes this rule feeds, so they stay visible here.
+    ///
+    /// # Rules
+    /// - A project limit other than the 3.0 mm default wins outright: a person
+    ///   who sets a number means it for every capacitor on the board.
+    /// - A value text with no readable number plus a p, n or u unit falls back
+    ///   to `self.max_distance_mm` rather than guessing a tier.
+    /// - Never return a non-finite limit.
+    ///
+    /// # Dependencies
+    /// - crates/rules/src/decoupling.rs calls this for the nearest capacitor on
+    ///   each power net before it reports `decoupling_distance`.
+    ///
+    /// # Do not
+    /// - Read a per-net-class limit here; the limit belongs to the decoupling
+    ///   requirement, not to the net class.
+    pub fn distance_for_value(&self, value: &str) -> f64 {
+        if self.max_distance_mm != DEFAULT_DECOUPLING_DISTANCE_MM {
+            return self.max_distance_mm;
+        }
+        match farad_value(value) {
+            Some(farads) if farads < 5.0e-7 => 2.0,
+            Some(farads) if farads < 1.0e-5 => 5.0,
+            Some(_) => 20.0,
+            None => self.max_distance_mm,
+        }
+    }
+}
+
+/// Farads a capacitor value text stands for, as in `100n`, `100nF`, `1u`,
+/// `4.7µF` or `22 uF/25V`: the leading number times the first p, n or u unit
+/// found after it. Nothing else parses, so an unknown text yields `None`.
+fn farad_value(text: &str) -> Option<f64> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() || trimmed.len() > 64 {
+        return None;
+    }
+    let digits_end = trimmed.find(|c: char| !(c.is_ascii_digit() || c == '.'))?;
+    let number: f64 = trimmed[..digits_end].parse().ok()?;
+    let unit = trimmed[digits_end..].to_ascii_lowercase();
+    let scale = if unit.contains('p') {
+        1.0e-12
+    } else if unit.contains('n') {
+        1.0e-9
+    } else if unit.contains('u') || unit.contains('µ') || unit.contains('μ') {
+        1.0e-6
+    } else {
+        return None;
+    };
+    (number > 0.0 && number < 1.0e9).then_some(number * scale)
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(remote = "Self")]
