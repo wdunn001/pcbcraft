@@ -460,3 +460,58 @@ fn a_newcomer_with_no_recent_projects_is_offered_to_open_one() -> Result<(), Str
     );
     Ok(())
 }
+
+/// The sorted names inside the settings folder the environment points at,
+/// or `None` when the machine has none. Read only: the story compares the
+/// listing before and after its work to prove the suite wrote nothing there.
+fn real_settings_names() -> Result<Option<Vec<String>>, String> {
+    let folder = match pcbcraft_engine::user_config::UserConfig::from_environment().folder() {
+        Some(folder) => folder.to_path_buf(),
+        None => return Ok(None),
+    };
+    let entries = match std::fs::read_dir(&folder) {
+        Ok(entries) => entries,
+        Err(_) => return Ok(None),
+    };
+    let mut names: Vec<String> = Vec::new();
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_) => continue,
+        };
+        names.push(entry.file_name().to_string_lossy().into_owned());
+    }
+    names.sort();
+    Ok(Some(names))
+}
+
+/// A newcomer saves two designs through the Files workspace. Everything the
+/// app remembers about them lands in the settings folder that session was
+/// given, and the real settings folder on the machine is left exactly as it
+/// was, so a full test run can never disturb a person's own settings.
+#[test]
+fn a_newcomer_saves_designs_and_the_real_settings_folder_is_untouched() -> Result<(), String> {
+    // Read only, to compare afterwards; the entry point rule for
+    // from_environment keeps this the one sanctioned way to name the folder.
+    let before = real_settings_names()?;
+    let recents = IsolatedRecents::new()?;
+    let (_ctx, app, files) = files_tab(&recents)?;
+    assert!(
+        app.recent_designs.iter().any(|seen| seen == &files[1]),
+        "the design just saved is remembered in the session's own folder"
+    );
+    assert!(
+        recents
+            .config
+            .file("recent-designs.json")
+            .map(|path| path.starts_with(recents.dir.path()))
+            .unwrap_or(false),
+        "the remembered list lives under the session's own folder"
+    );
+    assert_eq!(
+        real_settings_names()?,
+        before,
+        "the real settings folder gained nothing while the suite ran"
+    );
+    Ok(())
+}
