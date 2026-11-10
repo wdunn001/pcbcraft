@@ -20,7 +20,7 @@ pub fn shareable_room_command(id: &str) -> bool {
     if id.starts_with("crdt.") {
         return false;
     }
-    if id == "cam.isolation" || crate::snapmaker::handles(id) {
+    if crate::cam_isolation_command(id) || crate::snapmaker::handles(id) {
         return false;
     }
     !scopes::room_read_only(id)

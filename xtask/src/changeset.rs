@@ -23,20 +23,15 @@ use std::path::Path;
 use std::process::Command;
 
 /// Allowed `type` values, in the order the changelog lists them.
-#[allow(dead_code)]
 pub const TYPES: [&str; 7] = ["feature", "fix", "refactor", "docs", "test", "ci", "chore"];
 /// Longest `summary` accepted, in characters.
-#[allow(dead_code)]
 const MAX_SUMMARY: usize = 200;
 /// Shortest reason accepted after `docs: n/a:`.
-#[allow(dead_code)]
 const MIN_REASON: usize = 20;
 /// Issue links in the changelog point here.
-#[allow(dead_code)]
 const ISSUE_URL: &str = "https://github.com/wdunn001/pcbcraft/issues";
 
 /// The paste-ready template printed with every failure.
-#[allow(dead_code)]
 pub const TEMPLATE: &str = "---
 type: fix
 area: layout
@@ -52,7 +47,6 @@ summary: One plain sentence a user could read.
 /// # Rules
 /// - `docs` is `None` when the author wrote `n/a: <reason>`; the reason is in `docs_reason`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)]
 pub struct Changeset {
     /// Slug, the file name without `.md`.
     pub slug: String,
@@ -79,7 +73,6 @@ pub struct Changeset {
 ///
 /// # Do not
 /// - Add YAML features; the format is deliberately line-oriented.
-#[allow(dead_code)]
 pub fn parse(slug: &str, text: &str) -> Result<Changeset, String> {
     let mut lines = text.lines();
     if lines.next().map(str::trim) != Some("---") {
@@ -179,7 +172,6 @@ pub fn parse(slug: &str, text: &str) -> Result<Changeset, String> {
 }
 
 /// Parses `[a, b]` (brackets optional) into trimmed items.
-#[allow(dead_code)]
 fn parse_list(raw: &str) -> Result<Vec<String>, String> {
     let inner = raw.trim();
     let inner = match (inner.strip_prefix('['), inner.ends_with(']')) {
@@ -195,7 +187,6 @@ fn parse_list(raw: &str) -> Result<Vec<String>, String> {
 }
 
 /// True for `.changes/<name>.md` that is a real changeset, not a doc or a released one.
-#[allow(dead_code)]
 fn is_changeset_path(path: &str) -> bool {
     path.strip_prefix(".changes/").is_some_and(|rest| {
         !rest.contains('/') && rest.ends_with(".md") && rest != "README.md" && rest != "TEMPLATE.md"
@@ -203,7 +194,6 @@ fn is_changeset_path(path: &str) -> bool {
 }
 
 /// True for the files that count as documentation.
-#[allow(dead_code)]
 fn is_doc_path(path: &str) -> bool {
     path.starts_with("docs/")
         || path.starts_with("site/src/content/docs/")
@@ -213,7 +203,6 @@ fn is_doc_path(path: &str) -> bool {
 }
 
 /// True for the paths where a change is visible to users even if the author forgot to say so.
-#[allow(dead_code)]
 fn is_user_surface(path: &str) -> bool {
     let io_reader = ["read", "load", "trace"].iter().any(|w| path.contains(w));
     path.starts_with("crates/ui-egui/")
@@ -232,7 +221,6 @@ fn is_user_surface(path: &str) -> bool {
 ///
 /// # Do not
 /// - Touch git or the file system; callers pass both in.
-#[allow(dead_code)]
 pub fn check(
     files: &[String],
     doc_comments: &[String],
@@ -299,7 +287,6 @@ pub fn check(
 ///
 /// # Do not
 /// - List a folder here without a reason; a missing change file hides a change from the changelog.
-#[allow(dead_code)]
 fn is_product_path(path: &str) -> bool {
     let product =
         path.starts_with("crates/") || path.starts_with("apps/") || path.starts_with("site/");
@@ -314,7 +301,6 @@ fn is_product_path(path: &str) -> bool {
 ///
 /// # Do not
 /// - Look at git or the network; callers pass the changed files and the labels in.
-#[allow(dead_code)]
 pub fn require(files: &[String], labels: &[String]) -> Result<(), String> {
     if labels
         .iter()
@@ -335,7 +321,6 @@ pub fn require(files: &[String], labels: &[String]) -> Result<(), String> {
 }
 
 /// Instructions printed under every failure.
-#[allow(dead_code)]
 fn help() -> String {
     format!(
         "\nAdd `.changes/<branch-slug>.md` with this content (edit every line):\n\n{TEMPLATE}\n\
@@ -345,7 +330,6 @@ fn help() -> String {
 }
 
 /// Lists the files changed since the merge base with the base branch.
-#[allow(dead_code)]
 fn changed_files(base: &str) -> Result<Vec<String>, String> {
     let range = format!("{base}...HEAD");
     let out = Command::new("git")
@@ -365,7 +349,6 @@ fn changed_files(base: &str) -> Result<Vec<String>, String> {
 }
 
 /// Rust files whose diff adds a `//!` or `///` line.
-#[allow(dead_code)]
 fn doc_comment_files(base: &str) -> Result<Vec<String>, String> {
     let range = format!("{base}...HEAD");
     let out = Command::new("git")
@@ -390,7 +373,6 @@ fn doc_comment_files(base: &str) -> Result<Vec<String>, String> {
 }
 
 /// Loads every unreleased changeset, sorted by slug.
-#[allow(dead_code)]
 pub fn load_dir(root: &Path) -> Result<Vec<Changeset>, String> {
     let dir = root.join(".changes");
     let mut sets = Vec::new();
@@ -417,7 +399,6 @@ pub fn load_dir(root: &Path) -> Result<Vec<Changeset>, String> {
 }
 
 /// Renders the changelog section for `sets`, grouped by area then type.
-#[allow(dead_code)]
 pub fn render(version: &str, date: &str, sets: &[Changeset]) -> String {
     let mut out = format!("## {version} - {date}\n");
     let mut areas: Vec<&str> = sets.iter().map(|s| s.area.as_str()).collect();
@@ -453,7 +434,6 @@ pub fn render(version: &str, date: &str, sets: &[Changeset]) -> String {
 }
 
 /// Puts `section` above the first existing release in `existing`.
-#[allow(dead_code)]
 fn insert_section(existing: &str, section: &str) -> String {
     if existing.trim().is_empty() {
         return format!("# Changelog\n\n{section}");
@@ -465,7 +445,6 @@ fn insert_section(existing: &str, section: &str) -> String {
 }
 
 /// Today's date as YYYY-MM-DD, from the system `date` command.
-#[allow(dead_code)]
 fn today() -> String {
     Command::new("date")
         .arg("+%F")
@@ -477,7 +456,6 @@ fn today() -> String {
 }
 
 /// `cargo xtask changeset check | list`.
-#[allow(dead_code)]
 pub fn run_changeset(root: &Path, args: &[String]) -> Result<(), String> {
     match args.first().map(String::as_str) {
         Some("check") => {
@@ -533,7 +511,6 @@ pub fn run_changeset(root: &Path, args: &[String]) -> Result<(), String> {
 }
 
 /// `cargo xtask changelog [--version X]`.
-#[allow(dead_code)]
 pub fn run_changelog(root: &Path, args: &[String]) -> Result<(), String> {
     let version = args
         .iter()

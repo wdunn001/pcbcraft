@@ -8,6 +8,7 @@ The agent rules live in `.cursor/rules/*.mdc`, one topic per file. This file onl
 | --- | --- |
 | `pcbcraft-pipeline.mdc` | claims, branches, pull requests, CI, changesets, integrators |
 | `pcbcraft-core.mdc` | code: typed commands, no panics, layering |
+| `pcbcraft-rust.mdc` | Rust style: wired or not written, `expect` overrides, typed errors, strong types, names, sans-IO, MCP SDK |
 | `pcbcraft-ui.mdc` | `crates/ui-egui`: design docs, widgets, tabs |
 | `pcbcraft-tests.mdc` | stories, tooltips, golden files, flaky list |
 | `pcbcraft-docs.mdc` | documentation layers and edit procedure |

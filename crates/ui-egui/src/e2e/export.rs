@@ -629,6 +629,45 @@ fn a_newcomer_exports_an_assembly_package() -> Result<(), String> {
 }
 
 #[test]
+fn a_newcomer_exports_the_bill_of_materials_as_a_spreadsheet() -> Result<(), String> {
+    let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let (ctx, mut app) = board(dir.path());
+    file_export(&ctx, &mut app, "More…")?;
+    let listed = in_format_list(&ctx, &mut app, "Bill of materials, spreadsheet")?;
+    assert!(listed, "the spreadsheet bill of materials is listed");
+    authoring::tests::tap(&ctx, &mut app, "Bill of materials, spreadsheet")?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    authoring::tests::tap(&ctx, &mut app, "Export package")?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let names: Vec<String> = std::fs::read_dir(dir.path())
+        .map_err(|e| e.to_string())?
+        .filter_map(Result::ok)
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    let book = names
+        .iter()
+        .find(|n| n.ends_with("-bom-A.xlsx"))
+        .ok_or_else(|| {
+            format!(
+                "no spreadsheet after exporting: {names:?} / {}",
+                app.message
+            )
+        })?;
+    let bytes = std::fs::read(dir.path().join(book)).map_err(|e| e.to_string())?;
+    assert!(bytes.starts_with(b"PK"), "the spreadsheet is a zip archive");
+    assert!(
+        names.iter().any(|n| n.ends_with("-bom-grouped-A.csv")),
+        "the grouped list is written beside it: {names:?}"
+    );
+    assert!(!app.edit.dialog.open, "the dialog closes after the export");
+    Ok(())
+}
+
+#[test]
 fn a_newcomer_exports_a_solder_paste_stencil_package() -> Result<(), String> {
     let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
     let (ctx, mut app) = board(dir.path());
@@ -869,6 +908,118 @@ fn a_newcomer_exports_a_complete_fab_package() -> Result<(), String> {
         "the package includes the pick and place file"
     );
     assert!(!app.edit.dialog.open, "the dialog closes after the export");
+    Ok(())
+}
+
+/// Open Export > More..., pick the complete fab package and press Export package.
+fn export_complete_fab_package(ctx: &egui::Context, app: &mut App) -> Result<(), String> {
+    pick_complete_fab_package(ctx, app)?;
+    authoring::tests::tap(ctx, app, "Export package")?;
+    for _ in 0..4 {
+        frame(ctx, app, vec![], egui::Modifiers::NONE);
+    }
+    Ok(())
+}
+
+/// Open Export > More... and pick the complete fab package, leaving the dialog open.
+fn pick_complete_fab_package(ctx: &egui::Context, app: &mut App) -> Result<(), String> {
+    file_export(ctx, app, "More…")?;
+    let listed = in_format_list(ctx, app, "Complete fab package")?;
+    assert!(listed, "the complete fab package is listed under Packages");
+    authoring::tests::tap(ctx, app, "Complete fab package")?;
+    for _ in 0..4 {
+        frame(ctx, app, vec![], egui::Modifiers::NONE);
+    }
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_exports_twice_picks_the_first_package_and_finds_the_changed_part_in_the_notes()
+-> Result<(), String> {
+    let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let (ctx, mut app) = board(dir.path());
+    export_complete_fab_package(&ctx, &mut app)?;
+    let zip = std::fs::read_dir(dir.path())
+        .map_err(|e| e.to_string())?
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .find(|p| p.to_string_lossy().ends_with("-fab-complete-A.zip"))
+        .ok_or("no complete fab zip was written into the make folder")?;
+    let first = dir.path().join("first-export.zip");
+    std::fs::rename(&zip, &first).map_err(|e| e.to_string())?;
+
+    // The design changes between the two exports: one part leaves the bill of materials.
+    let part = app
+        .project
+        .components
+        .first()
+        .ok_or("the sample board has a part")?;
+    let (id, reference) = (part.id, part.reference.clone());
+    assert!(
+        app.tool_call("component.set_in_bom", json!({"id": id, "in_bom": false})),
+        "the part leaves the bill of materials: {}",
+        app.message
+    );
+
+    pick_complete_fab_package(&ctx, &mut app)?;
+    authoring::tests::tap(&ctx, &mut app, "Previous package")?;
+    assert!(
+        app.chooser_open(),
+        "the Previous package button opens the chooser"
+    );
+    tap_id(&ctx, &mut app, "button:first-export.zip")?;
+    tap_id(&ctx, &mut app, "button:Use this package")?;
+    assert!(
+        !app.chooser_open(),
+        "the chooser closes once a package is taken"
+    );
+    assert!(
+        app.edit
+            .dialog
+            .previous_package
+            .ends_with("first-export.zip"),
+        "the dialog remembers the package that was picked: {}",
+        app.edit.dialog.previous_package
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "first-export.zip")?,
+        "the dialog shows the name of the picked package"
+    );
+
+    // Clearing forgets the pick; picking again brings it back.
+    authoring::tests::tap(&ctx, &mut app, "Clear previous package")?;
+    assert!(
+        app.edit.dialog.previous_package.is_empty(),
+        "Clear previous package forgets the pick"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Previous package")?;
+    tap_id(&ctx, &mut app, "button:first-export.zip")?;
+    tap_id(&ctx, &mut app, "button:Use this package")?;
+
+    authoring::tests::tap(&ctx, &mut app, "Export package")?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let second = std::fs::read_dir(dir.path())
+        .map_err(|e| e.to_string())?
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .find(|p| p.to_string_lossy().ends_with("-fab-complete-A.zip"))
+        .ok_or_else(|| format!("the second export wrote no zip: {}", app.message))?;
+    let bytes = std::fs::read(&second).map_err(|e| e.to_string())?;
+    let notes = pcbcraft_io::package_stored_zip_entries(&bytes)?
+        .into_iter()
+        .find(|(name, _)| name.contains("-revision-notes-"))
+        .map(|(_, bytes)| String::from_utf8_lossy(&bytes).into_owned())
+        .ok_or("the second package holds revision notes")?;
+    assert!(
+        notes.contains(&format!("Removed parts: {reference}")),
+        "the notes name {reference} as removed since the first package: {notes}"
+    );
+    assert!(
+        !notes.contains("no previous export was supplied"),
+        "the notes compare with the first package: {notes}"
+    );
     Ok(())
 }
 

@@ -4,6 +4,12 @@ mod host;
 // cache purge helpers are for the settings page and are not called yet.
 #[allow(dead_code)]
 mod online_http;
+/// Native providers for the desktop app: this module is the only place that
+/// touches std::fs, ureq, keyring and rfd. The shared crates take each one
+/// behind its trait; wiring every call site happens in follow-up work, so
+/// nothing here is called yet.
+#[allow(dead_code)]
+mod providers;
 /// Pick the first bare word from `args`, skipping flags and their values.
 ///
 /// # Rules

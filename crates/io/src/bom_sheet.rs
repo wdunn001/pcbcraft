@@ -174,7 +174,6 @@ pub fn bom_sheet_generic_csv(p: &Project, rows: &[BomSheetRow], keys: &[String])
 }
 
 /// Rows and generic CSV for the usual disk and package export path.
-#[allow(dead_code)]
 pub fn bom_sheet_generic_csv_for_project(
     p: &Project,
     params: &BomSheetParams,

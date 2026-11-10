@@ -12,6 +12,7 @@
 //! # Dependencies
 //! - crates/ui-egui/src/ui_kit (buttons, list rows)
 //! - crates/ui-egui/src/library.rs and authoring.rs (callers: Load library, Save library, Add folder)
+//! - crates/ui-egui/src/file_dialogs.rs (caller: the Previous package picker of the Export dialog)
 //!
 //! # Do not
 //! - Read a file here, or run a command; return the path through `Pick`.
@@ -35,6 +36,8 @@ pub(crate) enum Purpose {
     SaveLibrary,
     /// Add a folder of collections as a library source.
     AddSource,
+    /// Pick an earlier fabrication package ZIP for the revision notes.
+    PreviousPackage,
 }
 
 /// What the chooser takes.
@@ -54,6 +57,14 @@ impl Purpose {
             Self::LoadLibrary => Kind::File,
             Self::SaveLibrary => Kind::Save,
             Self::AddSource => Kind::Folder,
+            Self::PreviousPackage => Kind::File,
+        }
+    }
+    /// The file name ending a file row must carry to be listed.
+    fn extension(self) -> &'static str {
+        match self {
+            Self::PreviousPackage => PACKAGE_EXTENSION,
+            _ => LIBRARY_EXTENSION,
         }
     }
     fn title(self) -> String {
@@ -61,12 +72,36 @@ impl Purpose {
             Self::LoadLibrary => t!("chooser.title.load_library"),
             Self::SaveLibrary => t!("chooser.title.save_library"),
             Self::AddSource => t!("chooser.title.add_source"),
+            Self::PreviousPackage => t!("chooser.title.previous_package"),
+        }
+    }
+    fn file_tip(self) -> String {
+        match self {
+            Self::PreviousPackage => t!("chooser.package.tip"),
+            _ => t!("chooser.file.tip"),
+        }
+    }
+    fn empty_text(self) -> String {
+        match self {
+            Self::PreviousPackage => t!("chooser.empty.packages"),
+            _ => t!("chooser.empty"),
+        }
+    }
+    fn accept_label_and_tip(self) -> (String, String) {
+        match self {
+            Self::PreviousPackage => (
+                t!("chooser.choose_package"),
+                t!("chooser.choose_package.tip"),
+            ),
+            _ => (t!("chooser.choose_file"), t!("chooser.choose_file.tip")),
         }
     }
 }
 
 /// The file name ending a collection file carries.
 pub(crate) const LIBRARY_EXTENSION: &str = "pcbcraft-lib";
+/// The file name ending a fabrication package carries.
+pub(crate) const PACKAGE_EXTENSION: &str = "zip";
 
 /// One row of the folder listing.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -94,7 +129,7 @@ pub(crate) struct Pick {
 }
 
 /// List a folder: folders first, then the files this kind shows, both sorted by name.
-fn list(dir: &Path, kind: Kind) -> Result<Vec<Entry>, String> {
+fn list(dir: &Path, kind: Kind, extension: &str) -> Result<Vec<Entry>, String> {
     let read = std::fs::read_dir(dir).map_err(|e| e.to_string())?;
     let mut folders = Vec::new();
     let mut files = Vec::new();
@@ -110,7 +145,7 @@ fn list(dir: &Path, kind: Kind) -> Result<Vec<Entry>, String> {
             && Path::new(&name)
                 .extension()
                 .and_then(|e| e.to_str())
-                .is_some_and(|e| e.eq_ignore_ascii_case(LIBRARY_EXTENSION))
+                .is_some_and(|e| e.eq_ignore_ascii_case(extension))
         {
             files.push(Entry {
                 name,
@@ -136,7 +171,8 @@ impl State {
     /// Show a folder and its rows; an unreadable folder keeps the old one and says why.
     fn enter(&mut self, dir: PathBuf) {
         let kind = self.purpose.map_or(Kind::Folder, Purpose::kind);
-        match list(&dir, kind) {
+        let extension = self.purpose.map_or(LIBRARY_EXTENSION, Purpose::extension);
+        match list(&dir, kind, extension) {
             Ok(entries) => {
                 self.typed = dir.to_string_lossy().into_owned();
                 self.dir = dir;
@@ -158,11 +194,14 @@ impl App {
     /// # Dependencies
     /// - crates/ui-egui/src/path_chooser.rs (`State`)
     pub(crate) fn open_chooser(&mut self, purpose: Purpose) {
-        let start = Path::new(&self.path)
+        let beside_design = Path::new(&self.path)
             .parent()
             .filter(|p| p.is_dir())
-            .map(Path::to_path_buf)
-            .unwrap_or_else(home_dir);
+            .map(Path::to_path_buf);
+        // An earlier package sits in the make folder, where exports are written.
+        let make_folder = Some(PathBuf::from(self.make_directory()))
+            .filter(|p| purpose == Purpose::PreviousPackage && p.is_dir());
+        let start = make_folder.or(beside_design).unwrap_or_else(home_dir);
         let chooser = &mut self.chooser;
         chooser.purpose = Some(purpose);
         chooser.name = format!("library.{LIBRARY_EXTENSION}");
@@ -193,6 +232,7 @@ impl App {
             .id(egui::Id::new("path-chooser"))
             .collapsible(false)
             .resizable(true)
+            .order(egui::Order::Foreground)
             .default_width(520.0)
             .open(&mut open)
             .show(ctx, |ui| {
@@ -262,7 +302,7 @@ impl App {
                 ui.add_space(theme::SPACE[1]);
                 if s.entries.is_empty() {
                     ui.label(
-                        fonts::text(fonts::Role::Body, t!("chooser.empty")).color(tokens.muted),
+                        fonts::text(fonts::Role::Body, purpose.empty_text()).color(tokens.muted),
                     );
                 }
                 let (mut enter, mut pick) = (None, None);
@@ -279,7 +319,7 @@ impl App {
                             let tip = if entry.folder {
                                 t!("chooser.folder.tip")
                             } else {
-                                t!("chooser.file.tip")
+                                purpose.file_tip()
                             };
                             let response =
                                 list_row(ui, s.selected == Some(index), &label, &tip, |ui| {
@@ -337,7 +377,7 @@ impl App {
                         Kind::Folder => {
                             (t!("chooser.choose_folder"), t!("chooser.choose_folder.tip"))
                         }
-                        Kind::File => (t!("chooser.choose_file"), t!("chooser.choose_file.tip")),
+                        Kind::File => purpose.accept_label_and_tip(),
                         Kind::Save => (t!("chooser.save_here"), t!("chooser.save_here.tip")),
                     };
                     let accepted =

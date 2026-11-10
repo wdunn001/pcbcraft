@@ -37,7 +37,7 @@
   {
     "id": "fab_complete",
     "name": "Complete fab package",
-    "audience": "Online prototype makers that take a single ZIP with Gerber layers, drill files, parts list, pick and place file, and a readme describing every file.",
+    "audience": "Online prototype makers that take a single ZIP with Gerber layers, drill files, parts list, pick and place file, a readme describing every file, and revision notes that list the parts changed since an earlier package.",
     "container": "zip",
     "archive": "{project}-fab-complete-{rev}.zip",
     "files": [
@@ -82,6 +82,11 @@
         "kind": "report",
         "format": "fab_readme",
         "name": "{project}-{layer}.{ext}"
+      },
+      {
+        "kind": "report",
+        "format": "revision_notes",
+        "name": "{project}-revision-notes-{rev}.txt"
       }
     ]
   },
@@ -180,6 +185,27 @@
         "name": "{project}-cpl-{rev}.{ext}",
         "options": {
           "profile": "prototype"
+        }
+      }
+    ]
+  },
+  {
+    "id": "assembly_workbook",
+    "name": "Bill of materials, spreadsheet",
+    "audience": "Buyers and assemblers who work in a spreadsheet: the parts list as a workbook, and the same list as grouped CSV with the do-not-populate parts in their own section.",
+    "container": "folder",
+    "files": [
+      {
+        "kind": "bom",
+        "format": "bom_xlsx",
+        "name": "{project}-bom-{rev}.{ext}"
+      },
+      {
+        "kind": "bom",
+        "format": "bom_csv",
+        "name": "{project}-bom-grouped-{rev}.{ext}",
+        "options": {
+          "flavour": "grouped"
         }
       }
     ]

@@ -74,6 +74,9 @@ impl App {
                 self.library
                     .request(ctx, "library.add_folder", json!({"path": pick.path}));
             }
+            Purpose::PreviousPackage => {
+                self.edit.dialog.previous_package = pick.path;
+            }
         }
     }
 
