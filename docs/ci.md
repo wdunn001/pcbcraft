@@ -87,6 +87,16 @@ app needs more than that to start. `.cargo/config.toml` raises
 but never the main thread of a linked executable. The figure is reserved
 address space. It is committed a page at a time and costs no memory.
 
+The unit and e2e jobs build far more than the others. Every test binary is
+linked. Where the work disk has under 20 GB free, they point
+`CARGO_TARGET_DIR` at `/tmp` on the runner. On the container hosts that is
+the big overlay rather than the small work mount.
+
+This used to be done by replacing `target` with a symlink. The cache
+restore that runs after it writes a real `target` directory and threw the
+symlink away. The build went back to the small disk. The linker died of
+no space. An environment variable survives the cache restore.
+
 Nothing in CI runs the Windows binary. The job cross-compiles and uploads
 it. A failure that only shows when the executable starts on Windows is
 therefore not caught here.
