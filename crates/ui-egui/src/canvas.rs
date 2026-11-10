@@ -963,6 +963,7 @@ impl App {
             }
         }
         self.paint_route_drag(ui, &painter, rect, camera, cursor);
+        self.paint_canvas_refusal(&painter, rect, camera, cursor);
         self.paint_layer_shapes(&painter, rect, camera, &self.project);
         self.paint_outline_handles(&painter, rect, camera);
         if response.drag_started_by(egui::PointerButton::Primary)
@@ -1627,6 +1628,49 @@ impl App {
         }
         best.map(|(_, id)| id)
     }
+    /// Say on the drawing why the last canvas command was refused.
+    ///
+    /// A refused route leaves no copper behind, so the track the user drew
+    /// appears to vanish. The reason is a good one ("pad 5 has no copper on
+    /// In1.Cu") and it was only ever written to the status bar, which is not
+    /// where anyone is looking at that moment.
+    ///
+    /// # Rules
+    /// - Follow the pointer when there is one, so the reason lands where the
+    ///   copper was expected. Fall back to the top of the canvas.
+    /// - Red, matching the Via tool's own refusal text.
+    ///
+    /// # Dependencies
+    /// - crates/ui-egui/src/lib.rs (`canvas_refusal`, set by `run`)
+    ///
+    /// # Do not
+    /// - Clear it here. It stands until the next command succeeds.
+    pub(crate) fn paint_canvas_refusal(
+        &self,
+        painter: &egui::Painter,
+        rect: Rect,
+        camera: Camera,
+        cursor: Option<Point>,
+    ) {
+        let Some(reason) = &self.canvas_refusal else {
+            return;
+        };
+        let (at, align) = match cursor {
+            Some(p) => (
+                camera.screen(p, rect) + Vec2::new(14.0, 14.0),
+                Align2::LEFT_TOP,
+            ),
+            None => (rect.center_top() + Vec2::new(0.0, 24.0), Align2::CENTER_TOP),
+        };
+        painter.text(
+            at,
+            align,
+            reason,
+            crate::fonts::Role::Mono.font(),
+            Color32::from_rgb(230, 70, 70),
+        );
+    }
+
     pub(super) fn pick_via(&self, pos: Point, zoom: f32) -> Option<Id> {
         self.project
             .board
