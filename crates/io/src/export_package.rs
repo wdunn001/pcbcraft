@@ -93,9 +93,13 @@ pub static CONTENT_FORMATS: &[ContentFormat] = &[
     ContentFormat {
         id: "bom_csv",
         label: "Bill of materials (CSV)",
-        options: &[("profile", &["generic"])],
+        options: &[
+            ("profile", &["generic"]),
+            ("flavour", &["plain", "grouped"]),
+        ],
         status: Status::Ready,
     },
+    ready("bom_xlsx", "Bill of materials (spreadsheet)"),
     ContentFormat {
         id: "cpl_csv",
         label: "Component placement (CSV)",
@@ -522,7 +526,16 @@ fn render_content(
             "svg",
             crate::stencil_cut_svg(p, &crate::StencilOptions::default())?,
         ),
+        "bom_csv" if c.options.get("flavour").is_some_and(|v| v == "grouped") => one(
+            "csv",
+            crate::bom_artifact_csv(p, &[], variant, crate::BomDnp::List)?,
+        ),
         "bom_csv" => one("csv", crate::bom_csv(p, &[], variant)?),
+        "bom_xlsx" => Ok(vec![PackageEntry {
+            name: name(None, None, Some("xlsx"))?,
+            kind: c.kind.clone(),
+            bytes: crate::bom_xlsx(p, &[], variant, crate::BomDnp::List)?,
+        }]),
         "cpl_csv" => one("csv", cpl_prototype(p, variant)?),
         "ipc2581" => one("xml", crate::ipc2581_text(p)?),
         "odb" => Ok(vec![PackageEntry {
@@ -739,7 +752,7 @@ mod tests {
     #[test]
     fn every_bundled_package_names_only_known_formats() -> Result<(), String> {
         let list = bundled_packages();
-        assert_eq!(list.len(), 11, "the starting set has eleven packages");
+        assert_eq!(list.len(), 12, "the starting set has twelve packages");
         let mut ids = std::collections::BTreeSet::new();
         for d in list {
             assert!(ids.insert(d.id.clone()), "duplicate id {}", d.id);
@@ -777,6 +790,7 @@ mod tests {
             "fab_prototype",
             "fab_x2",
             "assembly_prototype",
+            "assembly_workbook",
             "stencil",
             "ipc2581",
             "odb",
@@ -803,6 +817,29 @@ mod tests {
         assert_eq!(
             bytes1.entries, bytes2.entries,
             "repeat export lists the same entries"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn the_workbook_package_renders_a_spreadsheet_and_a_grouped_list() -> Result<(), String> {
+        let def = bundled_packages()
+            .iter()
+            .find(|d| d.id == "assembly_workbook")
+            .cloned()
+            .ok_or("missing")?;
+        let p = Project {
+            name: "TestBoard".into(),
+            ..Project::default()
+        };
+        let out = build_package(&p, &def, None)?;
+        let by = |suffix: &str| out.files.iter().find(|(n, _)| n.ends_with(suffix));
+        let (_, book) = by(".xlsx").ok_or("no spreadsheet was rendered")?;
+        assert!(book.starts_with(b"PK\x03\x04"), "the workbook is a zip");
+        let (_, grouped) = by("-grouped-A.csv").ok_or("no grouped list was rendered")?;
+        assert!(
+            String::from_utf8_lossy(grouped).contains("# 0 lines, 0 parts"),
+            "the grouped list ends with its summary line"
         );
         Ok(())
     }

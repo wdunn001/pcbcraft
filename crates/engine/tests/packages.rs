@@ -138,7 +138,7 @@ fn a_package_with_a_missing_writer_refuses_and_writes_nothing() -> Result<(), St
         .query("package.list", json!({}), None)
         .map_err(|e| e.to_string())?;
     let all = list["result"]["packages"].as_array().ok_or("packages")?;
-    assert_eq!(all.len(), 11);
+    assert_eq!(all.len(), 12);
     let flags: Vec<(&str, bool)> = all
         .iter()
         .filter_map(|p| Some((p["id"].as_str()?, p["available"].as_bool()?)))
@@ -267,5 +267,47 @@ fn a_package_is_duplicated_under_a_new_id() -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     let all2 = list2["result"]["packages"].as_array().ok_or("packages")?;
     assert_eq!(all2.len(), 12);
+    Ok(())
+}
+
+#[test]
+fn the_workbook_package_writes_a_valid_spreadsheet_and_a_grouped_list() -> Result<(), String> {
+    let mut s = Session::sample().map_err(|e| e.to_string())?;
+    let dir = scratch("workbook");
+    let r = export(&mut s, "assembly_workbook", &dir)?;
+    let mut written: Vec<String> = r["written"]
+        .as_array()
+        .ok_or("written")?
+        .iter()
+        .filter_map(|v| v.as_str().map(String::from))
+        .collect();
+    written.sort();
+    assert_eq!(
+        written,
+        [
+            "LED_indicator-bom-A.xlsx",
+            "LED_indicator-bom-grouped-A.csv",
+            "manifest.json"
+        ]
+    );
+    let book = std::fs::read(dir.join("LED_indicator-bom-A.xlsx")).map_err(|e| e.to_string())?;
+    let names = zip_names(&book);
+    for part in [
+        "[Content_Types].xml",
+        "_rels/.rels",
+        "xl/workbook.xml",
+        "xl/_rels/workbook.xml.rels",
+        "xl/styles.xml",
+        "xl/worksheets/sheet1.xml",
+    ] {
+        assert!(names.iter().any(|n| n == part), "the workbook has {part}");
+    }
+    let grouped = std::fs::read_to_string(dir.join("LED_indicator-bom-grouped-A.csv"))
+        .map_err(|e| e.to_string())?;
+    assert!(
+        grouped.starts_with("Designator,Quantity,Value,Footprint,"),
+        "the grouped list has the artifact columns: {grouped}"
+    );
+    assert!(grouped.contains("# "), "and the summary line");
     Ok(())
 }
