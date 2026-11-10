@@ -190,6 +190,27 @@
     ]
   },
   {
+    "id": "assembly_workbook",
+    "name": "Bill of materials, spreadsheet",
+    "audience": "Buyers and assemblers who work in a spreadsheet: the parts list as a workbook, and the same list as grouped CSV with the do-not-populate parts in their own section.",
+    "container": "folder",
+    "files": [
+      {
+        "kind": "bom",
+        "format": "bom_xlsx",
+        "name": "{project}-bom-{rev}.{ext}"
+      },
+      {
+        "kind": "bom",
+        "format": "bom_csv",
+        "name": "{project}-bom-grouped-{rev}.{ext}",
+        "options": {
+          "flavour": "grouped"
+        }
+      }
+    ]
+  },
+  {
     "id": "assembly_contract",
     "name": "Assembly, contract assembler",
     "audience": "Contract assemblers: vendor-profile parts list, per-side placement in inches, and assembly drawings for top and bottom.",

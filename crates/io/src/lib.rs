@@ -4123,11 +4123,23 @@ pub fn fab_readme_text(p: &Project, file_names: &[String]) -> Result<String, Str
     fab_export::fab_readme_text(p, file_names)
 }
 
-/// Bill of materials as generic CSV: the same columns as the Export dialog's
-/// default flavour. Identical parts share one row; references are joined with
-/// `, `. Requested property keys become extra columns after Quantity; with no
-/// request, the columns the project itself defines are printed under their
-/// labels.
+/// Prints the generic CSV flavour of the bill of materials artifact.
+///
+/// Identical parts share one row; references are joined with `, `. Requested
+/// property keys become extra columns after Quantity; with no request, the
+/// columns the project itself defines are printed under their labels.
+///
+/// # Rules
+/// - Same columns as the Export dialog default flavour.
+/// - Parts the variant marks DNP are skipped.
+/// - Property keys must be 1 to 64 bytes; at most 16 keys.
+///
+/// # Dependencies
+/// - crates/io/src/bom_sheet.rs
+///
+/// # Do not
+/// - Do not add summary or DNP section lines here; bom_artifact_csv owns that
+///   flavour.
 pub fn bom_csv(p: &Project, fields: &[String], variant: Option<&str>) -> Result<String, String> {
     // The same row collection and columns as the Export dialog's default
     // flavour and the engine's bill export; with no requested keys, the
@@ -4147,6 +4159,577 @@ pub fn bom_csv(p: &Project, fields: &[String], variant: Option<&str>) -> Result<
         },
     )
 }
+
+/// One row of a bill of materials.
+///
+/// # What
+/// A grouped line of identical parts: the references that share the same value,
+/// footprint, manufacturer part number and requested properties.
+///
+/// # Why
+/// The bill of materials groups identical parts so the buyer orders once per
+/// unique combination instead of once per reference.
+///
+/// # Rules
+/// - `quantity` equals `references.len()`.
+/// - `references` is sorted by natural key.
+/// - `distributor_pns` is deduplicated and sorted.
+/// - No panic paths: all arithmetic is checked or saturating.
+///
+/// # Dependencies
+/// - `crates/doc/src/lib.rs` for `Component` and `Project`.
+///
+/// # Do not
+/// - Do not reformat references here; `bom_reference_ranges` does that.
+#[derive(Clone, Debug)]
+pub struct BomLine {
+    /// Designators of the identical parts this line covers, naturally sorted.
+    pub references: Vec<String>,
+    /// How many parts this line covers, equal to the reference count.
+    pub quantity: usize,
+    /// The value printed on the board for these parts.
+    pub value: String,
+    /// The footprint each part uses, library:definition or the fallback text.
+    pub footprint: String,
+    /// The manufacturer name read from the part fields.
+    pub manufacturer: String,
+    /// The manufacturer part number read from the part fields.
+    pub mpn: String,
+    /// Distributor part numbers seen on these parts, deduplicated and sorted.
+    pub distributor_pns: Vec<String>,
+    /// Values for the extra property columns, in the order of the columns.
+    pub property_values: Vec<String>,
+}
+
+/// How to treat parts the variant marks as DNP.
+///
+/// # What
+/// Controls whether DNP parts appear in the bill of materials.
+///
+/// # Why
+/// Some workflows want DNP parts listed for reference; others want them
+/// excluded entirely.
+///
+/// # Rules
+/// - `List` is the default and shows DNP parts.
+/// - `Exclude` removes DNP parts from the output.
+///
+/// # Dependencies
+/// - `crates/doc/src/lib.rs` for `Variant`.
+///
+/// # Do not
+/// - Do not change the serde representation; it is part of the API.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BomDnp {
+    /// Show DNP parts in their own section after the assembled lines.
+    #[default]
+    List,
+    /// Leave DNP parts out of the written artifact entirely.
+    Exclude,
+}
+
+/// The assembled bill of materials for a project.
+///
+/// # What
+/// The grouped lines of parts, the DNP lines, and the total part count.
+///
+/// # Why
+/// This is the canonical in-memory representation of a bill of materials that
+/// can be rendered to CSV, JSON, or any other format.
+///
+/// # Rules
+/// - `lines` contains the assembled build.
+/// - `dnp_lines` contains parts the variant marks DNP, always collected.
+/// - `part_count` is the sum of quantities over `lines`.
+///
+/// # Dependencies
+/// - `crates/doc/src/lib.rs` for `Component` and `Project`.
+///
+/// # Do not
+/// - Do not mutate this after construction; it is immutable by convention.
+#[derive(Clone, Debug)]
+pub struct BomArtifact {
+    /// The lines of the assembled build, one per unique part.
+    pub lines: Vec<BomLine>,
+    /// The lines the chosen build variant marks do not populate.
+    pub dnp_lines: Vec<BomLine>,
+    /// The total number of parts across the assembled lines.
+    pub part_count: usize,
+}
+
+/// Join designators into a compact string with range notation.
+///
+/// # What
+/// Groups references by prefix and prints consecutive runs as ranges.
+///
+/// # Why
+/// `R1,R2,R3,R4` becomes `R1-R4`, making the bill of materials readable.
+///
+/// # Rules
+/// - Groups by leading alphabetic prefix.
+/// - Sorts numerically by trailing digits.
+/// - Runs of 3 or more consecutive integers become `PREFIXa-PREFIXb`.
+/// - Pairs and singletons print as-is.
+/// - Distinct designators print once.
+/// - No panic paths: all arithmetic is checked.
+///
+/// # Dependencies
+/// - crates/io/src/lib.rs for the bill writers that print these ranges.
+///
+/// # Do not
+/// - Do not change the range threshold; it is part of the API.
+pub(crate) fn bom_reference_ranges(refs: &[String]) -> String {
+    if refs.is_empty() {
+        return String::new();
+    }
+    let mut groups: BTreeMap<String, Vec<(u64, String)>> = BTreeMap::new();
+    for r in refs {
+        let (prefix, digits) = split_reference(r);
+        groups.entry(prefix).or_default().push((digits, r.clone()));
+    }
+    let mut parts: Vec<String> = Vec::new();
+    for (_prefix, mut entries) in groups {
+        entries.sort_by_key(|e| e.0);
+        let mut i = 0;
+        while i < entries.len() {
+            let start_ref = entries[i].1.clone();
+            let mut j = i + 1;
+            while j < entries.len()
+                && entries[j - 1]
+                    .0
+                    .checked_add(1)
+                    .is_some_and(|n| entries[j].0 == n)
+            {
+                j += 1;
+            }
+            let end_ref = entries[j - 1].1.clone();
+            if j - i >= 3 {
+                parts.push(format!("{start_ref}-{end_ref}"));
+            } else {
+                for entry in &entries[i..j] {
+                    parts.push(entry.1.clone());
+                }
+            }
+            i = j;
+        }
+    }
+    parts.join("; ")
+}
+
+fn split_reference(r: &str) -> (String, u64) {
+    let mut prefix = String::new();
+    let mut digits: u64 = 0;
+    let mut in_digits = false;
+    for ch in r.chars() {
+        if ch.is_ascii_digit() {
+            in_digits = true;
+            digits = digits
+                .checked_mul(10)
+                .and_then(|d| d.checked_add(ch.to_digit(10).unwrap_or(0) as u64))
+                .unwrap_or(u64::MAX);
+        } else if in_digits {
+            break;
+        } else {
+            prefix.push(ch);
+        }
+    }
+    (prefix, digits)
+}
+
+/// Compute the bill of materials rows for a project.
+///
+/// # What
+/// Groups components by value, footprint, MPN and requested properties.
+///
+/// # Why
+/// This is the core bill of materials computation that all exporters use.
+///
+/// # Rules
+/// - Validates the project first.
+/// - At most 16 extra property keys.
+/// - Each key 1 to 64 bytes.
+/// - At most 4096 components.
+/// - Resolves the variant and applies DNP and footprint swaps.
+/// - Groups by value, footprint, MPN and property values.
+/// - No panic paths: all arithmetic is checked or saturating.
+///
+/// # Dependencies
+/// - `crates/io/src/bom_sheet.rs` for validation and variant resolution.
+/// - `crates/doc/src/lib.rs` for `Component` and `Project`.
+///
+/// # Do not
+/// - Do not change the grouping rule; it is part of the API.
+pub fn bom_rows(
+    p: &Project,
+    fields: &[String],
+    variant: Option<&str>,
+) -> Result<BomArtifact, String> {
+    p.validate()?;
+    if fields.len() > 16 {
+        return Err("a bill of materials lists at most 16 properties".into());
+    }
+    for key in fields {
+        if key.is_empty() || key.len() > 64 {
+            return Err("property names must be 1 to 64 bytes".into());
+        }
+    }
+    if p.components.len() > 4096 {
+        return Err("a bill of materials lists at most 4096 parts".into());
+    }
+    let variant = resolve_bom_variant(p, variant)?;
+    let keys: Vec<String> = if fields.is_empty() {
+        p.bom_fields.iter().map(|f| f.key.clone()).collect()
+    } else {
+        fields.to_vec()
+    };
+    let mut groups: BTreeMap<(String, String, String, Vec<String>), BomGroup> = BTreeMap::new();
+    let mut dnp_groups: BTreeMap<(String, String, String, Vec<String>), BomGroup> = BTreeMap::new();
+    for c in &p.components {
+        if !c.in_bom() {
+            continue;
+        }
+        let footprint = component_footprint_export(c, variant);
+        let manufacturer = c.bom_value("Manufacturer");
+        let mpn = c.bom_value("MPN");
+        let distributor_pn = c.bom_value("Distributor PN");
+        let property_values: Vec<String> = keys.iter().map(|key| c.bom_value(key)).collect();
+        let is_dnp = variant.is_some_and(|v| v.dnp.contains(&c.id))
+            || c.fields.iter().any(|f| {
+                let name = f.key.to_lowercase();
+                (name == "dnp" || name == "exclude from bom")
+                    && matches!(
+                        f.value.trim().to_lowercase().as_str(),
+                        "yes" | "y" | "true" | "x" | "dnp" | "1"
+                    )
+            });
+        let key = (c.value.clone(), footprint, mpn, property_values);
+        let group = if is_dnp {
+            dnp_groups.entry(key).or_default()
+        } else {
+            groups.entry(key).or_default()
+        };
+        if !manufacturer.is_empty() && group.manufacturer.is_empty() {
+            group.manufacturer = manufacturer;
+        }
+        if !distributor_pn.is_empty() {
+            group.distributor_pns.insert(distributor_pn);
+        }
+        group.references.push(c.reference.clone());
+    }
+    let lines = build_bom_lines(groups);
+    let dnp_lines = build_bom_lines(dnp_groups);
+    let part_count = lines
+        .iter()
+        .fold(0usize, |acc, line| acc.saturating_add(line.quantity));
+    Ok(BomArtifact {
+        lines,
+        dnp_lines,
+        part_count,
+    })
+}
+
+/// One bill of materials group while rows are being collected.
+#[derive(Default)]
+struct BomGroup {
+    references: Vec<String>,
+    manufacturer: String,
+    distributor_pns: BTreeSet<String>,
+}
+
+fn build_bom_lines(
+    groups: BTreeMap<(String, String, String, Vec<String>), BomGroup>,
+) -> Vec<BomLine> {
+    let mut lines: Vec<BomLine> = Vec::new();
+    for ((value, footprint, mpn, property_values), group) in groups {
+        let mut references = group.references;
+        references.sort_by(|a, b| natural_key(a, b));
+        let quantity = references.len();
+        lines.push(BomLine {
+            references,
+            quantity,
+            value,
+            footprint,
+            manufacturer: group.manufacturer,
+            mpn,
+            distributor_pns: group.distributor_pns.into_iter().collect(),
+            property_values,
+        });
+    }
+    lines
+}
+
+fn natural_key(a: &str, b: &str) -> std::cmp::Ordering {
+    let (a_prefix, a_digits, a_full) = split_reference_key(a);
+    let (b_prefix, b_digits, b_full) = split_reference_key(b);
+    a_prefix
+        .cmp(&b_prefix)
+        .then(a_digits.cmp(&b_digits))
+        .then(a_full.cmp(&b_full))
+}
+
+fn split_reference_key(r: &str) -> (String, u64, String) {
+    let mut prefix = String::new();
+    let mut digits: u64 = 0;
+    let mut in_digits = false;
+    for ch in r.chars() {
+        if ch.is_ascii_digit() {
+            in_digits = true;
+            digits = digits
+                .saturating_mul(10)
+                .saturating_add(ch.to_digit(10).unwrap_or(0) as u64);
+        } else if in_digits {
+            break;
+        } else {
+            prefix.push(ch);
+        }
+    }
+    (prefix, digits, r.to_string())
+}
+
+/// Build the header and body rows shared by the CSV and workbook writers.
+///
+/// The header is the fixed columns plus every property label from the project
+/// or the explicit field list. Each body row is one consolidated part with its
+/// designator range, quantity, value, footprint, manufacturer, MPN, distributor
+/// part numbers and property values. When the DNP mode is List, the DNP parts
+/// are appended after the normal rows. A summary row is always the last row.
+///
+/// # Rules
+///
+/// - The header and body are returned as separate vectors so callers can
+///   serialize them in different formats.
+/// - Property columns use the same key selection rule as bom_rows.
+///
+/// # Dependencies
+///
+/// - crates/io/src/bom_sheet.rs for bom_rows and bom_reference_ranges.
+/// - crates/doc/src/lib.rs for Project and BomDnp.
+///
+/// # Do not
+///
+/// - Add formatting or escaping; callers do that per their format.
+pub fn bom_artifact_table(
+    p: &Project,
+    fields: &[String],
+    variant: Option<&str>,
+    dnp: BomDnp,
+) -> Result<(Vec<String>, Vec<Vec<String>>), String> {
+    let artifact = bom_rows(p, fields, variant)?;
+    let columns = bom_field_columns(p, fields)?;
+    let mut header = vec![
+        "Designator".to_string(),
+        "Quantity".to_string(),
+        "Value".to_string(),
+        "Footprint".to_string(),
+        "Manufacturer".to_string(),
+        "MPN".to_string(),
+        "Distributor PN".to_string(),
+    ];
+    for (_, label) in &columns {
+        header.push(label.clone());
+    }
+    let mut rows = Vec::new();
+    for line in &artifact.lines {
+        let mut row = vec![
+            bom_reference_ranges(&line.references),
+            line.quantity.to_string(),
+            line.value.clone(),
+            line.footprint.clone(),
+            line.manufacturer.clone(),
+            line.mpn.clone(),
+            line.distributor_pns.join("; "),
+        ];
+        row.extend(line.property_values.iter().cloned());
+        rows.push(row);
+    }
+    if dnp == BomDnp::List && !artifact.dnp_lines.is_empty() {
+        rows.push(vec!["DNP".to_string()]);
+        for line in &artifact.dnp_lines {
+            let mut row = vec![
+                bom_reference_ranges(&line.references),
+                line.quantity.to_string(),
+                line.value.clone(),
+                line.footprint.clone(),
+                line.manufacturer.clone(),
+                line.mpn.clone(),
+                line.distributor_pns.join("; "),
+            ];
+            row.extend(line.property_values.iter().cloned());
+            rows.push(row);
+        }
+    }
+    rows.push(vec![format!(
+        "# {} lines, {} parts",
+        artifact.lines.len(),
+        artifact.part_count
+    )]);
+    Ok((header, rows))
+}
+
+/// Write the bill of materials as a CSV string.
+///
+/// This follows the bom_csv column flavour and adds the DNP section and the
+/// summary line. Each cell is quoted when it contains a comma, quote or
+/// newline. The header row is always present.
+///
+/// # Rules
+///
+/// - Rows are terminated with a newline.
+/// - The DNP section is included only when the dnp mode is List.
+///
+/// # Dependencies
+///
+/// - crates/io/src/bom_sheet.rs for bom_rows and bom_reference_ranges.
+/// - crates/doc/src/lib.rs for Project and BomDnp.
+///
+/// # Do not
+///
+/// - Add a BOM or change the line ending.
+pub fn bom_artifact_csv(
+    p: &Project,
+    fields: &[String],
+    variant: Option<&str>,
+    dnp: BomDnp,
+) -> Result<String, String> {
+    let (header, rows) = bom_artifact_table(p, fields, variant, dnp)?;
+    let mut out = String::new();
+    out.push_str(
+        &header
+            .iter()
+            .map(|cell| csv_cell(cell))
+            .collect::<Vec<_>>()
+            .join(","),
+    );
+    out.push('\n');
+    for row in rows {
+        out.push_str(
+            &row.iter()
+                .map(|cell| csv_cell(cell))
+                .collect::<Vec<_>>()
+                .join(","),
+        );
+        out.push('\n');
+    }
+    Ok(out)
+}
+
+/// Write the bill of materials as an XLSX workbook.
+///
+/// This is the spreadsheet workbook flavour, a stored zip written with
+/// crate::zip_entries. The workbook has one sheet named "Bill of Materials"
+/// with the header row bold. No compression library is used.
+///
+/// # Rules
+///
+/// - The sheet is limited to 702 columns and 65536 rows.
+/// - All cells are inline strings.
+///
+/// # Dependencies
+///
+/// - crates/io/src/bom_sheet.rs for bom_rows and bom_reference_ranges.
+/// - crates/doc/src/lib.rs for Project and BomDnp.
+///
+/// # Do not
+///
+/// - Add compression or change the zip entry order.
+pub fn bom_xlsx(
+    p: &Project,
+    fields: &[String],
+    variant: Option<&str>,
+    dnp: BomDnp,
+) -> Result<Vec<u8>, String> {
+    let (header, rows) = bom_artifact_table(p, fields, variant, dnp)?;
+    if header.len() > 702 || rows.len() > 65_536 {
+        return Err("the bill of materials workbook exceeds the sheet limits".into());
+    }
+    let prolog = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>";
+    let mut sheet = String::new();
+    sheet.push_str(prolog);
+    sheet.push_str("<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData>");
+    sheet.push_str("<row r=\"1\">");
+    for (i, cell) in header.iter().enumerate() {
+        sheet.push_str(&format!(
+            "<c r=\"{}1\" s=\"1\" t=\"inlineStr\"><is><t>{}</t></is></c>",
+            xlsx_column(i),
+            xlsx_escape(cell)
+        ));
+    }
+    sheet.push_str("</row>");
+    for (r, row) in rows.iter().enumerate() {
+        let row_num = r + 2;
+        sheet.push_str(&format!("<row r=\"{}\">", row_num));
+        for (i, cell) in row.iter().enumerate() {
+            sheet.push_str(&format!(
+                "<c r=\"{}{}\" t=\"inlineStr\"><is><t>{}</t></is></c>",
+                xlsx_column(i),
+                row_num,
+                xlsx_escape(cell)
+            ));
+        }
+        sheet.push_str("</row>");
+    }
+    sheet.push_str("</sheetData></worksheet>");
+    let content_types = format!(
+        "{}<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/><Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/><Override PartName=\"/xl/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml\"/></Types>",
+        prolog
+    );
+    let rels = format!(
+        "{}<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/></Relationships>",
+        prolog
+    );
+    let workbook = format!(
+        "{}<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets><sheet name=\"Bill of Materials\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>",
+        prolog
+    );
+    let workbook_rels = format!(
+        "{}<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/><Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/></Relationships>",
+        prolog
+    );
+    let styles = format!(
+        "{}<styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><fonts count=\"2\"><font><sz val=\"11\"/><name val=\"Calibri\"/></font><font><b/><sz val=\"11\"/><name val=\"Calibri\"/></font></fonts><fills count=\"2\"><fill><patternFill patternType=\"none\"/></fill><fill><patternFill patternType=\"gray125\"/></fill></fills><borders count=\"1\"><border/></borders><cellStyleXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\"/></cellStyleXfs><cellXfs count=\"2\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\"/><xf numFmtId=\"0\" fontId=\"1\" fillId=\"0\" borderId=\"0\" xfId=\"0\" applyFont=\"1\"/></cellXfs></styleSheet>",
+        prolog
+    );
+    let entries = vec![
+        (
+            "[Content_Types].xml".to_string(),
+            content_types.into_bytes(),
+        ),
+        ("_rels/.rels".to_string(), rels.into_bytes()),
+        ("xl/workbook.xml".to_string(), workbook.into_bytes()),
+        (
+            "xl/_rels/workbook.xml.rels".to_string(),
+            workbook_rels.into_bytes(),
+        ),
+        ("xl/styles.xml".to_string(), styles.into_bytes()),
+        ("xl/worksheets/sheet1.xml".to_string(), sheet.into_bytes()),
+    ];
+    crate::zip_entries(&entries)
+}
+
+fn xlsx_column(index: usize) -> String {
+    let mut result = Vec::new();
+    let mut n = index;
+    loop {
+        let digit = n % 26;
+        result.push(b'A' + digit as u8);
+        n /= 26;
+        if n == 0 {
+            break;
+        }
+        n -= 1;
+    }
+    result.reverse();
+    String::from_utf8(result).unwrap_or_default()
+}
+
+fn xlsx_escape(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
 fn resolve_bom_variant<'a>(
     p: &'a Project,
     variant: Option<&str>,
@@ -17498,6 +18081,225 @@ mod tests {
         if !err.contains("embedded symbol definitions") {
             return Err(format!("legacy file should be refused plainly: {err}"));
         }
+        Ok(())
+    }
+
+    #[test]
+    fn bom_artifact_groups_four_resistors_and_lists_dnp() -> Result<(), String> {
+        let mut project = Project::default();
+        for (id, reference) in [(1, "R1"), (2, "R2"), (3, "R3"), (4, "R4"), (5, "R5")] {
+            project.components.push(pcbcraft_doc::Component {
+                sourcing: Default::default(),
+                sheet: 0,
+                instance: None,
+                prototype: None,
+                id,
+                reference: reference.into(),
+                value: "10k".into(),
+                kind: "resistor".into(),
+                position: Point::new(10.0, 10.0),
+                rotation: 0.0,
+                pins: vec![
+                    pcbcraft_doc::Pin {
+                        number: "1".into(),
+                        offset: Point::new(-1.0, 0.0),
+                        net: None,
+                        electrical_type: "passive".into(),
+                        direction: None,
+                        appearances: vec![],
+                        name: String::new(),
+                        unit: 1,
+                    },
+                    pcbcraft_doc::Pin {
+                        number: "2".into(),
+                        name: String::new(),
+                        offset: Point::new(1.0, 0.0),
+                        net: None,
+                        electrical_type: "passive".into(),
+                        direction: None,
+                        unit: 1,
+                        appearances: vec![],
+                    },
+                ],
+                units: vec![],
+                library_symbol: None,
+                library_footprint: None,
+                fields: vec![
+                    pcbcraft_doc::ComponentField {
+                        key: "Manufacturer".into(),
+                        value: "Acme".into(),
+                    },
+                    pcbcraft_doc::ComponentField {
+                        key: "MPN".into(),
+                        value: "AC-10K-0603".into(),
+                    },
+                    pcbcraft_doc::ComponentField {
+                        key: "Distributor PN".into(),
+                        value: "DIST-1".into(),
+                    },
+                ],
+                compliance: Default::default(),
+                include_in_bom: true,
+                include_in_placement: true,
+                part: None,
+            });
+        }
+        project.variants.push(pcbcraft_doc::Variant {
+            name: "Build A".into(),
+            note: None,
+            dnp: vec![5],
+            footprints: vec![],
+        });
+        project.validate()?;
+
+        let artifact = bom_rows(&project, &[], Some("Build A"))?;
+        assert_eq!(
+            artifact.lines.len(),
+            1,
+            "the four identical resistors group to one line"
+        );
+        assert_eq!(artifact.lines[0].quantity, 4);
+        assert_eq!(bom_reference_ranges(&artifact.lines[0].references), "R1-R4");
+        assert_eq!(artifact.lines[0].manufacturer, "Acme");
+        assert_eq!(artifact.lines[0].mpn, "AC-10K-0603");
+        assert_eq!(
+            artifact.dnp_lines[0].distributor_pns,
+            vec!["DIST-1".to_string()]
+        );
+        assert_eq!(
+            artifact.part_count, 4,
+            "the summary counts the assembled build only"
+        );
+        assert_eq!(
+            artifact.dnp_lines.len(),
+            1,
+            "the DNP resistor is listed under DNP"
+        );
+        assert_eq!(
+            bom_reference_ranges(&artifact.dnp_lines[0].references),
+            "R5"
+        );
+
+        let csv = bom_artifact_csv(&project, &[], Some("Build A"), BomDnp::List)?;
+        assert!(csv.contains("R1-R4"));
+        assert!(csv.contains("AC-10K-0603"));
+        assert!(csv.contains("DIST-1"));
+        assert!(csv.contains("DNP"));
+        assert!(csv.contains("R5"));
+        assert!(csv.contains("# 1 lines, 4 parts"));
+
+        let csv_off = bom_artifact_csv(&project, &[], Some("Build A"), BomDnp::Exclude)?;
+        assert!(!csv_off.contains("R5"));
+        assert!(!csv_off.contains("DNP"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn bom_xlsx_workbook_holds_the_same_rows_as_the_csv() -> Result<(), String> {
+        let mut project = Project::default();
+        for (id, reference) in [(1, "R1"), (2, "R2"), (3, "R3"), (4, "R4"), (5, "R5")] {
+            project.components.push(pcbcraft_doc::Component {
+                sourcing: Default::default(),
+                sheet: 0,
+                instance: None,
+                prototype: None,
+                id,
+                reference: reference.into(),
+                value: "10k".into(),
+                kind: "resistor".into(),
+                position: Point::new(10.0, 10.0),
+                rotation: 0.0,
+                pins: vec![
+                    pcbcraft_doc::Pin {
+                        number: "1".into(),
+                        offset: Point::new(-1.0, 0.0),
+                        net: None,
+                        electrical_type: "passive".into(),
+                        direction: None,
+                        appearances: vec![],
+                        name: String::new(),
+                        unit: 1,
+                    },
+                    pcbcraft_doc::Pin {
+                        number: "2".into(),
+                        name: String::new(),
+                        offset: Point::new(1.0, 0.0),
+                        net: None,
+                        electrical_type: "passive".into(),
+                        direction: None,
+                        unit: 1,
+                        appearances: vec![],
+                    },
+                ],
+                units: vec![],
+                library_symbol: None,
+                library_footprint: None,
+                fields: vec![
+                    pcbcraft_doc::ComponentField {
+                        key: "Manufacturer".into(),
+                        value: "Acme".into(),
+                    },
+                    pcbcraft_doc::ComponentField {
+                        key: "MPN".into(),
+                        value: "AC-10K-0603".into(),
+                    },
+                    pcbcraft_doc::ComponentField {
+                        key: "Distributor PN".into(),
+                        value: "DIST-1".into(),
+                    },
+                ],
+                compliance: Default::default(),
+                include_in_bom: true,
+                include_in_placement: true,
+                part: None,
+            });
+        }
+        project.variants.push(pcbcraft_doc::Variant {
+            name: "Build A".into(),
+            note: None,
+            dnp: vec![5],
+            footprints: vec![],
+        });
+        project.validate()?;
+
+        let xlsx = bom_xlsx(&project, &[], Some("Build A"), BomDnp::List)?;
+        assert!(xlsx.starts_with(b"PK"), "the workbook is a zip");
+        let text = String::from_utf8_lossy(&xlsx).into_owned();
+        assert!(
+            text.contains("[Content_Types].xml"),
+            "the workbook declares its parts"
+        );
+        assert!(
+            text.contains("xl/worksheets/sheet1.xml"),
+            "the workbook names its one sheet"
+        );
+        assert!(
+            text.contains("Bill of Materials"),
+            "the sheet is named for the bill"
+        );
+        assert!(text.contains("<b/>"), "the header style is bold");
+        for needle in [
+            "Designator",
+            "Quantity",
+            "Value",
+            "Footprint",
+            "Manufacturer",
+            "MPN",
+            "Distributor PN",
+            "R1-R4",
+            "10k",
+            "AC-10K-0603",
+            "DIST-1",
+            "R5",
+            "# 1 lines, 4 parts",
+        ] {
+            assert!(
+                text.contains(needle),
+                "the sheet carries {needle} from the csv"
+            );
+        }
+
         Ok(())
     }
 }

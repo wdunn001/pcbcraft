@@ -629,6 +629,45 @@ fn a_newcomer_exports_an_assembly_package() -> Result<(), String> {
 }
 
 #[test]
+fn a_newcomer_exports_the_bill_of_materials_as_a_spreadsheet() -> Result<(), String> {
+    let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let (ctx, mut app) = board(dir.path());
+    file_export(&ctx, &mut app, "More…")?;
+    let listed = in_format_list(&ctx, &mut app, "Bill of materials, spreadsheet")?;
+    assert!(listed, "the spreadsheet bill of materials is listed");
+    authoring::tests::tap(&ctx, &mut app, "Bill of materials, spreadsheet")?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    authoring::tests::tap(&ctx, &mut app, "Export package")?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let names: Vec<String> = std::fs::read_dir(dir.path())
+        .map_err(|e| e.to_string())?
+        .filter_map(Result::ok)
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    let book = names
+        .iter()
+        .find(|n| n.ends_with("-bom-A.xlsx"))
+        .ok_or_else(|| {
+            format!(
+                "no spreadsheet after exporting: {names:?} / {}",
+                app.message
+            )
+        })?;
+    let bytes = std::fs::read(dir.path().join(book)).map_err(|e| e.to_string())?;
+    assert!(bytes.starts_with(b"PK"), "the spreadsheet is a zip archive");
+    assert!(
+        names.iter().any(|n| n.ends_with("-bom-grouped-A.csv")),
+        "the grouped list is written beside it: {names:?}"
+    );
+    assert!(!app.edit.dialog.open, "the dialog closes after the export");
+    Ok(())
+}
+
+#[test]
 fn a_newcomer_exports_a_solder_paste_stencil_package() -> Result<(), String> {
     let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
     let (ctx, mut app) = board(dir.path());
