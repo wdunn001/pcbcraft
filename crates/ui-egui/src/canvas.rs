@@ -142,6 +142,13 @@ pub(crate) fn selection_bounds(project: &Project, id: Id) -> Option<(Point, Poin
 
 /// The world rectangle each tab should show by default: the board outline on
 /// the PCB tab, the whole drawing sheet on the schematic tab.
+/// Track records that one stroke can stand for, with the segments themselves.
+///
+/// The key is what has to match: the layer, the net, and the width as bits so
+/// it can be compared. Width is a float and is only ever tested for equality
+/// here, never ordered or measured.
+type CopperGroup = ((Layer, Id, u64), Vec<(Point, Point)>);
+
 /// Points in from each canvas edge where a held drag starts scrolling.
 pub(crate) const EDGE_BAND: f32 = 40.0;
 /// Points per second the view scrolls with the pointer at the very edge.
@@ -2616,27 +2623,54 @@ impl App {
                 ));
             }
         }
-        for t in stack.far_to_near(
+        // Copper is drawn a run at a time, not a record at a time. A bend is
+        // two records sharing a point, and two flat-ended strokes meeting at
+        // an angle leave a notch on the outside of the corner; handing the
+        // run over as one path lets the tessellator miter the join. Records
+        // are grouped by what has to match for one stroke to stand for all of
+        // them: layer, net and width. The selected track keeps its own stroke
+        // so the accent still picks out one piece.
+        let ordered = stack.far_to_near(
             p.board
                 .tracks
                 .iter()
                 .filter(|t| sub_on(t.layer, crate::layer_visibility::SubLayer::Tracks)),
             |t| t.layer,
-        ) {
+        );
+        let mut groups: Vec<CopperGroup> = Vec::new();
+        for t in &ordered {
+            if self.selected == Some(t.id) {
+                continue;
+            }
+            let k = (t.layer, t.net, t.width.to_bits());
+            match groups.last_mut() {
+                Some((at, runs)) if *at == k => runs.push((t.start, t.end)),
+                _ => groups.push((k, vec![(t.start, t.end)])),
+            }
+        }
+        for ((layer, net, width), segs) in &groups {
+            let colour = if *layer == Layer::Front {
+                self.copper(Some(*net), self.colours().canvas.front)
+            } else {
+                self.copper(Some(*net), self.colours().canvas.back)
+            }
+            .linear_multiply(stack.copper_alpha(*layer) * self.lit_alpha(*layer));
+            let stroke = Stroke::new(
+                (f64::from_bits(*width) as f32 * camera.zoom).max(1.0),
+                colour,
+            );
+            for run in crate::track_runs::assemble(segs) {
+                let points: Vec<Pos2> = run.iter().map(|q| camera.screen(*q, rect)).collect();
+                painter.add(egui::Shape::line(points, stroke));
+            }
+        }
+        for t in &ordered {
+            if self.selected != Some(t.id) {
+                continue;
+            }
             painter.line_segment(
                 [camera.screen(t.start, rect), camera.screen(t.end, rect)],
-                Stroke::new(
-                    (t.width as f32 * camera.zoom).max(1.0),
-                    if self.selected == Some(t.id) {
-                        self.accent()
-                    } else if t.layer == Layer::Front {
-                        self.copper(Some(t.net), self.colours().canvas.front)
-                            .linear_multiply(stack.copper_alpha(t.layer) * self.lit_alpha(t.layer))
-                    } else {
-                        self.copper(Some(t.net), self.colours().canvas.back)
-                            .linear_multiply(stack.copper_alpha(t.layer) * self.lit_alpha(t.layer))
-                    },
-                ),
+                Stroke::new((t.width as f32 * camera.zoom).max(1.0), self.accent()),
             );
         }
         for v in p.board.vias.iter().filter(|v| self.via_shown(v)) {
