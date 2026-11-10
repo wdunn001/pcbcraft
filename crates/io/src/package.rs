@@ -24,6 +24,8 @@ pub const MANIFEST_NAME: &str = "manifest.json";
 pub const REVISION_NOTES_NAME: &str = "REVISION-NOTES.txt";
 /// Most files one package may hold, the manifest included.
 pub const MAX_PACKAGE_FILES: usize = 256;
+/// Largest earlier package, in bytes, the revision notes will read to compare against.
+pub const MAX_PREVIOUS_PACKAGE_BYTES: usize = 64 * 1024 * 1024;
 /// Creation date recorded in the Gerber job file of a package. A package
 /// carries no build timestamp, so two runs over the same design produce the
 /// same bytes; the value is the earliest date a ZIP entry can hold.
@@ -180,7 +182,6 @@ fn check_entries(entries: &[PackageEntry]) -> Result<(), String> {
 }
 
 /// Every entry of a stored ZIP this crate writes, in archive order.
-#[allow(dead_code)]
 pub fn package_stored_zip_entries(zip: &[u8]) -> Result<Vec<(String, Vec<u8>)>, String> {
     let mut entries = Vec::new();
     let mut at = 0usize;
@@ -213,14 +214,54 @@ pub fn package_stored_zip_entries(zip: &[u8]) -> Result<Vec<(String, Vec<u8>)>, 
 }
 
 /// Read the bill of materials CSV from a prior package zip, when one was included.
-#[allow(dead_code)]
+///
+/// Why: a package names its bill `{project}-bom-{rev}.csv`, so the reader asks the package's
+/// own manifest which entry has the export kind `bom` and falls back to the `-bom-` name.
+///
+/// # Rules
+/// - Returns `Ok(None)` for a readable archive that holds no bill of materials CSV.
+/// - Refuses an archive this crate's reader cannot walk, and one over `MAX_PREVIOUS_PACKAGE_BYTES`.
+///
+/// # Dependencies
+/// - crates/io/src/package.rs (`package_stored_zip_entries`, `package_manifest` for the kinds)
+///
+/// # Do not
+/// - Look for a fixed file name; the name carries the project and revision.
 pub fn previous_bom_from_package(zip: &[u8]) -> Result<Option<String>, String> {
-    for (name, bytes) in package_stored_zip_entries(zip)? {
-        if name == "bom.csv" {
-            return Ok(Some(String::from_utf8_lossy(&bytes).into_owned()));
-        }
+    if zip.len() > MAX_PREVIOUS_PACKAGE_BYTES {
+        return Err(format!(
+            "a previous package is at most {MAX_PREVIOUS_PACKAGE_BYTES} bytes"
+        ));
     }
-    Ok(None)
+    let entries = package_stored_zip_entries(zip)?;
+    let named_bom: Vec<String> = entries
+        .iter()
+        .find(|(name, _)| name == MANIFEST_NAME)
+        .and_then(|(_, bytes)| serde_json::from_slice::<Value>(bytes).ok())
+        .and_then(|manifest| {
+            manifest
+                .get("files")
+                .and_then(Value::as_array)
+                .map(|files| {
+                    files
+                        .iter()
+                        .filter(|f| f.get("kind").and_then(Value::as_str) == Some("bom"))
+                        .filter_map(|f| f.get("name").and_then(Value::as_str))
+                        .map(str::to_owned)
+                        .collect()
+                })
+        })
+        .unwrap_or_default();
+    let is_csv = |name: &str| name.to_ascii_lowercase().ends_with(".csv");
+    let found = entries
+        .iter()
+        .find(|(name, _)| is_csv(name) && named_bom.contains(name))
+        .or_else(|| {
+            entries
+                .iter()
+                .find(|(name, _)| is_csv(name) && name.contains("-bom-"))
+        });
+    Ok(found.map(|(_, bytes)| String::from_utf8_lossy(bytes).into_owned()))
 }
 
 fn csv_row_fields(line: &str) -> Vec<String> {
@@ -553,6 +594,126 @@ mod tests {
         assert!(once.contains("Removed parts: C1"));
         let no_previous = package_revision_notes(&project, "fab", None, &names, None)?;
         assert!(no_previous.contains("(no previous export was supplied)"));
+        Ok(())
+    }
+
+    fn part(id: u64, reference: &str) -> pcbcraft_doc::Component {
+        pcbcraft_doc::Component {
+            sheet: 0,
+            id,
+            reference: reference.into(),
+            value: "1k".into(),
+            kind: "resistor".into(),
+            position: pcbcraft_geom::Point::new(1.0, 1.0),
+            rotation: 0.0,
+            pins: vec![pcbcraft_doc::Pin::default()],
+            units: Vec::new(),
+            library_symbol: None,
+            library_footprint: None,
+            fields: Vec::new(),
+            sourcing: Default::default(),
+            compliance: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+            instance: Default::default(),
+            part: None,
+            prototype: Default::default(),
+        }
+    }
+
+    fn complete_fab() -> Result<pcbcraft_doc::PackageDef, String> {
+        crate::export_package::bundled_packages()
+            .iter()
+            .find(|d| d.id == "fab_complete")
+            .cloned()
+            .ok_or_else(|| "the complete fab package is bundled".to_string())
+    }
+
+    fn archive_of(out: &crate::export_package::PackageOutput) -> Result<&[u8], String> {
+        out.files
+            .first()
+            .map(|(_, bytes)| bytes.as_slice())
+            .ok_or_else(|| "the package wrote an archive".to_string())
+    }
+
+    #[test]
+    fn reads_back_the_bill_of_materials_a_package_wrote_under_its_own_name() -> Result<(), String> {
+        let mut project = board();
+        project.components.push(part(1, "R1"));
+        project.validate()?;
+        let out = crate::export_package::build_package(&project, &complete_fab()?, None)?;
+        let archive = archive_of(&out)?;
+        assert!(
+            package_stored_zip_entries(archive)?
+                .iter()
+                .any(|(name, _)| name.contains("-bom-") && name.ends_with(".csv")),
+            "the package names its bill after the project and revision"
+        );
+        let bom = previous_bom_from_package(archive)?
+            .ok_or("the reader finds the bill of materials in the package")?;
+        assert_eq!(
+            bom,
+            crate::bom_csv(&project, &[], None)?,
+            "the bill read back is the bill the package wrote"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn revision_notes_list_parts_added_and_removed_since_the_previous_package() -> Result<(), String>
+    {
+        let def = complete_fab()?;
+        let mut before = board();
+        before.components.push(part(1, "R1"));
+        before.components.push(part(2, "C1"));
+        before.validate()?;
+        let first = crate::export_package::build_package(&before, &def, None)?;
+        let mut after = before.clone();
+        after.components.push(part(3, "R2"));
+        after.components.retain(|c| c.reference != "C1");
+        after.validate()?;
+        let notes_of = |out: &crate::export_package::PackageOutput| -> Result<String, String> {
+            package_stored_zip_entries(archive_of(out)?)?
+                .into_iter()
+                .find(|(name, _)| name.contains("-revision-notes-"))
+                .map(|(_, bytes)| String::from_utf8_lossy(&bytes).into_owned())
+                .ok_or_else(|| "the package holds revision notes".to_string())
+        };
+        let second = crate::export_package::build_package_with_previous(
+            &after,
+            &def,
+            None,
+            Some(archive_of(&first)?),
+        )?;
+        let notes = notes_of(&second)?;
+        assert!(notes.contains("Added parts: R2"), "notes: {notes}");
+        assert!(notes.contains("Removed parts: C1"), "notes: {notes}");
+        let alone = notes_of(&crate::export_package::build_package(&after, &def, None)?)?;
+        assert!(
+            alone.contains("(no previous export was supplied)"),
+            "without a previous package the notes say so: {alone}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn refuses_a_previous_package_that_is_not_a_package_zip() -> Result<(), String> {
+        let def = complete_fab()?;
+        let project = board();
+        let err = crate::export_package::build_package_with_previous(
+            &project,
+            &def,
+            None,
+            Some(b"this is not a zip"),
+        )
+        .err()
+        .ok_or("a file that is not a zip must be refused")?;
+        assert!(err.contains("no entries"), "the error says why: {err}");
+        let huge = vec![0u8; MAX_PREVIOUS_PACKAGE_BYTES + 1];
+        assert!(
+            previous_bom_from_package(&huge).is_err(),
+            "an archive over the size limit is refused"
+        );
         Ok(())
     }
 

@@ -10,6 +10,9 @@
 //! Local rules:
 //! - A package that is not available (a writer is still a stub) refuses with its reasons
 //!   and writes nothing.
+//! - `previous` names an earlier package ZIP on disk. It is read before anything is built,
+//!   at most `MAX_PREVIOUS_PACKAGE_BYTES`; one that is missing, too large or not a package
+//!   ZIP refuses the command and writes nothing. A program path never opens a dialog.
 //! - A project package may not reuse a bundled id; duplicate a bundled one under a new id.
 //!
 //! # Dependencies
@@ -21,8 +24,8 @@
 //! - Render files here; call `build_package`.
 use super::*;
 use pcbcraft_io::{
-    GeneratedOutput, PackageOutput, availability, build_package, bundled_packages, find_package,
-    output_hash,
+    GeneratedOutput, MAX_PREVIOUS_PACKAGE_BYTES, PackageOutput, availability,
+    build_package_with_previous, bundled_packages, find_package, output_hash,
 };
 use std::path::Path;
 
@@ -56,9 +59,9 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         },
         CommandSpec {
             id: "package.export",
-            description: "Write one export package under a directory: a ZIP, a folder with manifest.json, or a single file, named from the package's templates. Give the package by id (bundled or saved in the project) or inline as a record. Runs each content through the existing writers; the archive is deterministic (manifest first, fixed stamps). Records the revision and content hash for a package given by id. Refuses a package whose writer is not written yet",
+            description: "Write one export package under a directory: a ZIP, a folder with manifest.json, or a single file, named from the package's templates. Give the package by id (bundled or saved in the project) or inline as a record. Runs each content through the existing writers; the archive is deterministic (manifest first, fixed stamps). Records the revision and content hash for a package given by id. Refuses a package whose writer is not written yet. An optional previous path names an earlier package ZIP; the revision notes then list the parts added and removed since it (at most 64 MiB, must be a package ZIP, else the command is refused and writes nothing)",
             input_schema: schema(
-                json!({"id":{"type":"string","minLength":1,"maxLength":32},"package":{"type":"object"},"directory":{"type":"string","minLength":1,"maxLength":4096},"variant":{"type":"string","minLength":1,"maxLength":64}}),
+                json!({"id":{"type":"string","minLength":1,"maxLength":32},"package":{"type":"object"},"directory":{"type":"string","minLength":1,"maxLength":4096},"variant":{"type":"string","minLength":1,"maxLength":64},"previous":{"type":"string","minLength":1,"maxLength":4096}}),
                 &["directory"],
             ),
         },
@@ -85,6 +88,8 @@ struct ExportParams {
     directory: String,
     #[serde(default)]
     variant: Option<String>,
+    #[serde(default)]
+    previous: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -224,7 +229,13 @@ pub(super) fn run(
                     ));
                 }
             };
-            let out = build_package(p, &def, a.variant.as_deref()).map_err(Error::Invalid)?;
+            let previous = match &a.previous {
+                Some(path) => Some(read_previous_package(path)?),
+                None => None,
+            };
+            let out =
+                build_package_with_previous(p, &def, a.variant.as_deref(), previous.as_deref())
+                    .map_err(Error::Invalid)?;
             for f in &out.files {
                 pcbcraft_io::validate_fabrication_package_file("", &f.0, &f.1)
                     .map_err(Error::Invalid)?;
@@ -251,6 +262,35 @@ pub(super) fn run(
         })(),
         _ => return None,
     })
+}
+
+/// Reads an earlier package ZIP for the revision notes.
+///
+/// # Rules
+/// - Refuses an empty or over-long path, a path that is not a file, and a file over
+///   `MAX_PREVIOUS_PACKAGE_BYTES`, before reading it.
+///
+/// # Do not
+/// - Open a dialog; the caller names the file.
+fn read_previous_package(path: &str) -> Result<Vec<u8>, Error> {
+    if path.is_empty() || path.len() > 4096 {
+        return Err(Error::Invalid(
+            "previous package path is out of range".into(),
+        ));
+    }
+    let meta = std::fs::metadata(path)
+        .map_err(|e| Error::Invalid(format!("previous package {path}: {e}")))?;
+    if !meta.is_file() {
+        return Err(Error::Invalid(format!(
+            "previous package {path} is not a file"
+        )));
+    }
+    if meta.len() > MAX_PREVIOUS_PACKAGE_BYTES as u64 {
+        return Err(Error::Invalid(format!(
+            "previous package {path} is over {MAX_PREVIOUS_PACKAGE_BYTES} bytes"
+        )));
+    }
+    std::fs::read(path).map_err(|e| Error::Invalid(format!("previous package {path}: {e}")))
 }
 
 /// Writes the built files under `directory` and returns the content hash.
@@ -302,6 +342,89 @@ mod tests {
             .as_str()
             .ok_or_else(|| Error::Invalid("missing hash in package.export result".into()))?;
         assert_eq!(hash.len(), 64, "hash must be a 64-character hex string");
+        Ok(())
+    }
+
+    fn zip_in(directory: &Path) -> Result<std::path::PathBuf, Error> {
+        std::fs::read_dir(directory)
+            .map_err(|e| Error::Invalid(e.to_string()))?
+            .filter_map(Result::ok)
+            .map(|e| e.path())
+            .find(|p| p.extension().is_some_and(|x| x == "zip"))
+            .ok_or_else(|| Error::Invalid("no zip was written".into()))
+    }
+
+    #[test]
+    fn export_with_a_previous_package_writes_notes_that_compare_with_it() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let base = std::env::temp_dir().join(format!("pcbcraft-pkg-prev-{}", std::process::id()));
+        let (first, second) = (base.join("first"), base.join("second"));
+        s.execute(
+            "package.export",
+            json!({"id": "fab_complete", "directory": first.to_string_lossy()}),
+            None,
+        )?;
+        let previous = zip_in(&first)?;
+        s.execute(
+            "package.export",
+            json!({
+                "id": "fab_complete",
+                "directory": second.to_string_lossy(),
+                "previous": previous.to_string_lossy()
+            }),
+            None,
+        )?;
+        let entries = pcbcraft_io::package_stored_zip_entries(
+            &std::fs::read(zip_in(&second)?).map_err(|e| Error::Invalid(e.to_string()))?,
+        )
+        .map_err(Error::Invalid)?;
+        let notes = entries
+            .iter()
+            .find(|(name, _)| name.contains("-revision-notes-"))
+            .map(|(_, bytes)| String::from_utf8_lossy(bytes).into_owned())
+            .ok_or_else(|| Error::Invalid("the package holds revision notes".into()))?;
+        assert!(
+            !notes.contains("no previous export was supplied"),
+            "the notes compare with the previous package: {notes}"
+        );
+        let _ = std::fs::remove_dir_all(&base);
+        Ok(())
+    }
+
+    #[test]
+    fn export_refuses_a_previous_file_that_is_not_a_package_and_changes_nothing()
+    -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let base = std::env::temp_dir().join(format!("pcbcraft-pkg-bad-{}", std::process::id()));
+        std::fs::create_dir_all(&base).map_err(|e| Error::Invalid(e.to_string()))?;
+        let bad = base.join("notes.zip");
+        std::fs::write(&bad, b"not a package").map_err(|e| Error::Invalid(e.to_string()))?;
+        let out = base.join("out");
+        let (runs, revision) = (s.project.package_runs.clone(), s.revision);
+        let refused = s.execute(
+            "package.export",
+            json!({
+                "id": "fab_complete",
+                "directory": out.to_string_lossy(),
+                "previous": bad.to_string_lossy()
+            }),
+            None,
+        );
+        assert!(refused.is_err(), "a file that is not a package is refused");
+        assert!(!out.exists(), "a refused export writes nothing");
+        assert_eq!(s.project.package_runs, runs, "no run is recorded");
+        assert_eq!(s.revision, revision, "the revision does not move");
+        let missing = s.execute(
+            "package.export",
+            json!({
+                "id": "fab_complete",
+                "directory": out.to_string_lossy(),
+                "previous": base.join("gone.zip").to_string_lossy()
+            }),
+            None,
+        );
+        assert!(missing.is_err(), "a missing previous package is refused");
+        let _ = std::fs::remove_dir_all(&base);
         Ok(())
     }
 }
