@@ -143,7 +143,6 @@ pub(crate) fn svg_path_d(p: &Project) -> String {
     d
 }
 
-#[allow(dead_code)]
 pub(crate) fn write_dxf_edge(w: &mut super::DxfWriter, p: &Project) -> Result<(), String> {
     let segs = segments(p);
     if segs.is_empty() {

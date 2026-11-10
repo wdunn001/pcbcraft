@@ -10260,7 +10260,6 @@ fn write_bound_field(p: &mut Project, object: Id, field: Field, value: f64) -> R
     Ok(())
 }
 
-#[allow(dead_code)]
 fn count_preserved_nodes(p: &Project) -> usize {
     let mut n = p.board.preserved.nodes.len();
     for f in &p.board.footprints {

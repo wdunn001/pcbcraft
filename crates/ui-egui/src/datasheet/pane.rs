@@ -56,7 +56,6 @@ impl Default for Pane {
 
 impl Pane {
     /// True while the reader window is open.
-    #[allow(dead_code)]
     pub(crate) fn is_open(&self) -> bool {
         self.open
     }
@@ -84,7 +83,6 @@ impl Pane {
     }
 
     /// Try to open a local `file://` PDF; returns true when the pane took the file.
-    #[allow(dead_code)]
     pub(crate) fn open_file_url(&mut self, url: &str, ctx: &Context) -> bool {
         let Some((name, bytes)) = super::read_file_url(url) else {
             return false;

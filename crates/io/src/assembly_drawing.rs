@@ -4,7 +4,6 @@ use pcbcraft_doc::{Layer, Project};
 use pcbcraft_library::Graphic;
 use std::collections::BTreeMap;
 
-#[allow(dead_code)]
 const PDF_MAX_OPS: usize = 20_000;
 
 mod labels {
@@ -55,7 +54,6 @@ pub fn draw(page: &mut impl DrawPage, p: &Project, view: &str) -> Result<(), Str
     draw_assembly(page, p, &options)
 }
 
-#[allow(dead_code)]
 pub fn drawing_svg(p: &Project, view: &str) -> Result<String, String> {
     p.validate()?;
     if !view_is_assembly(view) {
@@ -397,7 +395,6 @@ fn draw_assembly(
     Ok(())
 }
 
-#[allow(dead_code)]
 struct SvgPage {
     body: String,
     ops: usize,
@@ -406,7 +403,6 @@ struct SvgPage {
 }
 
 impl SvgPage {
-    #[allow(dead_code)]
     fn new() -> Self {
         Self {
             body: String::new(),
@@ -415,14 +411,12 @@ impl SvgPage {
             max: Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY),
         }
     }
-    #[allow(dead_code)]
     fn grow(&mut self, p: Point) {
         self.min.x = self.min.x.min(p.x);
         self.min.y = self.min.y.min(p.y);
         self.max.x = self.max.x.max(p.x);
         self.max.y = self.max.y.max(p.y);
     }
-    #[allow(dead_code)]
     fn rgb_hex(rgb: [f64; 3]) -> String {
         format!(
             "#{:02x}{:02x}{:02x}",
@@ -524,14 +518,12 @@ impl DrawPage for SvgPage {
     }
 }
 
-#[allow(dead_code)]
 fn svg_num(v: f64) -> String {
     let r = (v * 1000.0).round() / 1000.0;
     let r = if r == 0.0 { 0.0 } else { r };
     r.to_string()
 }
 
-#[allow(dead_code)]
 fn svg_escape(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -539,7 +531,6 @@ fn svg_escape(text: &str) -> String {
         .replace('"', "&quot;")
 }
 
-#[allow(dead_code)]
 fn svg_document(name: &str, box_min: Point, box_max: Point, body: String) -> String {
     let w = (box_max.x - box_min.x).max(1.0);
     let h = (box_max.y - box_min.y).max(1.0);
