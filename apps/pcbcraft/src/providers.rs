@@ -11,6 +11,7 @@
 //! - Every read and write is size-bounded.
 //!
 //! # Dependencies
+//! - apps/pcbcraft/src/distributor_http.rs
 //! - crates/library/src/http_client.rs
 //! - crates/library/src/credentials.rs
 //! - crates/mcp/src/project_host.rs
@@ -20,9 +21,11 @@
 //! - Do not call those crates from any other app file.
 
 use pcbcraft_library::credentials::{CredentialError, KeyStore};
+use crate::distributor_http::DistributorHttp;
 use pcbcraft_library::http_client::{HttpClient, HttpError, HttpRequest, HttpResponse};
-use std::collections::BTreeMap;
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 /// Largest file a provider will read or write.
 ///
@@ -130,126 +133,46 @@ impl NativeFs {
 
 /// Desktop HTTP client behind the shared HttpClient trait.
 ///
-/// Wraps ureq so the rest of the app talks to one stable interface.
+/// Wraps the existing distributor transport so the app keeps one HTTPS client
+/// with one set of limits.
 ///
 /// # Rules
-/// - One call in, one answer out.
-/// - Read the body in a capped loop.
-/// - Transport faults become plain sentences.
+/// - HTTPS only, allowlisted hosts, no redirects, capped reply, as the wrapped client enforces.
+/// - Offline mode answers before any socket is opened.
 ///
 /// # Dependencies
-/// - apps/pcbcraft/src/providers.rs `ureq`
+/// - apps/pcbcraft/src/distributor_http.rs
 ///
 /// # Do not
 /// - Do not open sockets in another app file.
 #[allow(dead_code)]
-#[derive(Debug)]
 pub struct UreqClient {
-    agent: ureq::Agent,
-}
-
-impl Default for UreqClient {
-    fn default() -> Self {
-        let agent = ureq::AgentBuilder::new()
-            .timeout(std::time::Duration::from_secs(30))
-            .redirects(5)
-            .build();
-        Self { agent }
-    }
+    inner: DistributorHttp,
 }
 
 impl UreqClient {
-    /// Build a new HTTP client.
-    ///
-    /// Creates a client with a 30 second timeout and at most 5 redirects.
-    /// This is shorthand for `UreqClient::default()`.
+    /// Build a client that stops when `offline` is set.
     ///
     /// # Rules
-    /// - No argument, no shared global agent.
+    /// - The flag is shared with the settings toggle.
     ///
     /// # Dependencies
-    /// - apps/pcbcraft/src/providers.rs `ureq`
+    /// - apps/pcbcraft/src/distributor_http.rs
     ///
     /// # Do not
-    /// - Do not reuse one client across threads by pointer without care.
-    pub fn new() -> Self {
-        Self::default()
+    /// - Do not build a second agent beside the wrapped one.
+    #[allow(dead_code)]
+    pub fn new(offline: Arc<AtomicBool>) -> Self {
+        Self {
+            inner: DistributorHttp::new(offline),
+        }
     }
 }
 
 /// Contract: crates/library/src/http_client.rs
 impl HttpClient for UreqClient {
-    /// Send an HTTP request and return the response.
-    ///
-    /// # Rules
-    /// - Read the body in a capped loop.
-    /// - Map transport errors to plain sentences.
-    ///
-    /// # Dependencies
-    /// - apps/pcbcraft/src/providers.rs `ureq`
-    ///
-    /// # Do not
-    /// - Do not call from a shared crate.
     fn call(&self, request: &HttpRequest) -> Result<HttpResponse, HttpError> {
-        let mut req = self.agent.request(&request.method, &request.url);
-        for (name, value) in &request.headers {
-            req = req.set(name, value);
-        }
-        let sent = if request.method == "GET" || request.body.is_empty() {
-            req.call()
-        } else {
-            req.send(request.body.as_slice())
-        };
-        let response = match sent {
-            Ok(r) => r,
-            Err(ureq::Error::Status(_, r)) => r,
-            Err(e @ ureq::Error::Transport(_)) => {
-                return Err(HttpError::Failed(transport_note(&e)));
-            }
-        };
-        let mut headers = BTreeMap::new();
-        for name in response.headers_names() {
-            if let Some(value) = response.header(&name) {
-                headers.insert(name, value.to_string());
-            }
-        }
-        let status = response.status();
-        let body = read_capped(response.into_reader(), MAX_FILE_BYTES)?;
-        Ok(HttpResponse {
-            status,
-            headers,
-            body,
-        })
-    }
-}
-
-fn read_capped(mut reader: impl std::io::Read, max: usize) -> Result<Vec<u8>, HttpError> {
-    let mut bytes = Vec::new();
-    let mut buf = [0u8; 8192];
-    loop {
-        let n = reader
-            .read(&mut buf)
-            .map_err(|e| HttpError::Failed(format!("could not read the response: {e}")))?;
-        if n == 0 {
-            break;
-        }
-        bytes.extend_from_slice(&buf[..n]);
-        if bytes.len() > max {
-            return Err(HttpError::Failed("the download is too large".into()));
-        }
-    }
-    Ok(bytes)
-}
-
-fn transport_note(e: &ureq::Error) -> String {
-    match e {
-        ureq::Error::Transport(t) => match t.kind() {
-            ureq::ErrorKind::Dns => "The address could not be found.".into(),
-            ureq::ErrorKind::ConnectionFailed => "The server did not answer.".into(),
-            ureq::ErrorKind::Io => "The connection broke or timed out.".into(),
-            _ => "The network did not answer.".into(),
-        },
-        ureq::Error::Status(code, _) => format!("The server answered {code}."),
+        self.inner.call(request)
     }
 }
 
