@@ -3478,7 +3478,7 @@ fn gerber_files_core(
     // stored in millimetres, so every written value is rescaled here.
     let inch = p.unit == "inch";
     let scale = if inch { 1.0 / 25.4 } else { 1.0 };
-#[allow(dead_code)]
+    #[allow(dead_code)]
     #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
     enum Ap {
         Circle(u64),
