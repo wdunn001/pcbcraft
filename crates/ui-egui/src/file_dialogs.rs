@@ -16,12 +16,14 @@
 //! - crates/ui-egui/src/bom_export.rs (rows, text, summary)
 //! - crates/ui-egui/src/lib.rs (`App::tool_call`, `run`, `make_directory`)
 //! - crates/ui-egui/src/editing.rs (`EditState::dialog`)
+//! - crates/ui-egui/src/path_chooser.rs (the Previous package picker opens it)
 //!
 //! # Do not
 //! - Add a File menu item for one format; mark the registry row `common` instead.
 //! - Invent packages; `packages()` reads the bundled records from the io crate.
 use crate::App;
 use crate::bom_export;
+use crate::ui_kit::button::{self, Size};
 use pcbcraft_doc::{BOM_EXCLUDE_FIELD, Id, PackageDef, Project};
 use pcbcraft_io::formats::{self, Direction, FormatSpec, OptionKind, OptionSpec, Run, Scope};
 use pcbcraft_text::t;
@@ -188,6 +190,10 @@ pub(crate) struct DialogState {
     pub package_pick: String,
     /// Name for a duplicate package the user is creating.
     pub package_name: String,
+    /// Earlier package ZIP the revision notes compare with; empty for none.
+    pub previous_package: String,
+    /// Set for a frame when the user pressed the Previous package button.
+    pub choose_previous: bool,
     /// (source_id, new_id, name) when the user clicked Duplicate.
     pub duplicate: Option<(String, String, String)>,
     pub values: BTreeMap<String, String>,
@@ -317,6 +323,7 @@ impl App {
         d.mode = mode;
         d.only = only;
         d.preview_open = false;
+        d.previous_package.clear();
         d.format = chosen.map(|f| f.id.to_owned()).unwrap_or_default();
         d.values = values.or(fresh).unwrap_or_default();
         d.path = path;
@@ -545,6 +552,10 @@ impl App {
                                                 }
                                             }
                                         }
+                                        if !browser {
+                                            ui.add_space(8.0);
+                                            previous_package_row(ui, &mut d, muted);
+                                        }
                                         ui.add_space(8.0);
                                         ui.horizontal(|ui| {
                                             let tip = t!("export.package.name.tip");
@@ -619,9 +630,16 @@ impl App {
             d.package_name = String::new();
             self.message = t!("export.package.duplicated");
         }
+        if std::mem::take(&mut d.choose_previous) {
+            self.open_chooser(crate::path_chooser::Purpose::PreviousPackage);
+        }
         if !d.package.is_empty() {
             let id = std::mem::take(&mut d.package);
-            if self.tool_call("package.export", json!({"id": id, "directory": make_dir})) {
+            let mut params = json!({"id": id, "directory": make_dir});
+            if !d.previous_package.is_empty() {
+                params["previous"] = json!(d.previous_package);
+            }
+            if self.tool_call("package.export", params) {
                 close = true;
             }
         }
@@ -1059,6 +1077,62 @@ fn format_list(ui: &mut egui::Ui, d: &mut DialogState, project: &Project, muted:
             }
         }
     }
+}
+
+/// The Previous package picker of a package's page: the button that opens the chooser, the
+/// name of the package picked, and a button that forgets it.
+///
+/// Why: the revision notes can only list what changed when they know the earlier package.
+///
+/// # Rules
+/// - Pressing the picker only sets `choose_previous`; the caller opens the chooser, so this
+///   function never reads a file.
+///
+/// # Dependencies
+/// - crates/ui-egui/src/path_chooser.rs (`Purpose::PreviousPackage`)
+/// - crates/text/strings/en.txt (`export.package.previous*`)
+///
+/// # Do not
+/// - Read or list files here; the engine reads the package when it exports.
+fn previous_package_row(ui: &mut egui::Ui, d: &mut DialogState, muted: egui::Color32) {
+    let tip = t!("export.package.previous.tip");
+    ui.horizontal(|ui| {
+        if button::secondary_button(
+            ui,
+            None,
+            &t!("export.package.previous"),
+            &tip,
+            Size::Small,
+            true,
+        )
+        .clicked()
+        {
+            d.choose_previous = true;
+        }
+        let shown = if d.previous_package.is_empty() {
+            t!("export.package.previous.none")
+        } else {
+            std::path::Path::new(&d.previous_package)
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| d.previous_package.clone())
+        };
+        ui.label(crate::fonts::caption(shown).color(muted))
+            .on_hover_text(tip.as_str());
+        if !d.previous_package.is_empty()
+            && button::secondary_button(
+                ui,
+                None,
+                &t!("export.package.previous.clear"),
+                &t!("export.package.previous.clear.tip"),
+                Size::Small,
+                true,
+            )
+            .clicked()
+        {
+            d.previous_package.clear();
+        }
+    });
 }
 
 /// The right column: tip, options, destination, preview and the action button.
