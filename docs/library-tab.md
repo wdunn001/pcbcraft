@@ -91,6 +91,19 @@ secret field is masked.
 - The card is drawn by `crates/ui-egui/src/distributors.rs`. The desktop app gives the window its
   HTTPS client and key store in `apps/pcbcraft/src/distributor_http.rs`.
 
+## Searching Digi-Key
+
+With a key stored, the part search in the dock also asks Digi-Key. Its cards are listed first and
+name Digi-Key as their source, with stock and the first price break.
+
+- With no key stored the dock builds no Digi-Key source and shows no error.
+- Answers are kept for the source's cache window, so the same words do not ask again. The source's
+  own pacing applies, and a pause the distributor asks for is shown in plain words.
+- The Offline switch stops Digi-Key requests and the dock says so.
+- A Digi-Key card lists stock and price. It has no symbol or footprint, so clicking it places nothing.
+- The sources are built by `configured_sources` in `crates/ui-egui/src/distributors.rs`, which is
+  where the other distributors join the list.
+
 ## Not built yet
 
 - Rendering the datasheet PDF in the app (page navigation, zoom, search, selectable text).

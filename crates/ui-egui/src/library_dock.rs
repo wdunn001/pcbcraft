@@ -1241,7 +1241,9 @@ impl App {
                 }
             }
             Card::Online(p, credit) => {
-                if !self.dock.online.contains_key(&p.sku)
+                let from_open = p.source == pcbcraft_library::open_library::SOURCE_NAME;
+                if from_open
+                    && !self.dock.online.contains_key(&p.sku)
                     && self.dock.online_request.is_none()
                     && let Some(source) = self.part_sources.open()
                 {
@@ -1291,13 +1293,15 @@ impl App {
                 CardFacts {
                     name: p.mpn.clone(),
                     what: own.unwrap_or_else(|| {
-                        if def.is_some() || self.dock.online.contains_key(&p.sku) {
+                        if !from_open {
+                            p.description.clone()
+                        } else if def.is_some() || self.dock.online.contains_key(&p.sku) {
                             String::new()
                         } else {
                             t!("library.dock.loading")
                         }
                     }),
-                    source: if licence_name.is_empty() {
+                    source: if !from_open || licence_name.is_empty() {
                         p.source.clone()
                     } else {
                         format!("{} \u{b7} {licence_name}", p.source)
@@ -2297,6 +2301,10 @@ impl App {
         at: Point,
         sheet: Option<Id>,
     ) {
+        if part.source != pcbcraft_library::open_library::SOURCE_NAME {
+            self.message = t!("library.dock.distributor_no_cad", source = part.source);
+            return;
+        }
         let Some(source) = self.part_sources.open() else {
             self.message = t!("library.dock.online_off");
             return;
