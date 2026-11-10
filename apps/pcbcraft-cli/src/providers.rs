@@ -103,6 +103,35 @@ impl NativeFs {
             .map_err(|e| format!("could not remove {}: {e}", path.display()))?;
         Ok(())
     }
+
+    /// Create a directory and any missing parents.
+    ///
+    /// # Rules
+    /// Returns the plain system error text on failure.
+    ///
+    /// # Dependencies
+    /// std::fs only, see this file.
+    ///
+    /// # Do not
+    /// Do not use to create files.
+    pub fn create_dir_all(&self, path: &Path) -> Result<(), String> {
+        std::fs::create_dir_all(path).map_err(|e| e.to_string())
+    }
+
+    /// Say whether a directory holds no entries.
+    ///
+    /// # Rules
+    /// Returns the plain system error text when the directory cannot be listed.
+    ///
+    /// # Dependencies
+    /// std::fs only, see this file.
+    ///
+    /// # Do not
+    /// Do not use to count entries.
+    pub fn dir_is_empty(&self, path: &Path) -> Result<bool, String> {
+        let mut entries = std::fs::read_dir(path).map_err(|e| e.to_string())?;
+        Ok(entries.next().is_none())
+    }
 }
 
 #[cfg(test)]

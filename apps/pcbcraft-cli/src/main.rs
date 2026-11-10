@@ -3,8 +3,8 @@ use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
 /// The command line tool's native file provider: the only place this crate
-/// touches std::fs. Saves go through a temp file and a rename. The call
-/// sites move onto it in follow-up work, so nothing here is called yet.
+/// touches std::fs. Saves go through a temp file and a rename. Project
+/// scaffolding uses it already; the other methods wait for their call sites.
 #[allow(dead_code)]
 mod providers;
 
@@ -56,8 +56,7 @@ fn init_project_directory(dir: &Path, name: Option<&str>, force: bool) -> Result
             return Err(format!("{} is not a directory", dir.display()));
         }
         if !force {
-            let mut entries = std::fs::read_dir(dir).map_err(|e| e.to_string())?;
-            if entries.next().is_some() {
+            if !providers::NativeFs.dir_is_empty(dir)? {
                 return Err(format!(
                     "{} is not empty; pass --force to scaffold anyway",
                     dir.display()
@@ -65,7 +64,7 @@ fn init_project_directory(dir: &Path, name: Option<&str>, force: bool) -> Result
             }
         }
     } else {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        providers::NativeFs.create_dir_all(dir)?;
     }
     let design = dir.join("design.pcbcraft");
     if design.exists() && !force {
