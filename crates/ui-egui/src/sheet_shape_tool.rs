@@ -27,6 +27,10 @@ pub(crate) enum SheetShapeKind {
     Rect,
     /// A circle defined by its centre and the radius (the distance to the second click).
     Circle,
+    /// An arc through three points: start, a point on the curve, end.
+    Arc,
+    /// A closed outline from placed vertices.
+    Polygon,
 }
 
 impl SheetShapeKind {
@@ -42,6 +46,8 @@ impl SheetShapeKind {
             SheetShapeKind::Line => "line",
             SheetShapeKind::Rect => "rect",
             SheetShapeKind::Circle => "circle",
+            SheetShapeKind::Arc => "arc",
+            SheetShapeKind::Polygon => "polygon",
         }
     }
 
@@ -51,6 +57,8 @@ impl SheetShapeKind {
             SheetShapeKind::Line => t!("schematic.shape.line"),
             SheetShapeKind::Rect => t!("schematic.shape.rect"),
             SheetShapeKind::Circle => t!("schematic.shape.circle"),
+            SheetShapeKind::Arc => t!("schematic.shape.arc"),
+            SheetShapeKind::Polygon => t!("schematic.shape.polygon"),
         }
     }
 }
@@ -62,37 +70,91 @@ impl App {
     /// - The first click stores the snapped start point.
     /// - The second click places the shape and clears the start.
     /// - A circle's second click defines the radius.
+    /// - An arc places on its third click.
+    /// - A polygon closes when a click lands within 0.5 mm of the first vertex
+    ///   and at least three vertices are known.
     ///
     /// # Dependencies
     /// - crates/engine/src/lib.rs (`graphic.add`: line and rect take two points,
     ///   circle takes one point plus width as the radius)
     pub(crate) fn sheet_shape_click(&mut self, kind: SheetShapeKind, pos: Point) {
         let snapped = snap(pos);
-        match self.sheet_shape_start {
-            None => {
-                self.sheet_shape_start = Some(snapped);
-            }
-            Some(start) => {
-                let shape = kind.shape_string().to_owned();
-                let params = match kind {
-                    SheetShapeKind::Circle => {
-                        let radius = snapped.distance(start).max(0.1);
-                        json!({
-                            "layer": "schematic",
-                            "shape": shape,
-                            "points": [start],
-                            "width": radius,
-                        })
+        match kind {
+            SheetShapeKind::Line | SheetShapeKind::Rect | SheetShapeKind::Circle => {
+                match self.sheet_shape_start {
+                    None => {
+                        self.sheet_shape_start = Some(snapped);
                     }
-                    _ => json!({
-                        "layer": "schematic",
-                        "shape": shape,
-                        "points": [start, snapped],
-                    }),
-                };
-                self.run("graphic.add", params);
-                self.sheet_shape_start = None;
+                    Some(start) => {
+                        let shape = kind.shape_string().to_owned();
+                        let params = match kind {
+                            SheetShapeKind::Circle => {
+                                let radius = snapped.distance(start).max(0.1);
+                                json!({
+                                    "layer": "schematic",
+                                    "shape": shape,
+                                    "points": [start],
+                                    "width": radius,
+                                })
+                            }
+                            _ => json!({
+                                "layer": "schematic",
+                                "shape": shape,
+                                "points": [start, snapped],
+                            }),
+                        };
+                        self.run("graphic.add", params);
+                        self.sheet_shape_start = None;
+                    }
+                }
             }
+            SheetShapeKind::Arc => match self.sheet_shape_start {
+                None => {
+                    self.sheet_shape_start = Some(snapped);
+                }
+                Some(start) => {
+                    if self.sheet_shape_points.is_empty() {
+                        self.sheet_shape_points.push(snapped);
+                    } else {
+                        let mid = self.sheet_shape_points.first().cloned().unwrap_or(snapped);
+                        self.run(
+                            "graphic.add",
+                            json!({
+                                "layer": "schematic",
+                                "shape": "arc",
+                                "points": [start, mid, snapped],
+                            }),
+                        );
+                        self.sheet_shape_start = None;
+                        self.sheet_shape_points.clear();
+                    }
+                }
+            },
+            SheetShapeKind::Polygon => match self.sheet_shape_start {
+                None => {
+                    self.sheet_shape_start = Some(snapped);
+                }
+                Some(start) => {
+                    let can_close =
+                        self.sheet_shape_points.len() >= 2 && snapped.distance(start) <= 0.5;
+                    if can_close {
+                        let mut points = vec![start];
+                        points.extend(self.sheet_shape_points.iter().cloned());
+                        self.run(
+                            "graphic.add",
+                            json!({
+                                "layer": "schematic",
+                                "shape": "polygon",
+                                "points": points,
+                            }),
+                        );
+                        self.sheet_shape_start = None;
+                        self.sheet_shape_points.clear();
+                    } else if self.sheet_shape_points.len() < 64 {
+                        self.sheet_shape_points.push(snapped);
+                    }
+                }
+            },
         }
     }
 }
@@ -113,5 +175,17 @@ mod tests {
         assert!(!SheetShapeKind::Line.name().is_empty());
         assert!(!SheetShapeKind::Rect.name().is_empty());
         assert!(!SheetShapeKind::Circle.name().is_empty());
+    }
+
+    #[test]
+    fn shape_kind_arc_and_polygon_map_to_engine_strings() {
+        assert_eq!(SheetShapeKind::Arc.shape_string(), "arc");
+        assert_eq!(SheetShapeKind::Polygon.shape_string(), "polygon");
+    }
+
+    #[test]
+    fn shape_kind_arc_and_polygon_names_are_not_empty() {
+        assert!(!SheetShapeKind::Arc.name().is_empty());
+        assert!(!SheetShapeKind::Polygon.name().is_empty());
     }
 }
