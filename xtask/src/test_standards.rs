@@ -25,7 +25,6 @@ use std::path::Path;
 
 /// Tokens that make a test depend on the wall clock, the network or the
 /// person's real folders.
-#[allow(dead_code)]
 const DENY: [(&str, &str); 14] = [
     ("Instant::now", "clock"),
     ("SystemTime::now", "clock"),
@@ -45,7 +44,6 @@ const DENY: [(&str, &str); 14] = [
 
 /// One reported problem.
 #[derive(Debug, Clone, PartialEq)]
-#[allow(dead_code)]
 pub struct Finding {
     pub rule: &'static str,
     pub path: String,
@@ -54,7 +52,6 @@ pub struct Finding {
 }
 
 /// True for files that hold only test code.
-#[allow(dead_code)]
 pub fn is_test_file(path: &str) -> bool {
     path.contains("/tests/")
         || path.contains("/src/e2e/")
@@ -64,7 +61,6 @@ pub fn is_test_file(path: &str) -> bool {
 }
 
 /// Checks one file's text. `path` is relative to the repository root.
-#[allow(dead_code)]
 pub fn scan(path: &str, source: &str) -> Vec<Finding> {
     let lines: Vec<&str> = source.lines().collect();
     let ranges = test_module_ranges(source);
@@ -134,7 +130,6 @@ pub fn scan(path: &str, source: &str) -> Vec<Finding> {
 }
 
 /// Counts findings per `(rule, path)`.
-#[allow(dead_code)]
 pub fn counts(findings: &[Finding]) -> BTreeMap<(String, String), u32> {
     let mut map = BTreeMap::new();
     for f in findings {
@@ -144,7 +139,6 @@ pub fn counts(findings: &[Finding]) -> BTreeMap<(String, String), u32> {
 }
 
 /// Parses the baseline: `rule | path | count` per line, `#` comments allowed.
-#[allow(dead_code)]
 pub fn parse_baseline(text: &str) -> Result<BTreeMap<(String, String), u32>, String> {
     let mut map = BTreeMap::new();
     for (n, line) in text.lines().enumerate() {
@@ -165,7 +159,6 @@ pub fn parse_baseline(text: &str) -> Result<BTreeMap<(String, String), u32>, Str
 }
 
 /// Writes the baseline text for the ratcheted rules.
-#[allow(dead_code)]
 pub fn baseline_text(findings: &[Finding]) -> String {
     let mut out = String::from(
         "# Existing breaches of docs/testing-standard.md. A count may fall, never rise.\n# rule | file | count\n",
@@ -179,7 +172,6 @@ pub fn baseline_text(findings: &[Finding]) -> String {
 }
 
 /// Problems that are not covered by the baseline.
-#[allow(dead_code)]
 pub fn judge(findings: &[Finding], baseline: &BTreeMap<(String, String), u32>) -> Vec<String> {
     let mut problems = Vec::new();
     let now = counts(findings);
@@ -213,7 +205,6 @@ pub fn judge(findings: &[Finding], baseline: &BTreeMap<(String, String), u32>) -
 }
 
 /// Collects `.rs` files below `dir` as paths relative to `root`.
-#[allow(dead_code)]
 fn files(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), String> {
     for entry in std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
         let path = entry.map_err(|e| e.to_string())?.path();
@@ -232,7 +223,6 @@ fn files(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), String> {
 }
 
 /// `cargo xtask test-standards [--bless]`.
-#[allow(dead_code)]
 pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
     let mut paths = Vec::new();
     for top in ["crates", "apps"] {
