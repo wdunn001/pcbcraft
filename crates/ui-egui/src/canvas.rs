@@ -142,6 +142,28 @@ pub(crate) fn selection_bounds(project: &Project, id: Id) -> Option<(Point, Poin
 
 /// The world rectangle each tab should show by default: the board outline on
 /// the PCB tab, the whole drawing sheet on the schematic tab.
+/// Points in from each canvas edge where a held drag starts scrolling.
+pub(crate) const EDGE_BAND: f32 = 40.0;
+/// Points per second the view scrolls with the pointer at the very edge.
+pub(crate) const EDGE_SCROLL_SPEED: f32 = 900.0;
+
+/// How far a pointer at `at` has pushed into the scroll band of `rect`.
+///
+/// Each axis runs from -1 at the near edge to 1 at the far edge, and is 0
+/// through the middle of the canvas. The ramp is linear across the band, so a
+/// small overshoot creeps and a firm one moves. A pointer dragged off the
+/// panel reads as a full push rather than stopping.
+///
+/// # Do not
+/// - Scale this by zoom. The band is a screen distance, same at every zoom.
+pub(crate) fn edge_push(rect: Rect, at: Pos2) -> Vec2 {
+    let ramp = |gap: f32| (1.0 - gap / EDGE_BAND).clamp(0.0, 1.0);
+    Vec2::new(
+        ramp(rect.right() - at.x) - ramp(at.x - rect.left()),
+        ramp(rect.bottom() - at.y) - ramp(at.y - rect.top()),
+    )
+}
+
 pub(crate) fn view_bounds(project: &Project, pcb: bool, page: Id) -> (Point, Point) {
     if !pcb {
         return sheet::sheet_bounds(project, page);
@@ -670,6 +692,21 @@ impl App {
             let d = ui.input(|i| i.pointer.delta());
             ui.ctx().data_mut(|d| d.remove_temp::<(i32, i32)>(fit_key));
             camera.pan_screen(d);
+        }
+        // A primary-button drag held against an edge scrolls the view, so a
+        // selection box, a part or a track end can be taken past what is
+        // already on screen. This runs before `cursor` is read, so the gesture
+        // below sees the pointer over the board the scroll just revealed.
+        if response.dragged_by(egui::PointerButton::Primary)
+            && let Some(at) = ui.input(|i| i.pointer.latest_pos())
+        {
+            let dt = ui.input(|i| i.stable_dt);
+            if self.edge_scroll(&mut camera, rect, at, dt) {
+                ui.ctx().data_mut(|d| d.remove_temp::<(i32, i32)>(fit_key));
+                // The pointer may be held still, which sends no further
+                // events, so the next frame has to be asked for.
+                ui.ctx().request_repaint();
+            }
         }
         if space_pan && response.contains_pointer() {
             let dragging = ui.input(|i| i.pointer.primary_down());
@@ -1669,6 +1706,43 @@ impl App {
             crate::fonts::Role::Mono.font(),
             Color32::from_rgb(230, 70, 70),
         );
+    }
+
+    /// Scroll the view while a drag is held against an edge of the canvas.
+    ///
+    /// Returns whether the camera moved, which is also whether the next frame
+    /// has to be asked for so a pointer held still keeps scrolling.
+    ///
+    /// # Rules
+    /// - Speed follows `edge_push`, so it rises with the depth into the band.
+    /// - The centre stays inside what is drawn, so the view cannot run away
+    ///   past the board.
+    ///
+    /// # Dependencies
+    /// - crates/ui-egui/src/canvas.rs (`edge_push`, `view_bounds`)
+    /// - crates/ui-egui/src/lib.rs (`Camera::pan_screen` for the orientation)
+    ///
+    /// # Do not
+    /// - Call this for a hover. Only a held drag scrolls.
+    pub(crate) fn edge_scroll(&self, camera: &mut Camera, rect: Rect, at: Pos2, dt: f32) -> bool {
+        let push = edge_push(rect, at);
+        if push == Vec2::ZERO || dt <= 0.0 {
+            return false;
+        }
+        // A long frame would jump the view, so the step is capped.
+        let step = dt.clamp(0.0, 0.05) * EDGE_SCROLL_SPEED;
+        let before = camera.center;
+        camera.pan_screen(-push * step);
+        let (lo, hi) = view_bounds(
+            &self.sheet_view(),
+            self.tab == Tab::Pcb,
+            self.schematic_page(),
+        );
+        camera.center = Point::new(
+            camera.center.x.clamp(lo.x.min(hi.x), lo.x.max(hi.x)),
+            camera.center.y.clamp(lo.y.min(hi.y), lo.y.max(hi.y)),
+        );
+        camera.center.distance(before) > 1e-9
     }
 
     pub(super) fn pick_via(&self, pos: Point, zoom: f32) -> Option<Id> {
@@ -3181,6 +3255,89 @@ mod library_render_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_scroll_band_only_bites_near_an_edge() {
+        let rect = Rect::from_min_size(Pos2::new(100.0, 50.0), Vec2::new(800.0, 600.0));
+        assert_eq!(
+            edge_push(rect, rect.center()),
+            Vec2::ZERO,
+            "the middle of the canvas does not scroll"
+        );
+        let inside = edge_push(
+            rect,
+            Pos2::new(rect.right() - EDGE_BAND - 1.0, rect.center().y),
+        );
+        assert_eq!(inside, Vec2::ZERO, "just inside the band is still still");
+
+        // Depth into the band sets the speed, so a small overshoot creeps.
+        let little = edge_push(
+            rect,
+            Pos2::new(rect.right() - EDGE_BAND * 0.75, rect.center().y),
+        );
+        let lots = edge_push(
+            rect,
+            Pos2::new(rect.right() - EDGE_BAND * 0.25, rect.center().y),
+        );
+        assert!(
+            little.x > 0.0 && lots.x > little.x,
+            "deeper pushes harder: {little:?} then {lots:?}"
+        );
+        assert!(
+            (edge_push(rect, Pos2::new(rect.right() + 200.0, rect.center().y)).x - 1.0).abs()
+                < 1e-6,
+            "dragged off the panel is a full push, not a stop"
+        );
+        // Opposite edges push opposite ways, and corners push both axes.
+        assert!(edge_push(rect, Pos2::new(rect.left(), rect.center().y)).x < 0.0);
+        assert!(edge_push(rect, Pos2::new(rect.center().x, rect.top())).y < 0.0);
+        let corner = edge_push(rect, rect.min);
+        assert!(corner.x < 0.0 && corner.y < 0.0, "a corner takes both");
+    }
+
+    #[test]
+    fn a_drag_held_at_the_edge_scrolls_the_view_and_stops_at_the_board() {
+        let mut app = App::create(
+            pcbcraft_mcp::shared(pcbcraft_engine::Session::default()),
+            Preferences::default(),
+            None,
+            None,
+        );
+        app.refresh();
+        app.tool_call("sample_design", serde_json::json!({}));
+        app.tab = Tab::Pcb;
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        let (lo, hi) = view_bounds(&app.sheet_view(), true, 0);
+        let mut camera = fit_camera(lo, hi, (rect.width(), rect.height()));
+        camera.center = Point::new((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
+
+        let start = camera.center;
+        let at = Pos2::new(rect.right() - 2.0, rect.center().y);
+        assert!(
+            app.edge_scroll(&mut camera, rect, at, 1.0 / 60.0),
+            "a drag at the edge moves the view"
+        );
+        assert!(
+            camera.center.x > start.x,
+            "the view follows the pointer outward: {start:?} then {:?}",
+            camera.center
+        );
+        assert!(
+            !app.edge_scroll(&mut camera, rect, rect.center(), 1.0 / 60.0),
+            "back inside the canvas it stops"
+        );
+
+        // Held against the edge it keeps going, then stops at the drawn edge
+        // rather than running away.
+        for _ in 0..600 {
+            app.edge_scroll(&mut camera, rect, at, 1.0 / 60.0);
+        }
+        assert!(
+            camera.center.x <= hi.x.max(lo.x) + 1e-6,
+            "the centre stays inside what is drawn: {:?} against {hi:?}",
+            camera.center
+        );
+    }
 
     #[test]
     fn a_fresh_view_frames_the_whole_board_instead_of_a_corner_of_it() -> Result<(), String> {

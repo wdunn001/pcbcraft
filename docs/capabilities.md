@@ -8,7 +8,10 @@ Short inventory of behaviour on fork `main`. Open gaps are in
 
 One process, one window. Tabs: Schematic, PCB Layout, Libraries, Checks.
 Project browser and properties stay docked. Dark default, optional light theme,
-persistent accent and grid. Zoom about the cursor, middle-button pan. Periodic
+persistent accent and grid. Zoom about the cursor, middle-button pan. A drag
+held against an edge of the canvas scrolls the view that way. The speed rises
+with how far the pointer goes into the margin. A selection box, a part or a
+track end can therefore be taken past what is already on screen. Periodic
 project recovery, including on a normal close.
 
 ## Schematic
