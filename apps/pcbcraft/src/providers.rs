@@ -20,8 +20,8 @@
 //! - Keep no business logic here.
 //! - Do not call those crates from any other app file.
 
-use pcbcraft_library::credentials::{CredentialError, KeyStore};
 use crate::distributor_http::DistributorHttp;
+use pcbcraft_library::credentials::{CredentialError, KeyStore};
 use pcbcraft_library::http_client::{HttpClient, HttpError, HttpRequest, HttpResponse};
 use std::path::Path;
 use std::sync::Arc;
