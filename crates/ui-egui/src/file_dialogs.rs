@@ -512,6 +512,10 @@ impl App {
                                     if let Some(p) = pkg {
                                         ui.label(crate::fonts::title(&p.label));
                                         ui.label(egui::RichText::new(&p.tip).color(muted));
+                                        if !browser {
+                                            ui.add_space(8.0);
+                                            previous_package_row(ui, &mut d, muted);
+                                        }
                                         ui.add_space(8.0);
                                         ui.label(
                                             crate::fonts::caption(t!("export.package.files"))
@@ -551,10 +555,6 @@ impl App {
                                                         .on_hover_text(pair.1.clone());
                                                 }
                                             }
-                                        }
-                                        if !browser {
-                                            ui.add_space(8.0);
-                                            previous_package_row(ui, &mut d, muted);
                                         }
                                         ui.add_space(8.0);
                                         ui.horizontal(|ui| {
