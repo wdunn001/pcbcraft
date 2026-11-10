@@ -55,13 +55,11 @@ fn init_project_directory(dir: &Path, name: Option<&str>, force: bool) -> Result
         if !dir.is_dir() {
             return Err(format!("{} is not a directory", dir.display()));
         }
-        if !force {
-            if !providers::NativeFs.dir_is_empty(dir)? {
-                return Err(format!(
-                    "{} is not empty; pass --force to scaffold anyway",
-                    dir.display()
-                ));
-            }
+        if !force && !providers::NativeFs.dir_is_empty(dir)? {
+            return Err(format!(
+                "{} is not empty; pass --force to scaffold anyway",
+                dir.display()
+            ));
         }
     } else {
         providers::NativeFs.create_dir_all(dir)?;
