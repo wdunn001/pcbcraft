@@ -896,6 +896,126 @@ fn a_newcomer_draws_from_the_tool_strip() -> Result<(), String> {
     Ok(())
 }
 
+// A newcomer opens the Schematic page, arms the line tool, clicks twice to
+// draw a line, then arms the polygon tool, clicks four times to close a
+// triangle, and sees both shapes on the sheet.
+#[test]
+fn a_newcomer_draws_a_schematic_line_and_polygon() -> Result<(), String> {
+    use crate::sheet_shape_tool::SheetShapeKind;
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+    app.tab = Tab::Schematic;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let before = app
+        .project
+        .graphics
+        .iter()
+        .filter(|g| g.layer == "schematic")
+        .count();
+    app.tool = Tool::SheetShape(SheetShapeKind::Line);
+    app.sheet_shape_start = None;
+    app.sheet_shape_points.clear();
+    app.canvas_click(Point::new(10.0, 10.0), 10.0);
+    app.canvas_click(Point::new(14.0, 10.0), 10.0);
+    app.sheet_shape_points.clear();
+    app.tool = Tool::SheetShape(SheetShapeKind::Polygon);
+    app.canvas_click(Point::new(10.0, 20.0), 10.0);
+    app.canvas_click(Point::new(14.0, 20.0), 10.0);
+    app.canvas_click(Point::new(12.0, 24.0), 10.0);
+    app.canvas_click(Point::new(10.0, 20.0), 10.0);
+    app.refresh();
+    assert_eq!(
+        app.project
+            .graphics
+            .iter()
+            .filter(|g| g.layer == "schematic")
+            .count(),
+        before + 2,
+        "the newcomer sees a line and a closed polygon on the sheet: {}",
+        app.message
+    );
+    assert!(
+        app.project.graphics.iter().any(|g| g.layer == "schematic"
+            && g.shape == "line"
+            && g.outline().unwrap_or_default().len() == 2),
+        "the line graphic is on the sheet with two ends: {}",
+        app.message
+    );
+    assert!(
+        app.project.graphics.iter().any(|g| g.layer == "schematic"
+            && g.shape == "polygon"
+            && g.outline().unwrap_or_default().len() >= 3),
+        "the polygon graphic is on the sheet with at least three corners: {}",
+        app.message
+    );
+    let png = pcbcraft_io::preview_png(&app.project, "schematic")
+        .map_err(|e| format!("the schematic plot should succeed: {e}"))?;
+    assert!(
+        png.len() > 100
+            && png.first().copied() == Some(0x89)
+            && png.get(1).copied() == Some(b'P')
+            && png.get(2).copied() == Some(b'N')
+            && png.get(3).copied() == Some(b'G'),
+        "the plot of the sheet is a picture that shows the new shapes"
+    );
+    Ok(())
+}
+
+// A newcomer opens the Schematic page, arms the circle tool, clicks twice to
+// draw a 2 mm circle, then arms the arc tool, clicks three times to draw an
+// arc, and sees both shapes on the sheet.
+#[test]
+fn a_newcomer_draws_a_schematic_circle_and_arc() -> Result<(), String> {
+    use crate::sheet_shape_tool::SheetShapeKind;
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+    app.tab = Tab::Schematic;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.tool = Tool::SheetShape(SheetShapeKind::Circle);
+    app.sheet_shape_start = None;
+    app.sheet_shape_points.clear();
+    app.canvas_click(Point::new(30.0, 10.0), 10.0);
+    app.canvas_click(Point::new(32.0, 10.0), 10.0);
+    app.sheet_shape_points.clear();
+    app.tool = Tool::SheetShape(SheetShapeKind::Arc);
+    app.canvas_click(Point::new(30.0, 20.0), 10.0);
+    app.canvas_click(Point::new(31.0, 22.0), 10.0);
+    app.canvas_click(Point::new(32.0, 20.0), 10.0);
+    app.refresh();
+    assert!(
+        app.project
+            .graphics
+            .iter()
+            .any(|g| g.layer == "schematic" && g.shape == "circle"),
+        "the circle graphic is on the sheet: {}",
+        app.message
+    );
+    assert!(
+        app.project.graphics.iter().any(|g| g.layer == "schematic"
+            && g.shape == "arc"
+            && g.outline().unwrap_or_default().len() >= 2),
+        "the arc graphic is on the sheet with at least two ends: {}",
+        app.message
+    );
+    let png = pcbcraft_io::preview_png(&app.project, "schematic")
+        .map_err(|e| format!("the schematic plot should succeed: {e}"))?;
+    assert!(
+        png.len() > 100
+            && png.first().copied() == Some(0x89)
+            && png.get(1).copied() == Some(b'P')
+            && png.get(2).copied() == Some(b'N')
+            && png.get(3).copied() == Some(b'G'),
+        "the plot of the sheet is a picture that shows the new shapes"
+    );
+    Ok(())
+}
+
 #[test]
 fn a_newcomer_narrows_the_window_and_the_canvas_buttons_stay_inside() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());

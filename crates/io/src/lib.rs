@@ -365,6 +365,7 @@ pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 /// Load a project from a JSON file at the given path.
 /// # Rules
 /// - Validates the loaded project structure
+///
 /// # Do not
 /// - Call with paths to non-JSON files
 pub fn load(path: &Path) -> Result<Project, String> {
@@ -378,6 +379,7 @@ pub fn load(path: &Path) -> Result<Project, String> {
 /// - The caller validates; `Session::open_project` folds nets that share a
 ///   name first and then validates, because `Project::validate` refuses a
 ///   repeated net name.
+///
 /// # Do not
 /// - Hand the result to anything that assumes a valid project.
 pub fn load_for_open(path: &Path) -> Result<Project, String> {
@@ -389,8 +391,10 @@ pub fn load_for_open(path: &Path) -> Result<Project, String> {
 /// program opens from its text and never from a path.
 /// # Rules
 /// - The caller validates, exactly as for `load_for_open`.
+///
 /// # Dependencies
 /// - crates/io/src/lib.rs (`migrate_loaded_project`)
+///
 /// # Do not
 /// - Touch the file system here; this runs in the browser build.
 pub fn load_text_for_open(text: &str) -> Result<Project, String> {
@@ -8473,11 +8477,21 @@ pub fn footprint_library_text(
     Ok(out)
 }
 
-fn symbol_library_inner(symbol: &pcbcraft_library::SymbolDefinition) -> Result<String, String> {
+fn symbol_library_inner(
+    symbol: &pcbcraft_library::SymbolDefinition,
+    sibling_names: &[String],
+) -> Result<String, String> {
     symbol
         .validate()
         .map_err(|e| format!("symbol is invalid: {e}"))?;
     let mut out = format!("  (symbol {}\n", lib_text(&symbol.name));
+    if let Some(parent) = symbol.extends.as_deref()
+        && !parent.is_empty()
+        && parent != symbol.name.as_str()
+        && sibling_names.iter().any(|n| n == parent)
+    {
+        out.push_str(&format!("    (extends {})\n", lib_text(parent)));
+    }
     for (key, value) in [
         ("Reference", &symbol.reference),
         ("Value", &symbol.value),
@@ -8545,7 +8559,7 @@ fn symbol_library_inner(symbol: &pcbcraft_library::SymbolDefinition) -> Result<S
 /// same pins and artwork.
 pub fn symbol_library_text(symbol: &pcbcraft_library::SymbolDefinition) -> Result<String, String> {
     let mut out = String::from("(kicad_symbol_lib (version 20260206) (generator pcbcraft)\n");
-    out.push_str(&symbol_library_inner(symbol)?);
+    out.push_str(&symbol_library_inner(symbol, &[])?);
     out.push_str(")\n");
     if out.len() as u64 > MAX_FILE_BYTES {
         return Err("symbol library text exceeds the file size limit".into());
@@ -8571,9 +8585,10 @@ pub fn symbols_library_file_text(
     }
     let mut sorted = symbols.to_vec();
     sorted.sort_by(|a, b| a.name.cmp(&b.name));
+    let all_names: Vec<String> = sorted.iter().map(|s| s.name.clone()).collect();
     let mut out = String::from("(kicad_symbol_lib (version 20260206) (generator pcbcraft)\n");
     for symbol in &sorted {
-        out.push_str(&symbol_library_inner(symbol)?);
+        out.push_str(&symbol_library_inner(symbol, &all_names)?);
     }
     out.push_str(")\n");
     if out.len() as u64 > MAX_FILE_BYTES {
@@ -8673,6 +8688,22 @@ pub fn export_library_definitions(
         _ => Err("export kind must be symbol or footprint".into()),
     }
 }
+
+/// On wasm32 this shared export path reports that host filesystem writes
+/// are unavailable in the browser, which keeps the engine library.export
+/// command callable everywhere with one bounded, typed error instead of a
+/// second code path.
+///
+/// # Rules
+/// Returns an error naming the browser download plan, never panics, callers
+/// see the same error shape as the desktop variant.
+///
+/// # Dependencies
+/// Mirrors the desktop export_library_definitions above it in
+/// crates/io/src/lib.rs.
+///
+/// # Do not
+/// Do not attempt host file writes from wasm here.
 #[cfg(target_arch = "wasm32")]
 pub fn export_library_definitions(
     _library: &ProjectLibrary,

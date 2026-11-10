@@ -1000,6 +1000,39 @@ impl App {
                                 let radius = (b - a).length().max(1.0);
                                 painter.circle_stroke(a, radius, stroke);
                             }
+                            sheet_shape_tool::SheetShapeKind::Arc => {
+                                let mut pts = vec![a];
+                                pts.extend(
+                                    self.sheet_shape_points
+                                        .iter()
+                                        .map(|pt| camera.screen(*pt, rect)),
+                                );
+                                pts.push(b);
+                                for pair in pts.windows(2) {
+                                    if let (Some(p), Some(q)) = (pair.first(), pair.get(1)) {
+                                        painter.line_segment([*p, *q], stroke);
+                                    }
+                                }
+                            }
+                            sheet_shape_tool::SheetShapeKind::Polygon => {
+                                let mut pts = vec![a];
+                                pts.extend(
+                                    self.sheet_shape_points
+                                        .iter()
+                                        .map(|pt| camera.screen(*pt, rect)),
+                                );
+                                pts.push(b);
+                                for pair in pts.windows(2) {
+                                    if let (Some(p), Some(q)) = (pair.first(), pair.get(1)) {
+                                        painter.line_segment([*p, *q], stroke);
+                                    }
+                                }
+                                if pts.len() >= 3
+                                    && let (Some(p), Some(q)) = (pts.first(), pts.last())
+                                {
+                                    painter.line_segment([*p, *q], stroke);
+                                }
+                            }
                         }
                     }
                 }
