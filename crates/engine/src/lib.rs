@@ -47087,7 +47087,10 @@ mod tests {
             }],
             None,
         )?;
-        assert_eq!(s.revision, before, "a batch of previews must not edit the project");
+        assert_eq!(
+            s.revision, before,
+            "a batch of previews must not edit the project"
+        );
         assert!(batch["results"][0]["paths"].is_array());
         Ok(())
     }
