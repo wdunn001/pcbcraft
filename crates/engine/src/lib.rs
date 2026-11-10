@@ -6097,7 +6097,6 @@ struct HolePlaceParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-#[allow(dead_code)]
 struct FiducialPlaceParams {
     position: Point,
     diameter: f64,
@@ -6487,7 +6486,6 @@ struct ClassClearanceParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-#[allow(dead_code)]
 struct ClassSetParams {
     class: Id,
     #[serde(default)]
@@ -6838,7 +6836,6 @@ fn art_range(x: f64, y: f64) -> Result<(), Error> {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-#[allow(dead_code)]
 struct RuleAreaParams {
     #[serde(default)]
     name: Option<String>,
@@ -7210,7 +7207,6 @@ struct ItemsUpdateParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-#[allow(dead_code)]
 struct ItemFindParams {
     kind: String,
     #[serde(default)]
@@ -10260,7 +10256,6 @@ fn write_bound_field(p: &mut Project, object: Id, field: Field, value: f64) -> R
     Ok(())
 }
 
-#[allow(dead_code)]
 fn count_preserved_nodes(p: &Project) -> usize {
     let mut n = p.board.preserved.nodes.len();
     for f in &p.board.footprints {

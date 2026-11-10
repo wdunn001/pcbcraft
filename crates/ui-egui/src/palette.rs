@@ -55,7 +55,6 @@ pub(crate) struct CanvasColours {
 /// # Do not
 /// - Build one by hand outside `palette` and tests.
 #[derive(Clone, Copy, Debug)]
-#[allow(dead_code)]
 pub(crate) struct ThemeColours {
     pub dark: bool,
     pub accent: Color32,

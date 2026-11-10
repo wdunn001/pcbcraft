@@ -223,7 +223,6 @@ pub fn previous_bom_from_package(zip: &[u8]) -> Result<Option<String>, String> {
     Ok(None)
 }
 
-#[allow(dead_code)]
 fn csv_row_fields(line: &str) -> Vec<String> {
     let mut fields = Vec::new();
     let mut field = String::new();
@@ -255,7 +254,6 @@ fn csv_row_fields(line: &str) -> Vec<String> {
 }
 
 /// Designator references listed in a bill of materials CSV this crate writes.
-#[allow(dead_code)]
 pub fn bom_references_from_csv(csv: &str) -> Result<BTreeSet<String>, String> {
     let mut lines = csv.lines();
     let header = lines
@@ -285,7 +283,6 @@ pub fn bom_references_from_csv(csv: &str) -> Result<BTreeSet<String>, String> {
     Ok(refs)
 }
 
-#[allow(dead_code)]
 fn copper_layer_count(p: &Project) -> usize {
     let recorded = p
         .board
@@ -296,7 +293,6 @@ fn copper_layer_count(p: &Project) -> usize {
     if recorded > 0 { recorded } else { 2 }
 }
 
-#[allow(dead_code)]
 fn meta_or_not_recorded(p: &Project, key: &str) -> String {
     p.meta
         .get(key)
@@ -306,7 +302,6 @@ fn meta_or_not_recorded(p: &Project, key: &str) -> String {
 }
 
 /// Deterministic revision notes for a fabrication package.
-#[allow(dead_code)]
 pub fn package_revision_notes(
     p: &Project,
     job: &str,

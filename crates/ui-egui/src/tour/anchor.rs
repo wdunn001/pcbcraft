@@ -44,7 +44,6 @@ pub(crate) fn anchor_rect(ui: &Ui, id: &str, rect: Rect) {
 }
 
 /// The visible rectangle published for this anchor, if any.
-#[allow(dead_code)]
 pub(crate) fn lookup(ctx: &Context, id: &str) -> Option<Rect> {
     if id.is_empty() || id == "none" {
         return None;
