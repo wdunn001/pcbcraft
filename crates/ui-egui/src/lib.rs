@@ -1469,6 +1469,13 @@ pub struct App {
     canvas_rect: Rect,
     canvas_menu: Option<(egui::Pos2, canvas::CanvasMenuKind)>,
     message: String,
+    /// Why the last canvas command was refused, shown on the drawing itself.
+    ///
+    /// The status bar alone is not enough. A refused route leaves nothing
+    /// behind on the canvas, so the copper the user just drew appears to
+    /// vanish for no reason while the explanation sits in a corner they are
+    /// not looking at.
+    canvas_refusal: Option<String>,
     /// True in the browser build, where disk actions are refused (see browser.rs).
     browser: bool,
     /// Where Open, Save and Export go: the native paths, the browser, or a test (see webfs.rs).
@@ -2324,6 +2331,7 @@ impl App {
             capture_ghost: false,
             canvas_rect: Rect::NOTHING,
             canvas_menu: None,
+            canvas_refusal: None,
             message: if cfg!(target_arch = "wasm32") {
                 browser::start_message()
             } else {
@@ -2647,6 +2655,7 @@ impl App {
             });
         match result {
             Ok(v) => {
+                self.canvas_refusal = None;
                 self.message = t!("dialogs.run.command_committed", command = command);
                 if let Some(skipped) = v
                     .pointer("/result/unassigned_components")
@@ -2671,7 +2680,14 @@ impl App {
                     }
                 }
             }
-            Err(e) => self.message = e,
+            Err(e) => {
+                // Put the reason where the copper was about to appear. The
+                // canvas shows nothing when a route is refused, so without
+                // this the track simply vanishes and the user is told why in
+                // a corner of the window they are not watching.
+                self.canvas_refusal = Some(e.clone());
+                self.message = e;
+            }
         }
         self.refresh();
         // Automatic sync can add a footprint inside any schematic edit, so a
@@ -9625,6 +9641,41 @@ mod tests {
             matches!(app.tool, Tool::Select),
             "finishing a track hands the mouse straight back: {:?}",
             app.tool
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_refused_route_says_why_on_the_drawing() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.tab = Tab::Pcb;
+        assert!(app.canvas_refusal.is_none(), "nothing refused yet");
+
+        // A surface-mount pad holds copper on one face. Routing from it on a
+        // layer it does not reach is refused, and the canvas is left with no
+        // copper to show for the gesture, so the reason has to be on screen.
+        app.run(
+            "track.route",
+            json!({"from":{"footprint":10,"pad":"1"},
+                   "to":{"x":-500.0,"y":-500.0},
+                   "layer":"F.Cu","mode":"octilinear"}),
+        );
+        let said = app
+            .canvas_refusal
+            .clone()
+            .ok_or("a refused route should leave its reason for the canvas")?;
+        assert!(!said.is_empty(), "the reason should not be blank");
+        assert_eq!(said, app.message, "the canvas and the status bar agree");
+
+        // It stands until something works, then clears.
+        app.run("board.resize", json!({"width":80.0,"height":60.0}));
+        assert!(
+            app.canvas_refusal.is_none(),
+            "a command that works clears the refusal: {:?}",
+            app.canvas_refusal
         );
         Ok(())
     }
