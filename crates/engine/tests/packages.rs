@@ -223,7 +223,7 @@ fn a_package_is_duplicated_under_a_new_id() -> Result<(), String> {
         .query("package.list", json!({}), None)
         .map_err(|e| e.to_string())?;
     let all = list["result"]["packages"].as_array().ok_or("packages")?;
-    assert_eq!(all.len(), 12);
+    assert_eq!(all.len(), 13);
     let mine = all
         .iter()
         .find(|p| p["id"] == "my_fab")
