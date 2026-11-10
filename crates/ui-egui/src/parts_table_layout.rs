@@ -1,16 +1,19 @@
 //! Layout cells for the Parts grid: where each footprint sits on the board.
 //!
-//! Context: issue #169. When the Layout columns checkbox is on, the Parts grid
-//! shows five read-only columns after the Part number column: Side, Rotation,
-//! Locked, X and Y. These come from the placed footprint, not the component.
+//! Context: issue #704, part of the Parts grid epic (#44). When the Layout columns
+//! checkbox is on, the Parts grid shows five read-only columns after the Part number
+//! column: Side, Rotation, Locked, X and Y. These come from the placed footprint, not
+//! the component. Words come from `crates/text/strings/en.txt`.
 //!
 //! # Dependencies
-//! - crates/doc/src/lib.rs (Project, Footprint, Layer, Point)
+//! - crates/doc/src/lib.rs (Project, Footprint, Layer)
 //! - crates/ui-egui/src/parts_table.rs (calls layout_cells for each row)
+//! - crates/text/strings/en.txt (parts_table.side_*)
 //!
 //! # Do not
 //! - Write footprints from here; the grid only reads them.
-use pcbcraft_doc::{Footprint, Id, Layer, Project};
+use pcbcraft_doc::{Id, Layer, Project};
+use pcbcraft_text::t;
 
 /// The five layout values shown for one part.
 #[derive(Clone, Debug)]
@@ -29,7 +32,7 @@ pub(crate) struct LayoutCells {
 ///
 /// # Rules
 /// - Returns None when no footprint has component == component_id.
-/// - Side reads 'Top' or 'Bottom' from Footprint::board_side.
+/// - Side reads Top or Bottom (from the strings file) from Footprint::board_side.
 /// - Rotation shows one decimal; X and Y show two decimals in millimetres.
 /// - Locked is true only when Footprint::locked is Some(true).
 ///
@@ -44,9 +47,9 @@ pub(crate) fn layout_cells(project: &Project, component_id: Id) -> Option<Layout
         .iter()
         .find(|f| f.component == component_id)?;
     let side = if footprint.board_side() == Layer::Front {
-        "Top".to_owned()
+        t!("parts_table.side_top")
     } else {
-        "Bottom".to_owned()
+        t!("parts_table.side_bottom")
     };
     let locked = footprint.locked == Some(true);
     let x = format!("{:.2}", footprint.position.x);
@@ -64,42 +67,45 @@ pub(crate) fn layout_cells(project: &Project, component_id: Id) -> Option<Layout
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pcbcraft_doc::Point;
+    use pcbcraft_doc::Footprint;
+    use pcbcraft_geom::Point;
 
-    #[test]
-    fn a_back_side_footprint_reports_bottom() {
-        let mut project = Project::default();
-        let comp_id = pcbcraft_doc::Id::new("comp");
-        let fp_id = pcbcraft_doc::Id::new("fp");
-        project.components.push(pcbcraft_doc::Component {
-            id: comp_id,
-            reference: "R1".into(),
-            value: "10k".into(),
-            ..Default::default()
-        });
-        project.footprints.push(Footprint {
-            id: fp_id,
-            component: comp_id,
+    fn footprint(component: Id, side: Option<Layer>, locked: Option<bool>) -> Footprint {
+        Footprint {
+            id: component + 100,
+            component,
             position: Point::new(5.0, 3.0),
             rotation: 90.0,
-            locked: Some(true),
-            side: Some(Layer::Back),
+            locked,
+            side,
             pads: vec![],
             preserved: Default::default(),
-        });
-        let cells = layout_cells(&project, comp_id);
-        assert!(cells.is_some(), "layout_cells found the footprint");
-        let cells = cells.unwrap_or(LayoutCells {
-            side: "Top".into(),
-            rotation: "0.0".into(),
-            locked: false,
-            x: "0.00".into(),
-            y: "0.00".into(),
-        });
-        assert_eq!(cells.side, "Bottom", "back-side footprint shows Bottom");
+        }
+    }
+
+    #[test]
+    fn a_back_side_footprint_reports_bottom() -> Result<(), String> {
+        let mut project = Project::default();
+        project
+            .footprints
+            .push(footprint(7, Some(Layer::Back), Some(true)));
+        let cells = layout_cells(&project, 7).ok_or("layout_cells found no footprint")?;
+        assert_eq!(
+            cells.side,
+            t!("parts_table.side_bottom"),
+            "back-side footprint shows Bottom"
+        );
         assert_eq!(cells.rotation, "90.0");
-        assert_eq!(cells.locked, true);
+        assert!(cells.locked, "a locked footprint reads as locked");
         assert_eq!(cells.x, "5.00");
         assert_eq!(cells.y, "3.00");
+        Ok(())
+    }
+
+    #[test]
+    fn a_part_without_a_footprint_has_no_layout_cells() {
+        let mut project = Project::default();
+        project.footprints.push(footprint(7, None, None));
+        assert!(layout_cells(&project, 8).is_none());
     }
 }
