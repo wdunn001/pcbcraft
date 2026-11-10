@@ -1,3 +1,17 @@
+//! Helpers that write footprint graphics in the text form the library
+//! files use.
+//!
+//! Everything here is string building with no project access. Layers and
+//! fill modes are whitelisted, so a graphic this crate cannot render is
+//! rejected rather than written wrong.
+//!
+//! # Rules
+//! - Validate the graphic before emitting anything; an error means no
+//!   partial text reaches the writer.
+//!
+//! # Dependencies
+//! - crates/io/src/lib.rs (the `escape`, `line` and `quote` helpers)
+
 use super::{Point, escape, line, quote};
 use pcbcraft_library::Graphic;
 

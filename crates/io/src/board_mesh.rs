@@ -49,7 +49,12 @@ const DECAL_MIN_AREA: f64 = 14.0;
 #[allow(dead_code)]
 const DECAL_RAISE: f64 = 0.06;
 
-/// What a part of the mesh is.
+/// Labels each top-level part of a [`BoardMesh`] so a viewer can group and
+/// toggle whole parts without touching their triangles.
+///
+/// # Rules
+/// - `name` is a stable id used in JSON output, so never rename a variant or
+///   its string.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PartKind {
     Board,
@@ -80,6 +85,13 @@ impl PartKind {
 }
 
 /// Which parts to build. All on by default.
+///
+/// Callers pick the groups they display; `Default` turns everything on so a
+/// full board never silently loses copper or bodies.
+///
+/// # Rules
+/// - A new group gets a flag here and defaults to off only when skipping it
+///   is a real cost saving.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MeshLayers {
     pub board: bool,
@@ -102,6 +114,13 @@ impl Default for MeshLayers {
 
 /// Where a model file belongs, as a row-major 4x4 matrix taking the model's
 /// own millimetre coordinates to board coordinates.
+///
+/// # Rules
+/// - The matrix is already in board coordinates; consumers only apply it.
+///
+/// # Do not
+/// - Compose a second matrix at the call site; `model_matrix` is the one
+///   source.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ModelPlacement {
     pub path: String,
@@ -115,6 +134,12 @@ pub struct ModelPlacement {
 }
 
 /// Shared triangle list for instanced part bodies and loaded models.
+///
+/// Bodies of the same kind and size are identical, so the builder keeps one
+/// prototype plus a matrix per placement instead of rebuilding triangles.
+///
+/// # Dependencies
+/// - crates/io/src/parametric_body.rs
 #[derive(Clone, Debug, PartialEq)]
 pub struct BodyPrototype {
     pub positions: Vec<[f64; 3]>,
@@ -129,6 +154,17 @@ pub struct BodyPrototype {
 }
 
 /// One named triangle list.
+///
+/// One named triangle list: the slab, the copper, the mask, the silk, or one
+/// placed body, tagged with its [`PartKind`].
+///
+/// Vertices, normals and per-triangle material ids are parallel arrays. The
+/// methods on this type read them; only the private builder inside this file
+/// writes them. `flattened` and `world_bounds` let a viewer collapse or frame
+/// a part without walking the triangles itself.
+///
+/// # Do not
+/// - Sort or reorder the triangles: consumers index them by position.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MeshPart {
     pub kind: PartKind,
@@ -234,6 +270,15 @@ impl MeshPart {
 }
 
 /// The finished mesh.
+///
+/// A mesh is one [`MeshPart`] per [`PartKind`] that was requested, plus a
+/// warning list. It is plain data: encoders and the 3D tab read it without
+/// changing it, and bounds and counts come from the parts, never stored
+/// separately.
+///
+/// # Do not
+/// - Rebuild geometry in a getter; every triangle is produced once by
+///   `board_mesh_with_dir`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct BoardMesh {
     pub parts: Vec<MeshPart>,
@@ -1062,6 +1107,13 @@ pub enum ModelLookup {
     Failed(String),
 }
 /// The load state of one part's model, for the parts list.
+///
+/// It is the per-model answer inside `ModelLookup` reported to callers of
+/// `with_models`; a missing or unreadable model downgrades to the parametric
+/// body instead of failing the mesh.
+///
+/// # Do not
+/// - Add a variant without handling it wherever `ModelStatus` is matched.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ModelStatus {
     /// The file is still being read.
