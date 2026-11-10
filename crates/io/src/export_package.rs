@@ -599,6 +599,34 @@ pub fn build_package(
     def: &PackageDef,
     variant: Option<&str>,
 ) -> Result<PackageOutput, String> {
+    build_package_with_previous(p, def, variant, None)
+}
+
+/// Builds a package and compares its parts with an earlier package of the same design.
+///
+/// Why: the revision notes list the parts added and removed since the last export; they
+/// can only do that when the earlier package's bill of materials is given.
+///
+/// # Rules
+/// - `previous` is the bytes of an earlier package ZIP; one the reader refuses fails the
+///   build before anything is rendered.
+/// - Without `previous` the notes say that no previous export was supplied.
+///
+/// # Dependencies
+/// - crates/io/src/package.rs (`previous_bom_from_package`, `package_revision_notes`)
+///
+/// # Do not
+/// - Read a file here; the caller passes the bytes.
+pub fn build_package_with_previous(
+    p: &Project,
+    def: &PackageDef,
+    variant: Option<&str>,
+    previous: Option<&[u8]>,
+) -> Result<PackageOutput, String> {
+    let previous_bom = match previous {
+        None => None,
+        Some(zip) => Some(crate::package::previous_bom_from_package(zip)?),
+    };
     let a = availability(def)?;
     if !a.available {
         return Err(format!(
@@ -670,7 +698,13 @@ pub fn build_package(
         entries.push(text_entry(
             n,
             &c.kind,
-            crate::package_revision_notes(p, &def.id, variant, &names, None)?,
+            crate::package_revision_notes(
+                p,
+                &def.id,
+                variant,
+                &names,
+                previous_bom.as_ref().map(|bom| bom.as_deref()),
+            )?,
         ));
     }
     if entries.is_empty() {

@@ -189,8 +189,8 @@ pub use drill_table::{DRILL_TABLE_HEADER, DrillRow, SpanKind, drill_table, drill
 /// - crates/io/src/drawn.rs
 pub use enclosure::{EnclosureScan, PlanarFace, ScanBounds, ScannedDatum, read_enclosure_step};
 pub use export_package::{
-    PackageOutput, availability, build_package, bundled_packages, content_format, find_package,
-    preview_package_files,
+    PackageOutput, availability, build_package, build_package_with_previous, bundled_packages,
+    content_format, find_package, preview_package_files,
 };
 pub use export_validate::{
     stored_zip_entry, stored_zip_entry_names, validate_fabrication_package_file,
@@ -280,8 +280,9 @@ pub use neoden_yy1::{
 /// # Dependencies
 /// - crates/io/src/package.rs
 pub use package::{
-    MANIFEST_NAME, MAX_PACKAGE_FILES, PACKAGE_CREATION_DATE, PackageEntry,
-    attach_revision_notes_entry, package_manifest, package_revision_notes, package_zip,
+    MANIFEST_NAME, MAX_PACKAGE_FILES, MAX_PREVIOUS_PACKAGE_BYTES, PACKAGE_CREATION_DATE,
+    PackageEntry, attach_revision_notes_entry, package_manifest, package_revision_notes,
+    package_stored_zip_entries, package_zip, previous_bom_from_package,
 };
 /// Panel fabrication file and placement text generation.
 /// # Dependencies
