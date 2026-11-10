@@ -20,6 +20,7 @@
 //! - crates/library/src/sources.rs
 //! - crates/library/src/web_transport.rs
 use super::*;
+use crate::web_sources;
 use pcbcraft_library::cad::CadSource;
 use pcbcraft_library::cad_cache::{CacheStats, CadCache};
 use pcbcraft_library::open_library::{CardScope, FetchError, Fetcher, OpenLibrarySource};
@@ -167,6 +168,9 @@ impl App {
             if let Some(why) = self.part_sources.web.as_ref().and_then(|w| w.blocked()) {
                 note(ui, &why);
                 return Vec::new();
+            }
+            if let Some(web) = self.part_sources.web.clone() {
+                web_sources::draw_unreachable(ui, &web, muted);
             }
             if self.part_sources.source.is_none() {
                 note(

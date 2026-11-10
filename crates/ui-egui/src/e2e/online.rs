@@ -166,3 +166,71 @@ fn a_newcomer_is_told_why_online_parts_are_off_when_the_browser_refuses() -> Res
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_on_the_browser_build_sees_why_a_source_is_missing() -> Result<(), String> {
+    let offline = Arc::new(AtomicBool::new(false));
+    let transport = Arc::new(WebTransport::new(
+        Box::new(Started(Arc::new(Mutex::new(Vec::new())))),
+        &["gitlab.com"],
+        offline.clone(),
+    ));
+    let mut app = library_app().with_web_transport(transport, offline);
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.change_tab(Tab::Schematic);
+    app.part_search = "resistor".into();
+    for name in ["Digi-Key", "Mouser", "element14", "LCSC", "JLCPCB"] {
+        let line = format!("{name} is not available in the browser build");
+        assert!(
+            paints_text(&ctx, &mut app, &line)?,
+            "{name} gets one plain line"
+        );
+    }
+    Ok(())
+}
+
+fn host_transport(hosts: &[&str]) -> WebTransport {
+    WebTransport::new(
+        Box::new(Started(Arc::new(Mutex::new(Vec::new())))),
+        hosts,
+        Arc::new(AtomicBool::new(false)),
+    )
+}
+
+#[test]
+fn every_distributor_host_is_a_documented_host() {
+    for (_, host) in crate::web_sources::DISTRIBUTORS {
+        assert!(
+            pcbcraft_library::source_hosts::DOCUMENTED_HOSTS.contains(host),
+            "{host}"
+        );
+    }
+}
+
+#[test]
+fn the_open_library_host_alone_leaves_all_five_explained() -> Result<(), String> {
+    let list = crate::web_sources::outcomes(&host_transport(&["gitlab.com"]));
+    assert_eq!(list.len(), 5);
+    for (name, outcome) in list {
+        match outcome {
+            crate::web_sources::Outcome::Explained(line) => {
+                assert!(line.contains(name), "{line}");
+                assert!(line.contains("allow list"), "{line}");
+                assert!(!line.contains('\n'), "one line: {line}");
+            }
+            crate::web_sources::Outcome::Works => return Err(format!("{name} should not work")),
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn a_host_on_the_allow_list_works() {
+    let list = crate::web_sources::outcomes(&host_transport(&["gitlab.com", "api.digikey.com"]));
+    assert_eq!(list[0], ("Digi-Key", crate::web_sources::Outcome::Works));
+    assert!(matches!(
+        list[1].1,
+        crate::web_sources::Outcome::Explained(_)
+    ));
+}

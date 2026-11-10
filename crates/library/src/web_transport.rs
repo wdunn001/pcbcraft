@@ -151,6 +151,12 @@ impl WebTransport {
         self.pending_served.load(Ordering::SeqCst)
     }
 
+    /// True when `host` is on the list of hosts this transport may ask.
+    pub fn allows_host(&self, host: &str) -> bool {
+        let host = host.to_ascii_lowercase();
+        self.allowed_hosts.contains(&host)
+    }
+
     /// The plain explanation, once the browser has refused cross-origin reads.
     pub fn blocked(&self) -> Option<String> {
         self.state.lock().ok().and_then(|s| s.blocked.clone())

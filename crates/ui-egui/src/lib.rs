@@ -111,6 +111,7 @@ mod via_covering;
 mod via_span;
 mod via_tool;
 mod wall_clock;
+mod web_sources;
 mod webfs;
 mod wire_canvas;
 mod workspace;

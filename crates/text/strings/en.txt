@@ -1872,6 +1872,7 @@ library.dock.more = Showing {shown} of {total} installed matches. Type more to n
 library.dock.type_for_installed = Type a name or pick a kind to search installed libraries.
 library.dock.online_off = Turn on the Open library source in the list first.
 library.dock.source_off = Part sources are off. Only parts on this computer are listed.
+library.dock.web_source.unreachable = {source} is not available in the browser build, because this page may only read hosts on its allow list and {host} is not on it. Use the desktop app.
 library.dock.turn_on_open_library = Turn on Open library
 library.dock.turn_on_open_library.tip = Search the open symbol and footprint libraries. Parts you have opened before work offline. No account needed.
 library.dock.loading = Reading the part...
