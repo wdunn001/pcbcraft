@@ -651,7 +651,12 @@ fn a_newcomer_exports_the_bill_of_materials_as_a_spreadsheet() -> Result<(), Str
     let book = names
         .iter()
         .find(|n| n.ends_with("-bom-A.xlsx"))
-        .ok_or_else(|| format!("no spreadsheet after exporting: {names:?} / {}", app.message))?;
+        .ok_or_else(|| {
+            format!(
+                "no spreadsheet after exporting: {names:?} / {}",
+                app.message
+            )
+        })?;
     let bytes = std::fs::read(dir.path().join(book)).map_err(|e| e.to_string())?;
     assert!(bytes.starts_with(b"PK"), "the spreadsheet is a zip archive");
     assert!(
