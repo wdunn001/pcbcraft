@@ -2,6 +2,12 @@ use pcbcraft_engine::{Command, Session};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
+/// The command line tool's native file provider: the only place this crate
+/// touches std::fs. Saves go through a temp file and a rename. The call
+/// sites move onto it in follow-up work, so nothing here is called yet.
+#[allow(dead_code)]
+mod providers;
+
 fn option<'a>(args: &'a [String], key: &str) -> Option<&'a str> {
     args.iter()
         .position(|a| a == key)

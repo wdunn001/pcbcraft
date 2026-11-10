@@ -1,8 +1,8 @@
 ---
 type: feature
-area: io
+area: site
 issues: [425]
 user_visible: true
-docs: [crates/io/src/package.rs, crates/io/src/export_package.rs]
-summary: Fabrication packages now carry a revision notes file with project metadata and part changes since the last export.
+docs: n/a: written by the worker harness, the issue text records the behaviour
+summary: Native providers: std files, ureq, keyring and rfd behind the platform traits (child of the platform epic).
 ---
