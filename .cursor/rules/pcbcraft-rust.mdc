@@ -1,0 +1,23 @@
+---
+description: PCBCraft Rust style rules, adopted from the Pragmatic Rust Guidelines (Microsoft, 2026.6) and the Rust API Guidelines
+globs: crates/**/*.rs,xtask/**/*.rs,apps/**/*.rs
+alwaysApply: false
+---
+
+# Rust style
+
+Guidelines: https://microsoft.github.io/rust-guidelines and https://rust-lang.github.io/api-guidelines. IDs in brackets are the guideline each rule comes from. `pcbcraft-core.mdc` rules (no panics, layering, typed commands) still win where they are stricter. Adoption plan and ratchets: #707.
+
+- **Wired or not written.** New public work has a caller outside tests in the same pull request: a screen, command, tool or export that a person or client can reach, plus a story that clicks it. If the way in comes later, the pull request names the open issue that wires it.
+- **Overrides use `expect`.** Write `#[expect(lint, reason = "...")]`, never `#[allow]`. A stale `expect` warns, so it cleans itself up. The reason is one plain sentence; for unwired code it names the open issue (`wired in #123`). Do not add `#[allow(dead_code)]`. [M-LINT-OVERRIDE-EXPECT]
+- **Typed errors.** Library crates return an error type with `Display` and `Error` (`thiserror`), converted with `From` and `?`. No new `Result<_, String>` in a public API; migrate an old one when you touch it. [M-ERRORS-CANONICAL-STRUCTS, M-FROM-ERROR]
+- **Strong types.** Use the strongest type early: `Path` and `PathBuf` for OS data, newtypes with a fallible constructor for values with rules. Builders for four or more optional inputs, and the builder's `.build()` returns the `Result`. [M-STRONG-TYPES, M-STRONG-TYPES-GUARD, M-INIT-BUILDER, M-BUILD-RESULT]
+- **Public types are inspectable.** Every public type implements `Debug` and every error `Display`. A type holding a secret has a redacting `Debug`, tested. [M-PUBLIC-DEBUG, M-PUBLIC-DISPLAY]
+- **Names.** No `Manager`, `Service` or `Factory` in a name. At most two short words. No `prelude` module, no glob re-exports. Core behaviour sits in inherent methods; trait impls forward to them. [M-WEASEL-WORDS, M-SHORT-NAMES, M-NO-PRELUDE, M-NO-GLOB-REEXPORTS, M-ESSENTIAL-FN-INHERENT]
+- **Magic values.** A literal with meaning is a named constant with a comment saying why. [M-DOCUMENTED-MAGIC]
+- **Sans-IO.** Logic takes `impl Read` or `impl Write`, time comes from `crates/clock`, and files, network and keychain go through the provider traits. Test-only helpers sit behind `cfg(test)` or a `test-util` feature. [M-IMPL-IO, M-MOCKABLE-SYSCALLS, M-TEST-UTIL]
+- **Logging.** Library code writes structured events, never `println!`, `eprintln!` or `dbg!`. A command line tool may write to stdout. [M-LOG-NOT-PRINT, M-LOG-STRUCTURED]
+- **Features add only.** A Cargo feature never removes or changes behaviour. Third-party types stay out of public signatures unless a feature or a clear benefit says otherwise. [M-FEATURES-ADDITIVE, M-DONT-LEAK-TYPES]
+- **MCP.** Protocol, transports and tool registration use the official Rust SDK (`rmcp`). Our `crates/mcp` keeps the tool definitions, their schemas and the adapter to engine commands. The browser build keeps its own in-process path. Plan: #706.
+- **Tests.** A test asserts behaviour, not the constants it was built from. Tests that use only the public API go under `tests/`. [M-TAUTOLOGICAL-TESTS, M-INTEGRATION-TESTS]
+- **Docs.** The first doc sentence is one line that says what the item does. [M-FIRST-DOC-SENTENCE]
