@@ -10545,8 +10545,6 @@ fn run(
 /// toolpaths) only read the project, so the batch fast path, the command
 /// dispatcher and the room filter all route them the same way: no revision
 /// bump, no history entry, never shared as a room edit.
-///
-/// Contract: add any new isolation preview id here and in `run_read_only`.
 pub(crate) fn cam_isolation_command(command: &str) -> bool {
     command == "cam.isolation" || command == "cam.isolation_paths"
 }
