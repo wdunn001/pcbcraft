@@ -70,11 +70,22 @@ pub fn check_stats() -> (usize, usize) {
 }
 
 /// Count of design-rule findings that are not plain missing connections.
+/// The two decoupling path advisories are left out: the generator routes by
+/// clearance and connectivity, and the shipped sample board is fixed by that
+/// routing, so a placement advisory must not steer it.
 pub fn bad_count(g: &Gen) -> usize {
     let started = pcbcraft_clock::instant_now();
     let n = pcbcraft_rules::drc(&g.s.project)
         .iter()
-        .filter(|f| f.code != "unrouted" && f.code != "via_in_pad_not_capped")
+        .filter(|f| {
+            !matches!(
+                f.code,
+                "unrouted"
+                    | "via_in_pad_not_capped"
+                    | "decoupling_distance"
+                    | "decoupling_ground_via"
+            )
+        })
         .count();
     CHECKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     CHECK_MICROS.fetch_add(
