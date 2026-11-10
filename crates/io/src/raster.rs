@@ -1,4 +1,17 @@
 //! Fabrication layer raster export (PNG, BMP, SVG).
+//!
+//! The module is pure: it reads shapes from `layers` and samples them into an
+//! image at the requested dpi, optionally mirrored, inverted, with the board
+//! outline and registration fiducials. Pixels are sampled once in
+//! `rasterize_shapes`; the PNG, BMP and SVG writers only encode.
+//!
+//! # Rules
+//! - Pixels and dpi are bounded (`MAX_PIXELS`, `MIN_DPI` to `MAX_DPI`); every
+//!   entry point validates its options first and returns `Err`, never a panic.
+//! - Output is deterministic: the same project and options give the same bytes.
+//!
+//! # Dependencies
+//! - crates/io/src/layers.rs (`FabLayer`, `layer_shapes`)
 use crate::layers::{
     FabLayer, Shape, ShapePolarity, drill_centers, fabrication_point, layer_shapes, profile_edge,
 };
@@ -11,18 +24,29 @@ const MIN_DPI: u32 = 300;
 const MAX_DPI: u32 = 4800;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+
 pub enum RasterDepth {
+    /// 1-bit film output, thresholded on encode.
     Bits1,
+    /// 8-bit greyscale.
     Grey8,
+    /// 8-bit RGB preview.
     Rgba8,
 }
 
+/// The optical fiducial outline drawn by `draw_registration`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RegMarkShape {
+    /// Crosshair.
     Cross,
+    /// Concentric rings.
     Ring,
 }
 
+/// Optical fiducials placed at all four corners of the sheet at `inset_mm`.
+///
+/// # Rules
+/// - `inset_mm` and `size_mm` are checked by `RasterOptions::validate`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RegistrationMarks {
     pub inset_mm: f64,
@@ -30,16 +54,33 @@ pub struct RegistrationMarks {
     pub shape: RegMarkShape,
 }
 
+/// A request for one fabrication image: which layer, at what dpi, mirrored,
+/// inverted, with the outline and registration marks.
+///
+/// # Rules
+/// - `validate` is the single gate; every entry point calls it before drawing.
+///
+/// # Dependencies
+/// - crates/io/src/layers.rs (`FabLayer`)
 #[derive(Clone, Debug, PartialEq)]
 pub struct RasterOptions {
+    /// The fabrication layer to draw.
     pub layer: FabLayer,
+    /// Resolution in dots per inch.
     pub dpi: u32,
+    /// Flip horizontally, for bottom-side film.
     pub mirror: bool,
+    /// Swap ink and paper.
     pub invert: bool,
+    /// Draw the board outline.
     pub outline: bool,
+    /// Registration marks at the corners, when set.
     pub registration: Option<RegistrationMarks>,
+    /// Drill centre mark diameter in mm, when set.
     pub drill_marks: Option<f64>,
+    /// Clear margin around the board in mm.
     pub margin_mm: f64,
+    /// PNG bit depth.
     pub depth: RasterDepth,
 }
 
@@ -66,12 +107,22 @@ impl RasterOptions {
     }
 }
 
+/// The sampled image: 8-bit grey rows, or RGB rows for a colour preview.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RasterPixels {
     Grey(GrayImage),
     Rgba(RgbImage),
 }
 
+/// The sampled image plus its metadata (dpi, depth) for the PNG and BMP
+/// encoders.
+///
+/// # Rules
+/// - Ink is dark on light paper; `invert` is applied during sampling, not on
+///   encode.
+///
+/// # Do not
+/// - Recompute pixels after encoding; the encoders are read-only.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Raster {
     pub width: u32,
@@ -81,6 +132,17 @@ pub struct Raster {
     pub pixels: RasterPixels,
 }
 
+/// Rasterize one fabrication layer of the project into a [`Raster`].
+///
+/// Resolves the layer's shapes through `layer_shapes`, then defers to
+/// `rasterize_shapes` with the validated options.
+///
+/// # Rules
+/// - `opts.validate()` runs first; an invalid request returns `Err` and builds
+///   no image.
+///
+/// # Dependencies
+/// - crates/io/src/layers.rs
 pub fn layer_raster(p: &Project, opts: &RasterOptions) -> Result<Raster, String> {
     opts.validate()?;
     p.validate()?;
@@ -379,6 +441,14 @@ fn fill_polygon_grey(image: &mut GrayImage, points: &[Point], color: u8) {
     }
 }
 
+/// Encode a [`Raster`] as a PNG at the requested depth, carrying the dpi as
+/// the pHYs chunk so downstream tools print at the right physical size.
+///
+/// # Rules
+/// - `Bits1` thresholds the grey image on write; the sampled pixels stay 8-bit.
+///
+/// # Do not
+/// - Drop the pHYs chunk; exposure tooling depends on it.
 pub fn raster_png(r: &Raster) -> Result<Vec<u8>, String> {
     match &r.pixels {
         RasterPixels::Grey(img) => encode_grey_png(img, r.dpi, r.depth),
@@ -449,6 +519,13 @@ fn encode_grey_png(img: &GrayImage, dpi: u32, depth: RasterDepth) -> Result<Vec<
     }
 }
 
+/// Encode a [`Raster`] as an 8-bit BMP.
+///
+/// Some laser and photoplot tools read BMP only; the pixels are identical to
+/// the PNG output.
+///
+/// # Rules
+/// - Always 8-bit grey: the 1-bit depth is a PNG option only.
 pub fn raster_bmp(r: &Raster) -> Result<Vec<u8>, String> {
     let grey = raster_grey8(r)?;
     let mut buf = std::io::Cursor::new(Vec::new());
@@ -472,6 +549,16 @@ fn raster_grey8(r: &Raster) -> Result<GrayImage, String> {
     }
 }
 
+/// Write the same layer as a vector SVG instead of sampling pixels.
+///
+/// The shapes go straight to SVG primitives, so the file stays exact at any
+/// zoom; dpi only sets the declared physical size.
+///
+/// # Rules
+/// - `opts.validate()` runs first, mirroring `layer_raster`.
+///
+/// # Dependencies
+/// - crates/io/src/layers.rs
 pub fn raster_svg(p: &Project, opts: &RasterOptions) -> Result<String, String> {
     opts.validate()?;
     let collected = layer_shapes(p, opts.layer)?;

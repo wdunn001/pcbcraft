@@ -1,4 +1,16 @@
 //! Panel fabrication export: duplicated board artwork, mechanical holes and placement.
+//!
+//! Panelling is a pure expansion: the panel project copies the board artwork
+//! into each array slot at the panel pitch, then adds tooling holes, mouse
+//! bites and panel fiducials. The writers only serialize the panel project.
+//!
+//! # Rules
+//! - Hole diameters are fixed consts (`MOUSE_BITE_DIAMETER`,
+//!   `TOOLING_DIAMETER`, `PANEL_FIDUCIAL_DIAMETER`).
+//! - Copy ids are remapped per slot so two copies never share an id.
+//!
+//! # Dependencies
+//! - crates/io/src/gerber.rs (`coordinate`)
 
 use crate::gerber::coordinate;
 use pcbcraft_doc::{
@@ -166,6 +178,14 @@ fn add_mouse_bite_holes(
     }
 }
 
+/// Expand a single-up project into a panelled project: the board artwork
+/// duplicated per array slot, plus tooling holes, mouse bites and fiducials.
+///
+/// # Rules
+/// - Copy ids are remapped by `remap_id` so slots never collide.
+///
+/// # Dependencies
+/// - crates/io/src/gerber.rs (`coordinate`)
 pub(crate) fn build_panel_project(
     p: &Project,
     layout: &PanelLayout,
