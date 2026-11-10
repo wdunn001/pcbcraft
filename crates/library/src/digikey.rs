@@ -6,6 +6,7 @@
 use crate::credentials::{self, KeyStore};
 use crate::http_client::{HttpClient, HttpError, HttpRequest, HttpResponse};
 use crate::rate_limit::{Clock, SystemClock, TokenBucket, rate_limited};
+use crate::source_errors::map_auth_or_permission;
 use crate::sources::{
     Attribution, DEFAULT_CACHE_SECS, PartResult, PartSource, PriceBreak, SetupCard, SourceError,
     check_query,
@@ -115,6 +116,11 @@ impl DigiKeySource {
             })
             .map_err(map_http_err)?;
         handle_rate_limit(&response)?;
+        if matches!(response.status, 400 | 401 | 403)
+            && let Some(rejected) = map_auth_or_permission(401, None)
+        {
+            return Err(rejected);
+        }
         if response.status != 200 {
             return Err(SourceError::Unavailable(
                 "could not sign in to the distributor".into(),

@@ -75,6 +75,22 @@ Without one the part goes on Main.
 - Pin alternate functions are kept in the symbol's source text and no longer stop a part from
   being placed.
 
+## Your own Digi-Key key
+
+Below the part search the Library dock has a Digi-Key key card. It lists the steps to make a free
+developer key on the Digi-Key site and has fields for the client id and the client secret. The
+secret field is masked.
+
+- Save key keeps both values on this computer through the key store in
+  `crates/library/src/credentials.rs`: the system keychain, or a plain file in the settings folder
+  when the keychain cannot be opened. The card says which one is in use. A project file never holds
+  the key.
+- Test key runs one search with the typed values and shows Connected, or the reason the key was
+  rejected. It saves nothing.
+- Remove key deletes both values and returns the card to its first state.
+- The card is drawn by `crates/ui-egui/src/distributors.rs`. The desktop app gives the window its
+  HTTPS client and key store in `apps/pcbcraft/src/distributor_http.rs`.
+
 ## Not built yet
 
 - Rendering the datasheet PDF in the app (page navigation, zoom, search, selectable text).

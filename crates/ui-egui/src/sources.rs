@@ -142,6 +142,18 @@ impl App {
     /// - In the browser build the transport never blocks: a search that left requests waiting is dropped and
     ///   asked again next frame, and a refused host shows its explanation.
     pub(super) fn online_parts(&mut self, ui: &mut egui::Ui) -> Vec<(PartResult, String)> {
+        let mut parts = self.distributor_parts(ui);
+        parts.extend(self.open_parts(ui));
+        parts
+    }
+    /// The browser build has no distributor sources: the person's key cannot be held there and the
+    /// distributor cannot be called directly, so nothing is drawn or listed.
+    #[cfg(target_arch = "wasm32")]
+    fn distributor_parts(&mut self, _ui: &mut egui::Ui) -> Vec<(PartResult, String)> {
+        Vec::new()
+    }
+    /// The open library's share of [`App::online_parts`].
+    fn open_parts(&mut self, ui: &mut egui::Ui) -> Vec<(PartResult, String)> {
         let muted = self.muted();
         let note = |ui: &mut egui::Ui, text: &str| {
             ui.label(egui::RichText::new(text).small().color(muted));

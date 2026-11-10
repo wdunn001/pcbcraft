@@ -28,6 +28,8 @@ mod context_menus;
 mod copper_layers;
 mod cutout_holes;
 mod datasheet;
+#[cfg(not(target_arch = "wasm32"))]
+mod digikey;
 mod drill_table;
 mod editing;
 mod export;

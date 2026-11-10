@@ -28,6 +28,8 @@ mod contrast;
 mod datasheet;
 mod datasheet_reader;
 mod datums;
+#[cfg(not(target_arch = "wasm32"))]
+mod distributors;
 mod draw_target;
 mod drill_table;
 mod editing;
@@ -1416,6 +1418,8 @@ pub struct App {
     palette: bool,
     part_search: String,
     part_sources: sources::PartSources,
+    #[cfg(not(target_arch = "wasm32"))]
+    distributors: distributors::Distributors,
     pending_source: Option<pcbcraft_library::sources::PartResult>,
     hidden_sets: Vec<String>,
     svg_path: String,
@@ -2267,6 +2271,8 @@ impl App {
             palette: false,
             part_search: String::new(),
             part_sources: sources::PartSources::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            distributors: distributors::Distributors::default(),
             pending_source: None,
             hidden_sets: Vec::new(),
             svg_path: String::new(),
