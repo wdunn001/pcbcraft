@@ -495,6 +495,29 @@ impl App {
                 ),
                 Act::SheetShape(sheet_shape_tool::SheetShapeKind::Circle),
             ),
+            entry(
+                "tool-arc",
+                "arc",
+                "Arc".to_string(),
+                "Draw a curve through three points on the sheet.".to_string(),
+                matches!(
+                    self.tool,
+                    Tool::SheetShape(sheet_shape_tool::SheetShapeKind::Arc)
+                ),
+                Act::SheetShape(sheet_shape_tool::SheetShapeKind::Arc),
+            ),
+            entry(
+                "tool-polygon",
+                "polygon",
+                "Polygon".to_string(),
+                "Draw a closed outline; click each corner and click the first one to finish."
+                    .to_string(),
+                matches!(
+                    self.tool,
+                    Tool::SheetShape(sheet_shape_tool::SheetShapeKind::Polygon)
+                ),
+                Act::SheetShape(sheet_shape_tool::SheetShapeKind::Polygon),
+            ),
         ]
     }
 
@@ -553,6 +576,7 @@ impl App {
             Act::SheetShape(kind) => {
                 self.tool = Tool::SheetShape(kind);
                 self.sheet_shape_start = None;
+                self.sheet_shape_points.clear();
             }
             Act::Measure => self.arm_measure(),
         }

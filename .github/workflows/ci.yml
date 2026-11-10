@@ -199,10 +199,13 @@ jobs:
           avail=$(df -m "$GITHUB_WORKSPACE" | awk 'NR==2{print $4}')
           echo "work disk free: ${avail} MB"
           if [ "${avail:-99999}" -lt 20000 ]; then
-            rm -rf target
             big="/tmp/pcb-target-${GITHUB_RUN_ID}-${GITHUB_JOB}"
             mkdir -p "$big"
-            ln -s "$big" target
+            # CARGO_TARGET_DIR, not a target symlink. The cache restore below
+            # writes a real target directory and the symlink went with it, so
+            # the build landed back on the small work disk and the linker died
+            # of no space. An environment variable survives that.
+            echo "CARGO_TARGET_DIR=$big" >> "$GITHUB_ENV"
             echo "PCB_BIG_TARGET=$big" >> "$GITHUB_ENV"
             echo "build output on $big"
           fi
@@ -437,10 +440,13 @@ jobs:
           avail=$(df -m "$GITHUB_WORKSPACE" | awk 'NR==2{print $4}')
           echo "work disk free: ${avail} MB"
           if [ "${avail:-99999}" -lt 20000 ]; then
-            rm -rf target
             big="/tmp/pcb-target-${GITHUB_RUN_ID}-${GITHUB_JOB}"
             mkdir -p "$big"
-            ln -s "$big" target
+            # CARGO_TARGET_DIR, not a target symlink. The cache restore below
+            # writes a real target directory and the symlink went with it, so
+            # the build landed back on the small work disk and the linker died
+            # of no space. An environment variable survives that.
+            echo "CARGO_TARGET_DIR=$big" >> "$GITHUB_ENV"
             echo "PCB_BIG_TARGET=$big" >> "$GITHUB_ENV"
             echo "build output on $big"
           fi
