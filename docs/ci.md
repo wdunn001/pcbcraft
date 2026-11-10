@@ -79,6 +79,18 @@ change needs them.
 The wasm jobs need `trunk`, `node` and the `wasm32-unknown-unknown` target; the
 Windows job needs `cargo-xwin`, `clang` and `lld`.
 
+The Windows binary is linked with `/STACK:16777216`, emitted by
+`apps/pcbcraft/build.rs`. Windows fixes the main thread's stack at link
+time and the MSVC default is 1 MiB. The window runs on that thread. The
+app needs more than that to start. `.cargo/config.toml` raises
+`RUST_MIN_STACK` to the same figure. That covers test and spawned threads
+but never the main thread of a linked executable. The figure is reserved
+address space. It is committed a page at a time and costs no memory.
+
+Nothing in CI runs the Windows binary. The job cross-compiles and uploads
+it. A failure that only shows when the executable starts on Windows is
+therefore not caught here.
+
 Trunk downloads `wasm-opt` (binaryen) on first use, and only for an optimized build. The version is pinned in
 `apps/pcbcraft-web/Trunk.toml` under `[tools]`, and the wasm job restores
 trunk's tool cache (`~/.cache/trunk`) with `actions/cache`, keyed on that

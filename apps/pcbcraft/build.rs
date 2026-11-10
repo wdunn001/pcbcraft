@@ -8,6 +8,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if std::env::var("CARGO_CFG_TARGET_OS")? != "windows" {
         return Ok(());
     }
+    // Windows fixes the main thread's stack at link time and the MSVC default
+    // is 1 MiB. The window runs on that thread, and the app needs far more:
+    // .cargo/config.toml already raises RUST_MIN_STACK to 16 MiB so the e2e
+    // walks can drive whole frames, and that covers test and spawned threads
+    // only. Without the same room here the app overflows the stack during
+    // start-up and dies before a window appears. The figure is reserved
+    // address space and is committed a page at a time, so it costs no memory.
+    println!("cargo:rustc-link-arg-bins=/STACK:16777216");
     if !icon.is_file() {
         println!(
             "cargo:warning=missing {}; Windows exe icon not embedded (run packaging/windows/make-icon.sh for release builds)",
