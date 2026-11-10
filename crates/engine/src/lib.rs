@@ -3300,7 +3300,7 @@ impl Session {
             return Err(Error::Invalid("batch must contain 1–128 commands".into()));
         }
         if commands.iter().all(|c| {
-            c.command == "cam.isolation"
+            cam_isolation_command(&c.command)
                 || snapmaker::handles(&c.command)
                 || layout::handles(&c.command)
                 || publication::handles(&c.command)
@@ -10539,8 +10539,15 @@ fn run(
     }
     Ok(result)
 }
-#[allow(dead_code)]
-fn cam_isolation_command(command: &str) -> bool {
+/// Whether a command is one of the two read-only CAM isolation previews.
+///
+/// Both `cam.isolation` (G-code files) and `cam.isolation_paths` (linearised
+/// toolpaths) only read the project, so the batch fast path, the command
+/// dispatcher and the room filter all route them the same way: no revision
+/// bump, no history entry, never shared as a room edit.
+///
+/// Contract: add any new isolation preview id here and in `run_read_only`.
+pub(crate) fn cam_isolation_command(command: &str) -> bool {
     command == "cam.isolation" || command == "cam.isolation_paths"
 }
 
@@ -10742,7 +10749,7 @@ fn run_command(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    if command == "cam.isolation"
+    if cam_isolation_command(command)
         || snapmaker::handles(command)
         || layout::handles(command)
         || command == "sim.dc"
@@ -47036,6 +47043,62 @@ mod tests {
                 .as_f64()
                 .is_some_and(|v| v > 0.0)
         );
+        Ok(())
+    }
+
+    #[test]
+    fn cam_isolation_paths_returns_paths_for_a_board_with_an_outline() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "board.set_outline",
+            json!({"points":[[0.0,0.0],[40.0,0.0],[40.0,30.0],[0.0,30.0]]}),
+            None,
+        )?;
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":[5.0,5.0],"end":[15.0,5.0],"width":0.3,"layer":"F.Cu"}),
+            None,
+        )?;
+        let before = s.revision;
+        let params = json!({
+            "side":"top",
+            "tool":{"diameter_mm":0.1,"feed_mm_min":300.0,"plunge_mm_min":60.0,"depth_mm":0.08,"passes":1,"spindle_rpm":18000}
+        });
+        let out = s.execute("cam.isolation_paths", params.clone(), None)?;
+        assert_eq!(s.revision, before, "a preview must not edit the project");
+        assert!(
+            out["result"]["paths"]
+                .as_array()
+                .is_some_and(|a| !a.is_empty()),
+            "the preview must return at least one toolpath"
+        );
+        assert!(
+            out["result"]["estimate_s"]
+                .as_f64()
+                .is_some_and(|v| v > 0.0)
+        );
+        let batch = s.batch(
+            &[Command {
+                command: "cam.isolation_paths".into(),
+                params,
+            }],
+            None,
+        )?;
+        assert_eq!(s.revision, before, "a batch of previews must not edit the project");
+        assert!(batch["results"][0]["paths"].is_array());
+        Ok(())
+    }
+
+    #[test]
+    fn cam_isolation_paths_is_classified_like_cam_isolation() -> Result<(), Error> {
+        assert!(cam_isolation_command("cam.isolation"));
+        assert!(cam_isolation_command("cam.isolation_paths"));
+        assert!(!cam_isolation_command("cam.isolation_other"));
+        assert!(!crate::shareable_room_command("cam.isolation"));
+        assert!(!crate::shareable_room_command("cam.isolation_paths"));
         Ok(())
     }
 
