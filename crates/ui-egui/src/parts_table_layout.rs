@@ -37,12 +37,13 @@ pub(crate) struct LayoutCells {
 /// - Locked is true only when Footprint::locked is Some(true).
 ///
 /// # Dependencies
-/// - crates/doc/src/lib.rs (Project::footprints, Footprint::board_side)
+/// - crates/doc/src/lib.rs (Project::board, Footprint::board_side)
 ///
 /// # Do not
 /// - Create a footprint for a part that has none.
 pub(crate) fn layout_cells(project: &Project, component_id: Id) -> Option<LayoutCells> {
     let footprint = project
+        .board
         .footprints
         .iter()
         .find(|f| f.component == component_id)?;
@@ -87,6 +88,7 @@ mod tests {
     fn a_back_side_footprint_reports_bottom() -> Result<(), String> {
         let mut project = Project::default();
         project
+            .board
             .footprints
             .push(footprint(7, Some(Layer::Back), Some(true)));
         let cells = layout_cells(&project, 7).ok_or("layout_cells found no footprint")?;
@@ -105,7 +107,7 @@ mod tests {
     #[test]
     fn a_part_without_a_footprint_has_no_layout_cells() {
         let mut project = Project::default();
-        project.footprints.push(footprint(7, None, None));
+        project.board.footprints.push(footprint(7, None, None));
         assert!(layout_cells(&project, 8).is_none());
     }
 }

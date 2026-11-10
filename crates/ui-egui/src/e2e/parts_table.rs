@@ -353,6 +353,7 @@ fn a_newcomer_turns_on_layout_columns_in_the_parts_grid_and_finds_side_rotation_
         .ok_or("the sample board has no part")?;
     let footprint = app
         .project
+        .board
         .footprints
         .iter()
         .find(|f| f.component == id)
