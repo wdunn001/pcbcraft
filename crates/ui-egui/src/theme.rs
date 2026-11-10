@@ -499,4 +499,100 @@ mod tests {
         assert_eq!(Tokens::for_dark(false), Tokens::LIGHT);
         assert_eq!(CanvasColors::for_dark(true), CanvasColors::DARK);
     }
+
+    fn role_colors(t: &Tokens) -> Vec<Color32> {
+        vec![
+            t.ground,
+            t.panel,
+            t.raised,
+            t.hover,
+            t.line,
+            t.edge,
+            t.text,
+            t.muted,
+            t.copper,
+            t.mask,
+            t.gold,
+            t.cyan,
+            t.red,
+            t.onacc,
+            t.copper_tint,
+            t.gold_tint,
+            t.red_tint,
+            t.mask_tint,
+            t.scrim,
+        ]
+    }
+
+    fn canvas_colors(c: &CanvasColors) -> Vec<Color32> {
+        vec![
+            c.background,
+            c.grid_minor,
+            c.grid_major,
+            c.board_fill,
+            c.board_edge,
+            c.top_copper,
+            c.bottom_copper,
+            c.silkscreen,
+            c.courtyard,
+            c.ratsnest,
+            c.selection,
+            c.schematic_wire,
+            c.symbol_body,
+            c.pin_number,
+            c.sheet_fill,
+        ]
+    }
+
+    fn paint_swatch(ui: &mut egui::Ui, color: Color32) {
+        let (rect, _response) = ui.allocate_at_least(egui::vec2(48.0, 24.0), egui::Sense::hover());
+        ui.painter().rect_filled(rect, CornerRadius::same(3), color);
+    }
+
+    /// Renders the colour swatch page headless in both themes.
+    /// Checks every UI role colour and every canvas colour is painted.
+    /// No screenshot is taken; the test inspects the shape list instead.
+    /// This is a story test: a newcomer should see the palette at a glance.
+    #[test]
+    fn a_newcomer_sees_the_colour_swatch_page_in_both_themes() {
+        for t in both() {
+            let c = CanvasColors::for_dark(t.is_dark());
+            let ctx = egui::Context::default();
+            apply(&ctx, &t);
+            let mut full = ctx.run_ui(egui::RawInput::default(), |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    for color in role_colors(&t) {
+                        paint_swatch(ui, color);
+                    }
+                    for color in canvas_colors(&c) {
+                        paint_swatch(ui, color);
+                    }
+                });
+            });
+
+            // The frame uploaded its font texture; mark the delta handled before the output drops.
+            full.textures_delta.clear();
+
+            let mut fills = Vec::new();
+            for clipped in &full.shapes {
+                if let egui::Shape::Rect(r) = &clipped.shape {
+                    fills.push(r.fill);
+                }
+            }
+            for color in role_colors(&t) {
+                assert!(
+                    fills.contains(&color),
+                    "theme {:?} missing role colour {color:?}",
+                    t.theme
+                );
+            }
+            for color in canvas_colors(&c) {
+                assert!(
+                    fills.contains(&color),
+                    "theme {:?} missing canvas colour {color:?}",
+                    t.theme
+                );
+            }
+        }
+    }
 }
