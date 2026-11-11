@@ -120,7 +120,7 @@ pub struct MemoryFiles {
     files: Mutex<BTreeMap<(String, String), String>>,
 }
 
-/// Contract: crates/engine/src/source_cache.rs (`AnswerFiles`)
+/// Contract: crates/engine/src/source_cache.rs
 impl AnswerFiles for MemoryFiles {
     fn read(&self, source: &str, name: &str) -> Option<String> {
         let m = self.files.lock().ok()?;
@@ -165,7 +165,7 @@ impl DiskFiles {
     }
 }
 
-/// Contract: crates/engine/src/source_cache.rs (`AnswerFiles`)
+/// Contract: crates/engine/src/source_cache.rs
 #[cfg(not(target_arch = "wasm32"))]
 impl AnswerFiles for DiskFiles {
     fn read(&self, source: &str, name: &str) -> Option<String> {
