@@ -173,7 +173,7 @@ pub(crate) fn target(source: &DatasheetSourceRecord) -> Option<(usize, [f32; 4])
     let r = source.rect;
     let corners = [r.x0, r.y0, r.x1, r.y1];
     let drawable = corners.iter().all(|v| v.is_finite() && *v >= 0.0) && r.x1 > r.x0 && r.y1 > r.y0;
-    drawable.then(|| (source.page_index as usize, corners))
+    drawable.then_some((source.page_index as usize, corners))
 }
 
 #[cfg(test)]
