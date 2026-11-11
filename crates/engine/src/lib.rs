@@ -13294,8 +13294,7 @@ fn run_command_part_4(
                     "max length must be above 0 and at most 10000 mm".into(),
                 ));
             }
-            if a.target_length.is_none() && a.length_tolerance.is_none() && a.max_length.is_none()
-            {
+            if a.target_length.is_none() && a.length_tolerance.is_none() && a.max_length.is_none() {
                 return Err(Error::Invalid(
                     "give a target length, a tolerance or a max length".into(),
                 ));
