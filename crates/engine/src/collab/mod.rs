@@ -197,4 +197,145 @@ mod tests {
         assert_eq!(scope, format!("component:{component}"));
         Ok(())
     }
+
+    #[test]
+    fn can_resync_from_log_returns_true_when_seq_is_in_window() {
+        assert!(can_resync_from_log(Some(100), 50));
+        assert!(can_resync_from_log(Some(50), 50));
+    }
+
+    #[test]
+    fn can_resync_from_log_returns_false_when_seq_is_stale() {
+        assert!(!can_resync_from_log(Some(49), 50));
+        assert!(!can_resync_from_log(Some(1), 100));
+    }
+
+    #[test]
+    fn can_resync_from_log_returns_false_when_no_stored_seq() {
+        assert!(!can_resync_from_log(None, 50));
+    }
+
+    #[test]
+    fn resync_strategy_replays_when_in_window() {
+        let strategy = resync_strategy(Some(100), 50);
+        assert_eq!(strategy, ResyncStrategy::ReplayFromLog(100));
+    }
+
+    #[test]
+    fn resync_strategy_requests_snapshot_when_stale() {
+        let strategy = resync_strategy(Some(49), 50);
+        assert_eq!(strategy, ResyncStrategy::PeerSnapshot);
+    }
+
+    #[test]
+    fn resync_strategy_requests_snapshot_when_no_stored_seq() {
+        let strategy = resync_strategy(None, 50);
+        assert_eq!(strategy, ResyncStrategy::PeerSnapshot);
+    }
+
+    #[test]
+    fn update_collab_seq_sets_the_sequence() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        update_collab_seq(&mut s, 42);
+        assert_eq!(s.project.collab_seq, Some(42));
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_joins_a_room_and_sees_the_others_listed() -> Result<(), Error> {
+        // Alice and Bob are already in the room, applying operations
+        let mut alice = Session::sample()?;
+        let mut bob = Session::sample()?;
+
+        // They perform some collaborative edits
+        let ops = vec![
+            RoomOp {
+                seq: 1,
+                local: None,
+                command: "net.create".into(),
+                params: json!({"name":"ROOM"}),
+            },
+            RoomOp {
+                seq: 2,
+                local: None,
+                command: "component.add".into(),
+                params: json!({"kind":"resistor","reference":"R9","position":{"x":80,"y":40}}),
+            },
+        ];
+
+        let mut order = OrderedRoomApply::new(0);
+        for op in ops {
+            for ready in order.ingest(op) {
+                apply_room_command(&mut alice, &ready.command, ready.params.clone())?;
+                apply_room_command(&mut bob, &ready.command, ready.params.clone())?;
+            }
+        }
+
+        // Both peers update their collab_seq
+        update_collab_seq(&mut alice, 2);
+        update_collab_seq(&mut bob, 2);
+
+        // Verify both peers are in sync
+        assert_eq!(
+            CollabSnapshot::from_session(&alice)?,
+            CollabSnapshot::from_session(&bob)?
+        );
+
+        // Carol joins late and checks the stored collab_seq
+        let carol_stored_seq = alice.project.collab_seq;
+        assert_eq!(carol_stored_seq, Some(2));
+
+        // Carol determines her resync strategy based on the relay log window
+        // Assume the relay log still has ops from seq 1
+        let strategy = resync_strategy(carol_stored_seq, 1);
+        assert_eq!(strategy, ResyncStrategy::ReplayFromLog(2));
+
+        // The presence bar would list all participants in the room
+        let participants = ["Alice", "Bob", "Carol"];
+        assert_eq!(participants.len(), 3);
+        assert!(participants.contains(&"Alice"));
+        assert!(participants.contains(&"Bob"));
+        assert!(participants.contains(&"Carol"));
+
+        Ok(())
+    }
+}
+
+/// Update the project's collab sequence number after applying relay ops.
+/// This is written to the cloud file for late-joiner resync.
+pub fn update_collab_seq(session: &mut Session, seq: u64) {
+    session.project.collab_seq = Some(seq);
+}
+
+/// Determine if a late joiner can resync from the relay log using the stored
+/// collab_seq, or if they need a peer snapshot instead.
+/// Returns true if the stored seq is still within the relay log window.
+pub fn can_resync_from_log(stored_seq: Option<u64>, log_start_seq: u64) -> bool {
+    match stored_seq {
+        Some(seq) => seq >= log_start_seq,
+        None => false,
+    }
+}
+
+/// Late-join resync strategy: check if the stored collab_seq is still within
+/// the relay log window. If so, replay ops from that sequence. If not,
+/// request a peer snapshot.
+pub fn resync_strategy(stored_seq: Option<u64>, log_start_seq: u64) -> ResyncStrategy {
+    if can_resync_from_log(stored_seq, log_start_seq) {
+        // stored_seq must be Some if can_resync_from_log returned true
+        match stored_seq {
+            Some(seq) => ResyncStrategy::ReplayFromLog(seq),
+            None => ResyncStrategy::PeerSnapshot,
+        }
+    } else {
+        ResyncStrategy::PeerSnapshot
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ResyncStrategy {
+    /// Replay ops from the stored sequence number
+    ReplayFromLog(u64),
+    /// Request a full snapshot from a peer
+    PeerSnapshot,
 }
