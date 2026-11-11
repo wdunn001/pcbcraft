@@ -10,7 +10,9 @@
 //! footprint exists until a pin count is chosen, so the row has no drawing.
 //! The section shows by default, with an empty search and no filter, so a person who opens the
 //! Library sees real components at once. A kind switch that does not allow connectors, a picked tag,
-//! or typed words that match no series hide it.
+//! or typed words that match no series hide it. A typed word is matched against the series names
+//! and, when it parses as a full part number from the embedded series tables, against the series
+//! that makes it, so a person who types a whole manufacturer part number sees the series behind it.
 //!
 //! Picking a row opens its configuration under it: rows, positions per row, the lead or stack
 //! code and alignment posts. The part number and footprint are generated from the series table
@@ -32,6 +34,7 @@ use crate::ui_kit::button::{self, Size};
 use crate::ui_kit::rows::list_row_high;
 use crate::{App, Tab, fonts, t};
 use pcbcraft_library::connector_catalog::ConnectorCatalog;
+use pcbcraft_library::connector_partnumber::{first_slice_specs, parse};
 use pcbcraft_library::listing::PartFilter;
 use pcbcraft_library::{ConnectorSeriesOptions, generate_connector_part, series_spec};
 use serde_json::json;
@@ -123,9 +126,11 @@ pub(crate) fn series_rows(query: &str) -> Vec<SeriesRow> {
         text: (!query.trim().is_empty()).then(|| query.trim().to_owned()),
         ..PartFilter::default()
     };
+    let wanted_series = matched_series_id(query.trim());
     let mut rows = Vec::new();
     for (series, listing) in catalog.series.iter().zip(listings.iter()) {
-        if !filter.matches(listing) {
+        let wanted = wanted_series.as_deref() == Some(series.prefix.as_str());
+        if !wanted && !filter.matches(listing) {
             continue;
         }
         let positions = pcbcraft_library::series_spec(&series.prefix)
@@ -148,6 +153,34 @@ pub(crate) fn series_rows(query: &str) -> Vec<SeriesRow> {
         });
     }
     rows
+}
+
+/// When the user types a full manufacturer part number, the listing filter alone cannot match it
+/// because a series listing carries only the series prefix. This helper parses the typed word
+/// against the embedded series tables and returns the prefix of the series whose layout it
+/// matches, so the dock can narrow to that one series. It returns None when the word is not a
+/// valid part number of any embedded series.
+///
+/// # Rules
+/// The embedded series tables decide; nothing is invented.
+///
+/// # Dependencies
+/// crates/library/src/connector_partnumber.rs
+///
+/// # Do not
+/// No network access, no fuzzy guessing.
+fn matched_series_id(query: &str) -> Option<String> {
+    let set = first_slice_specs().ok()?;
+    for text in [query.to_owned(), query.to_uppercase()] {
+        let specs = set.clone();
+        let Ok(part) = parse(&specs, &text) else {
+            continue;
+        };
+        if let Some(spec) = specs.into_iter().find(|spec| spec.id == part.series_id) {
+            return Some(spec.prefix);
+        }
+    }
+    None
 }
 
 /// The plain line that says why a position count cannot go further, when it sits at a limit.
@@ -470,5 +503,19 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].id, "TSW");
         assert!(series_rows("nothing like this").is_empty());
+    }
+
+    #[test]
+    fn a_full_part_number_keeps_only_the_series_that_makes_it() {
+        let rows = series_rows("TSW-105-07-S-D");
+        assert_eq!(rows.len(), 1, "the number parses as a TSW part");
+        assert_eq!(rows[0].id, "TSW");
+        let lower = series_rows("tsw-105-07-s-d");
+        assert_eq!(lower.len(), 1, "the dock searches in lower case");
+        assert_eq!(lower[0].id, "TSW");
+        assert!(
+            series_rows("TSW-9999-07-S-D").is_empty(),
+            "a number that parses as no series keeps no row"
+        );
     }
 }
