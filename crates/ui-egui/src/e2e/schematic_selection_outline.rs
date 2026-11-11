@@ -38,19 +38,24 @@ fn one_of_each_kind(app: &App) -> Vec<(String, Id, Point)> {
         .into_iter()
         .take(5)
         .filter_map(|kind| {
+            // Main places each page's parts at their own spot on the one sheet, so the
+            // spot to click is where the sheet view puts the part, not the part's own position.
+            let spot = |id: Id| app.sheet_view().component(id).map(|c| c.position);
             app.project
                 .components
                 .iter()
                 .filter(|c| c.kind == kind)
-                .map(|c| {
+                .filter_map(|c| {
+                    let at = spot(c.id)?;
                     let near = app
                         .project
                         .components
                         .iter()
                         .filter(|o| o.id != c.id)
-                        .map(|o| o.position.distance(c.position))
+                        .filter_map(|o| spot(o.id))
+                        .map(|o| o.distance(at))
                         .fold(f64::INFINITY, f64::min);
-                    (near, c.id, c.position)
+                    Some((near, c.id, at))
                 })
                 .max_by(|a, b| a.0.total_cmp(&b.0))
                 .map(|(_, id, at)| (kind, id, at))
