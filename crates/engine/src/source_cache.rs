@@ -93,7 +93,11 @@ fn holds_a_key(text: &str) -> bool {
 ///
 /// # Rules
 /// - `name` is a file name made by the cache; `source` was checked by the cache.
-/// - The desktop app uses [`DiskFiles`]; the browser build and the tests use [`MemoryFiles`].
+/// - The desktop app uses `DiskFiles`; the browser build and the tests use `MemoryFiles`.
+///
+/// # Implementations
+/// - crates/engine/src/source_cache.rs `DiskFiles` (this module): files in the app's cache folder, desktop only.
+/// - crates/engine/src/source_cache.rs `MemoryFiles` (this module): a map in memory, for the browser build and tests.
 ///
 /// # Do not
 /// - Call `std::fs` for answers anywhere else: the browser build has no disk.
@@ -116,7 +120,7 @@ pub struct MemoryFiles {
     files: Mutex<BTreeMap<(String, String), String>>,
 }
 
-/// Contract: [`AnswerFiles`]
+/// Contract: crates/engine/src/source_cache.rs (`AnswerFiles`)
 impl AnswerFiles for MemoryFiles {
     fn read(&self, source: &str, name: &str) -> Option<String> {
         let m = self.files.lock().ok()?;
@@ -161,7 +165,7 @@ impl DiskFiles {
     }
 }
 
-/// Contract: [`AnswerFiles`]
+/// Contract: crates/engine/src/source_cache.rs (`AnswerFiles`)
 #[cfg(not(target_arch = "wasm32"))]
 impl AnswerFiles for DiskFiles {
     fn read(&self, source: &str, name: &str) -> Option<String> {
@@ -225,7 +229,7 @@ struct StoredResponse {
     results: Vec<PartResult>,
 }
 
-/// Reads and writes dated answers through an [`AnswerFiles`].
+/// Reads and writes dated answers through an `AnswerFiles`.
 struct DiskLayer {
     files: Arc<dyn AnswerFiles>,
 }
@@ -434,7 +438,7 @@ impl SourcePacer {
 /// Memory, disk and pacing for part source searches.
 ///
 /// # Rules
-/// - Answers live as files under `{cache root}/responses/{source id}/` (through [`AnswerFiles`]).
+/// - Answers live as files under `{cache root}/responses/{source id}/` (through `AnswerFiles`).
 /// - Offline mode serves stored rows, fresh or stale, and never calls the source; online mode re-asks
 ///   after the source window.
 /// - Every answer is dated: each part carries `retrieved_at`, set when the source answered.
@@ -448,7 +452,7 @@ impl SourcePacer {
 /// - crates/ui-egui/src/distributors.rs (the Library dock search)
 ///
 /// # Do not
-/// - Open the disk store in the browser build; it uses [`MemoryFiles`] there.
+/// - Open the disk store in the browser build; it uses `MemoryFiles` there.
 pub struct PartSourceCache {
     memory: ResponseCache,
     disk: DiskLayer,
