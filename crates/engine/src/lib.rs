@@ -47565,6 +47565,81 @@ mod tests {
         Ok(())
     }
 
+    /// A board with one track on each of two nets, `gap_mm` apart edge to edge, ready for a
+    /// 0.1 mm tool.
+    fn two_net_board(s: &mut Session, gap_mm: f64) -> Result<(), Error> {
+        s.execute(
+            "board.set_outline",
+            json!({"points":[[0.0,0.0],[40.0,0.0],[40.0,30.0],[0.0,30.0]]}),
+            None,
+        )?;
+        let first = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let second = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let y = 5.0 + 0.3 + gap_mm;
+        s.execute(
+            "track.add",
+            json!({"net":first,"start":[5.0,5.0],"end":[15.0,5.0],"width":0.3,"layer":"F.Cu"}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":second,"start":[5.0,y],"end":[15.0,y],"width":0.3,"layer":"F.Cu"}),
+            None,
+        )?;
+        Ok(())
+    }
+
+    fn fine_tool_params() -> Value {
+        json!({
+            "side":"top",
+            "tool":{"diameter_mm":0.1,"feed_mm_min":300.0,"plunge_mm_min":60.0,"depth_mm":0.08,"passes":1,"spindle_rpm":18000}
+        })
+    }
+
+    #[test]
+    fn cam_isolation_accepts_two_nets_one_millimetre_apart() -> Result<(), Error> {
+        let mut s = Session::default();
+        two_net_board(&mut s, 1.0)?;
+        let paths = s.execute("cam.isolation_paths", fine_tool_params(), None)?;
+        assert!(
+            paths["result"]["paths"]
+                .as_array()
+                .is_some_and(|a| !a.is_empty())
+        );
+        let gcode = s.execute("cam.isolation", fine_tool_params(), None)?;
+        assert!(
+            gcode["result"]["files"]
+                .as_array()
+                .is_some_and(|a| !a.is_empty())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn cam_isolation_refuses_two_nets_closer_than_the_tool_with_the_true_gap() -> Result<(), Error>
+    {
+        let mut s = Session::default();
+        two_net_board(&mut s, 0.05)?;
+        for command in ["cam.isolation_paths", "cam.isolation"] {
+            let refused = s.execute(command, fine_tool_params(), None);
+            match refused {
+                Err(Error::Invalid(message)) => {
+                    assert!(message.contains("0.050 mm apart"), "{command}: {message}");
+                }
+                other => {
+                    return Err(Error::Invalid(format!(
+                        "{command} should refuse a 0.05 mm gap, got {other:?}"
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+
     #[test]
     fn cam_isolation_paths_is_classified_like_cam_isolation() -> Result<(), Error> {
         assert!(cam_isolation_command("cam.isolation"));
