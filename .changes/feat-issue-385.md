@@ -4,5 +4,5 @@ area: library
 issues: [385]
 user_visible: true
 docs: [docs/samtec-library.md]
+summary: Typing a complete Samtec part number in the Library keyword box shows the card of the series that makes it, and stories cover picking a series and placing it.
 ---
-Samtec connector series in the Library tab are covered by stories for picking a series, setting its options and placing it on the board, and for typing a part number and seeing its footprint; the owner decision on written permission is recorded in the Samtec library note.

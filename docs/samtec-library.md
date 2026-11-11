@@ -46,8 +46,6 @@ footprint that number describes.
 
 ## Owner decision
 
-Written permission to bundle and to fetch Samtec CAD files automatically was
-asked of Samtec in writing. The answer will be noted here as soon as it
-arrives. Until then the app keeps linking to the public product page and
-importing only files the person downloads themselves. The catalog keeps a
-permission field the owner updates when the answer arrives.
+Written permission from Samtec for automated fetch or redistribution has not
+been requested yet. The catalog records `permission_status = not_requested`
+until the owner updates it.
