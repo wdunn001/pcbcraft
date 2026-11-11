@@ -45,10 +45,12 @@ sort = "net_then_reference"
 ```
 
 Template variables: {net}, {reference}, {pin}, {value}, {kind}, etc.
+
 ## Plugin Discovery
 
-Plugins are discovered from the plugins/ directory in the project root. The
-commands.
+Plugins are discovered from a local root directory, one subfolder per plugin
+with a `plugin.toml`. The user guide in `docs/plugins.md` is the reference for
+the current behavior.
 
 ## Engine Commands
 
