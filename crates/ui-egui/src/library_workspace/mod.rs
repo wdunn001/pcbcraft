@@ -37,6 +37,7 @@ use std::sync::Arc;
 mod alternates;
 mod compare;
 mod datasheet;
+mod datasheet_values;
 mod edit;
 pub(crate) mod facts;
 pub(crate) mod machines;

@@ -29,6 +29,7 @@ use pcbcraft_datasheet::{
     selected_text,
 };
 
+use super::datasheet_values::{ValuesCache, target};
 use super::overview::{key_parameters, value_row};
 use super::*;
 use crate::a11y::{self, Named};
@@ -66,6 +67,8 @@ pub(crate) struct ViewerState {
     pub(crate) selection: Option<(usize, Selection)>,
     /// What went wrong last, in the reader's own words.
     pub(crate) error: Option<String>,
+    /// The values read from the datasheet, decoded from the project's extraction files.
+    pub(crate) values: ValuesCache,
 }
 
 impl ViewerState {
@@ -541,8 +544,75 @@ impl App {
                 }
             },
         );
+        let groups = viewer.values.groups(&self.project.files, f).to_vec();
+        let mut jump = None;
+        if !groups.is_empty() {
+            card(
+                ui,
+                &t!("libws.ds.values"),
+                None,
+                |_| {},
+                |ui| {
+                    for group in &groups {
+                        ui.label(
+                            fonts::text(fonts::Role::Body, group.title.clone()).color(t.muted),
+                        );
+                        ui.horizontal_wrapped(|ui| {
+                            for row in &group.rows {
+                                let place = target(&row.source);
+                                let tip = if place.is_some() {
+                                    t!("libws.ds.value_button.tip")
+                                } else {
+                                    t!("libws.ds.value_nosource.tip")
+                                };
+                                let pressed = secondary_button(
+                                    ui,
+                                    None,
+                                    &row.label,
+                                    &tip,
+                                    Size::Small,
+                                    place.is_some(),
+                                )
+                                .clicked();
+                                if pressed {
+                                    jump = place;
+                                }
+                            }
+                        });
+                    }
+                },
+            );
+        }
         viewer.show(ui, &t);
+        if let Some((page, rect)) = jump {
+            self.show_value_source(ui.ctx(), f.datasheet.as_deref(), page, rect);
+        }
         self.library_manufacturer_page(ui, f);
+    }
+}
+
+impl App {
+    /// Open the datasheet reader window on a page and flash the rectangle a value came from.
+    ///
+    /// # Rules
+    /// - A reader window with no document first reads the part's own datasheet, which must be a
+    ///   local PDF; with no way to open it the person is told so and nothing else changes.
+    fn show_value_source(
+        &mut self,
+        ctx: &egui::Context,
+        datasheet: Option<&str>,
+        page: usize,
+        rect: [f32; 4],
+    ) {
+        if !self.datasheet_pane.has_document() {
+            let opened = datasheet.is_some_and(|url| self.datasheet_pane.open_file_url(url, ctx));
+            if !opened {
+                self.message = t!("libws.ds.source_unavailable");
+                return;
+            }
+        }
+        let now = ctx.input(|i| i.time);
+        self.datasheet_pane.show_source(page, rect, now);
     }
 }
 

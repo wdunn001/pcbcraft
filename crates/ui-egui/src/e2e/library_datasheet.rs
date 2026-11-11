@@ -218,3 +218,48 @@ fn a_newcomer_closes_the_datasheet_reader_and_keeps_the_link_page() -> Result<()
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_clicks_a_datasheet_value_and_sees_where_it_was_read() -> Result<(), String> {
+    let (ctx, mut app, _dir) = reading("two-pages.pdf")?;
+    assert!(
+        !on_screen(&ctx, &mut app, "button:VDD: #.# V"),
+        "no value is listed before the datasheet has been read for values"
+    );
+    let document: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../library/tests/fixtures/datasheet_extract/sample_text_doc.json"
+    ))
+    .map_err(|e| e.to_string())?;
+    if !app.tool_call(
+        "datasheet.extract",
+        json!({"part": "datasheet", "document": document}),
+    ) {
+        return Err("the sample datasheet text should extract".into());
+    }
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    assert!(
+        paints_text_tall(&ctx, &mut app, "Values read from the datasheet")?,
+        "the page lists the values that were read"
+    );
+    assert!(
+        !app.datasheet_pane.is_open(),
+        "the reader window stays shut until a value is pressed"
+    );
+    tap_id(&ctx, &mut app, "button:VDD: #.# V")?;
+    assert!(
+        app.datasheet_pane.is_open(),
+        "pressing a value opens the datasheet window"
+    );
+    let (page, rect) = app
+        .datasheet_pane
+        .flash_rect()
+        .ok_or("the source rectangle should be flashing")?;
+    assert_eq!(page, 1, "the window shows the page the value sits on");
+    assert!(
+        rect[2] > rect[0] && rect[3] > rect[1],
+        "the flash covers a real rectangle: {rect:?}"
+    );
+    Ok(())
+}
