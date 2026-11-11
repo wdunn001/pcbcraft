@@ -461,7 +461,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "part.attach_source",
             "Record where a part came from on a placed component in one step: manufacturer, part number, datasheet link and the distributor's own order number are written as named properties (Manufacturer, MPN, Datasheet, and one property per distributor ending in SKU), and copied component and orderable records are stored on the project library",
             schema(
-                json!({"id":id_schema(),"manufacturer":{"type":"string","maxLength":256},"mpn":{"type":"string","maxLength":256},"datasheet":{"type":"string","maxLength":256},"distributor":{"type":"string","maxLength":48},"sku":{"type":"string","maxLength":256},"stock":{"type":"integer","minimum":0,"maximum":1000000000000},"retrieved_at":{"type":"integer","minimum":978307200,"maximum":4102444800},"checked_at":{"type":"integer","minimum":978307200,"maximum":4102444800}}),
+                json!({"id":id_schema(),"manufacturer":{"type":"string","maxLength":256},"mpn":{"type":"string","maxLength":256},"datasheet":{"type":"string","maxLength":256},"distributor":{"type":"string","maxLength":48},"sku":{"type":"string","maxLength":256},"stock":{"type":"integer","minimum":0,"maximum":1000000000000u64},"retrieved_at":{"type":"integer","minimum":978307200u64,"maximum":4102444800u64},"checked_at":{"type":"integer","minimum":978307200u64,"maximum":4102444800u64}}),
                 &["id", "manufacturer", "mpn"],
             ),
         ),
