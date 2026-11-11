@@ -297,3 +297,75 @@ fn attaching_a_source_part_fills_the_typed_record() -> Result<(), Error> {
     );
     Ok(())
 }
+
+#[test]
+fn attaching_a_source_keeps_stock_and_both_dates() -> Result<(), Error> {
+    let (mut s, id) = session_with_part()?;
+    s.execute(
+        "part.attach_source",
+        json!({"id":id,"manufacturer":"Yageo","mpn":"RC0603","distributor":"Mouser",
+               "sku":"603-RC0603","stock":4200,"retrieved_at":1_790_000_000u64,
+               "checked_at":1_790_000_600u64}),
+        None,
+    )?;
+    let sourcing = sourcing_of(&s, id)?;
+    assert_eq!(sourcing.stock, Some(4200));
+    assert_eq!(sourcing.retrieved_at, Some(1_790_000_000));
+    assert_eq!(sourcing.checked_at, Some(1_790_000_600));
+    let component = s.project.component(id).ok_or_else(missing)?;
+    assert_eq!(component.bom_value("Stock"), "4200");
+    assert_eq!(component.bom_value("Retrieved at"), "1790000000");
+    assert_eq!(component.bom_value("Checked at"), "1790000600");
+    let saved = serde_json::to_string(&sourcing).map_err(|e| Error::Invalid(e.to_string()))?;
+    assert!(saved.contains("\"stock\":4200"));
+    Ok(())
+}
+
+#[test]
+fn attaching_a_source_refuses_bad_stock_and_dates() -> Result<(), Error> {
+    let (mut s, id) = session_with_part()?;
+    for bad in [
+        json!({"stock":-1}),
+        json!({"stock":1.5}),
+        json!({"stock":"many"}),
+        json!({"stock":1_000_000_000_001u64}),
+        json!({"retrieved_at":0}),
+        json!({"retrieved_at":5_000_000_000u64}),
+        json!({"checked_at":-3}),
+        json!({"checked_at":10}),
+    ] {
+        let mut params = json!({"id":id,"manufacturer":"Yageo","mpn":"RC0603"});
+        if let (Some(base), Some(more)) = (params.as_object_mut(), bad.as_object()) {
+            base.extend(more.clone());
+        }
+        assert!(
+            s.execute("part.attach_source", params, None).is_err(),
+            "{bad}"
+        );
+        assert!(
+            sourcing_of(&s, id)?.is_empty(),
+            "{bad} left the record alone"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn unset_stock_and_dates_stay_out_of_the_saved_record() -> Result<(), Error> {
+    let (mut s, id) = session_with_part()?;
+    s.execute(
+        "part.attach_source",
+        json!({"id":id,"manufacturer":"Yageo","mpn":"RC0603"}),
+        None,
+    )?;
+    let sourcing = sourcing_of(&s, id)?;
+    assert_eq!(sourcing.stock, None);
+    let saved = serde_json::to_string(&sourcing).map_err(|e| Error::Invalid(e.to_string()))?;
+    for key in ["stock", "retrieved_at", "checked_at"] {
+        assert!(!saved.contains(key), "{key} must be absent: {saved}");
+    }
+    let old: pcbcraft_doc::Sourcing =
+        serde_json::from_str(&saved).map_err(|e| Error::Invalid(e.to_string()))?;
+    assert_eq!(old, sourcing, "a record without them still loads");
+    Ok(())
+}

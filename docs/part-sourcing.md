@@ -28,7 +28,9 @@ Mount type is not stored; it comes from the pads.
 - `component.set_supplier`: `{ id, supplier, part_number, url? }` adds or replaces the entry of that supplier
   (name compared ignoring case); a `null` part number removes it.
 - `part.attach_source` (the online part search) also writes the record: manufacturer, MPN, description,
-  lifecycle text and the distributor's number with its product link.
+  lifecycle text and the distributor's number with its product link. It also keeps `stock` (a whole number, 0 to
+  1,000,000,000,000), `retrieved_at` and `checked_at` (seconds since 1970, between 2001 and 2100) when given.
+  Values outside those bounds refuse the whole command. Unset values are not written to the file.
 
 Both commands refuse a bad value and leave the record unchanged.
 
@@ -42,7 +44,7 @@ the record wins. The free-form properties stay in place and stay readable; the s
 ## Bill of materials columns
 
 `bom.export` reads these keys through `Component::bom_value`: `Manufacturer`, `MPN`, `Description`, `Lifecycle`,
-`Moisture level`, `RoHS`, `REACH`, `Halogen free`, `Suppliers` (every supplier as `Name: number`, joined by `; `)
+`Moisture level`, `RoHS`, `REACH`, `Halogen free`, `Stock`, `Retrieved at`, `Checked at`, `Suppliers` (every supplier as `Name: number`, joined by `; `)
 and `Supplier:<name>` (one supplier's number). Any other key reads the free-form property. The Export dialog's
 generic CSV offers Description and Supplier part numbers columns, ticked when some part has the data.
 

@@ -30,6 +30,12 @@ pub const MAX_SUPPLIERS: usize = 16;
 pub const MAX_SOURCING_URL: usize = 512;
 /// Most alternate parts one component lists.
 pub const MAX_ALTERNATES: usize = 8;
+/// Largest stock count a distributor snapshot can record.
+pub const MAX_STOCK: u64 = 1_000_000_000_000;
+/// Earliest snapshot time, in seconds since the Unix epoch (2001-01-01).
+pub const MIN_SNAPSHOT_SECS: u64 = 978_307_200;
+/// Latest snapshot time, in seconds since the Unix epoch (2100-01-01).
+pub const MAX_SNAPSHOT_SECS: u64 = 4_102_444_800;
 
 /// One alternate source: another maker and part number pair.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -96,6 +102,15 @@ pub struct Sourcing {
     /// Link to a 3D model of the part.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model3d_url: Option<String>,
+    /// Units a distributor listed in stock when the snapshot was taken.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stock: Option<u64>,
+    /// When the distributor answer was retrieved, in seconds since the Unix epoch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retrieved_at: Option<u64>,
+    /// When the answer was last checked against the distributor, in seconds since the Unix epoch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checked_at: Option<u64>,
 }
 
 /// Check one bounded text: at most `max` bytes and no control characters.
@@ -191,6 +206,19 @@ impl Sourcing {
         }
         if self.moisture_level.is_some_and(|m| !(1..=6).contains(&m)) {
             return Err("moisture level must be 1 to 6".into());
+        }
+        if self.stock.is_some_and(|n| n > MAX_STOCK) {
+            return Err(format!("stock must be a whole number up to {MAX_STOCK}"));
+        }
+        for (name, at) in [
+            ("retrieved_at", self.retrieved_at),
+            ("checked_at", self.checked_at),
+        ] {
+            if at.is_some_and(|t| !(MIN_SNAPSHOT_SECS..=MAX_SNAPSHOT_SECS).contains(&t)) {
+                return Err(format!(
+                    "{name} must be seconds since 1970 between {MIN_SNAPSHOT_SECS} and {MAX_SNAPSHOT_SECS}"
+                ));
+            }
         }
         Ok(())
     }
@@ -480,6 +508,9 @@ impl Component {
                 .or_else(|| self.field("Datasheet").map(str::to_owned))
                 .unwrap_or_default(),
             "3D model" => s.model3d_url.clone().unwrap_or_default(),
+            "Stock" => s.stock.map(|n| n.to_string()).unwrap_or_default(),
+            "Retrieved at" => s.retrieved_at.map(|n| n.to_string()).unwrap_or_default(),
+            "Checked at" => s.checked_at.map(|n| n.to_string()).unwrap_or_default(),
             "Alternates" => s
                 .alternates
                 .iter()
