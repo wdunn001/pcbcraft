@@ -686,16 +686,8 @@ impl App {
                     }
                     // Part marking is a view option: flipping it makes the next refresh
                     // rebuild the mesh with or without the text on chip bodies.
-                    let tip = t!("board.board3d.part_marking.tip");
-                    let marking = ui
-                        .add(
-                            egui::Button::new(t!("board.board3d.part_marking"))
-                                .selected(v.show_marking)
-                                .min_size(egui::Vec2::splat(crate::targets::MIN_TARGET)),
-                        )
-                        .on_hover_text(&tip);
-                    crate::a11y::name_control(&marking, &tip, Some(v.show_marking));
-                    if marking.clicked() {
+                    let marking_tip = t!("board.board3d.part_marking.tip");
+                    if icon(ui, "text", &marking_tip, v.show_marking).clicked() {
                         v.show_marking = !v.show_marking;
                     }
                 });
