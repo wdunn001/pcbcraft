@@ -66,6 +66,7 @@ mod no_connect;
 mod number_entry;
 mod outline_arcs;
 mod pad_tool;
+mod page_part;
 mod page_scope;
 mod pages;
 mod palette;
@@ -1439,6 +1440,8 @@ pub struct App {
     /// The project as Main lays it out, kept until the project changes. Building it clones the whole
     /// project, and a frame asks for it many times, so it is built once per change. See `page_scope.rs`.
     main_view: std::sync::Mutex<page_scope::MainViewCache>,
+    /// Which pages Main has opened up; closed pages show as one part. See `page_part.rs`.
+    main_open: page_part::MainOpen,
     /// The Renumber parts window, opened from the Edit menu.
     renumber_open: bool,
     /// The Rules and checks window, opened from the Edit menu.
@@ -2306,6 +2309,7 @@ impl App {
             setup_wizard: setup_wizard::State::default(),
             active_page: 0,
             main_view: std::sync::Mutex::new(page_scope::MainViewCache::default()),
+            main_open: page_part::MainOpen::default(),
             power_pick: std::collections::BTreeMap::new(),
             port_pick_name: String::new(),
             page_left: 0.0,

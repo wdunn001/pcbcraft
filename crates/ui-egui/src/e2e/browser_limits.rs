@@ -110,3 +110,46 @@ fn a_newcomer_in_the_browser_is_not_offered_a_plot_folder_that_cannot_open() -> 
     }
     Ok(())
 }
+
+/// A newcomer edits in the browser, the page saves to its storage, and after a reload the
+/// edit is back. The reload is a new app whose session is filled from the stored copy, the
+/// same read the web entry point makes at start (`opening_session` in `apps/pcbcraft-web`).
+#[test]
+fn a_newcomer_reloads_the_browser_page_and_finds_the_edit() -> Result<(), String> {
+    let mut before = app_in(true);
+    before.tool_call("sample_design", json!({}));
+    before.tool_call(
+        "component.add",
+        json!({"kind":"resistor","position":{"x":99,"y":88}}),
+    );
+    let mut storage = MemoryStorage::default();
+    eframe::App::save(&mut before, &mut storage);
+    drop(before);
+
+    let text = storage
+        .get_string("recovery")
+        .ok_or("the first visit saved a copy of the project")?;
+    let project =
+        pcbcraft_io::read_project(&text).map_err(|e| format!("the saved copy reads back: {e}"))?;
+    let mut session = pcbcraft_engine::Session::default();
+    session
+        .replace(project)
+        .map_err(|e| format!("the saved copy opens: {e}"))?;
+    let mut after = App::create(
+        pcbcraft_mcp::shared(session),
+        Preferences::default(),
+        None,
+        None,
+    );
+    after.browser = true;
+    after.refresh();
+    assert!(
+        after
+            .project
+            .components
+            .iter()
+            .any(|c| (c.position.x - 99.0).abs() < 0.01 && (c.position.y - 88.0).abs() < 0.01),
+        "the part added before the reload is where it was left"
+    );
+    Ok(())
+}

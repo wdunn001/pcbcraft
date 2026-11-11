@@ -160,6 +160,9 @@ impl App {
         let Tool::Wire(Some(start)) = self.tool.clone() else {
             return;
         };
+        if self.finish_wire_with_page_part(&start, &end, end_pos) {
+            return;
+        }
         let mut points = self.wire_route.clone();
         if points.is_empty()
             && let Some(at) = self.sheet_view().pin_position(&start)
