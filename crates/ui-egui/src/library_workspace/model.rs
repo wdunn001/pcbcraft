@@ -304,6 +304,41 @@ impl App {
                 }
                 let size = egui::vec2(ui.available_width(), 440.0);
                 board3d::viewport(&mut self.libws.model_view, ui, &mut env, size);
+                let status = self.libws.model_view.model_status(PART);
+                let source = match (&def.model, &status) {
+                    (None, _) => part3d::ModelSource::Generated,
+                    (Some(_), Some(pcbcraft_io::ModelStatus::Loaded)) => part3d::ModelSource::File,
+                    (Some(_), _) => part3d::ModelSource::Generated,
+                };
+                let why = match &status {
+                    Some(pcbcraft_io::ModelStatus::Failed(why)) => Some(why.clone()),
+                    _ => None,
+                };
+                match pcbcraft_io::board_mesh(
+                    &self.libws.model_project,
+                    pcbcraft_io::MeshLayers::default(),
+                ) {
+                    Ok(mesh) => {
+                        let (low, high) = mesh.bounds().unwrap_or(([0.0; 3], [0.0; 3]));
+                        self.libws.model3d.set_load_result(
+                            source,
+                            mesh.triangle_count(),
+                            low,
+                            high,
+                            "",
+                            why.as_deref(),
+                        );
+                    }
+                    Err(e) => self.libws.model3d.set_load_result(
+                        part3d::ModelSource::None,
+                        0,
+                        [0.0; 3],
+                        [0.0; 3],
+                        "",
+                        Some(&e.to_string()),
+                    ),
+                }
+                self.libws.model3d.under_viewport(ui);
                 ui.label(fonts::caption(t!("libws.model.hint")).color(t.muted));
             },
         );
