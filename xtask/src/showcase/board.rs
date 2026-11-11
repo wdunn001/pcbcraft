@@ -130,7 +130,12 @@ fn describe(g: &Gen, id: u64) -> String {
 fn messages(g: &Gen) -> Vec<String> {
     pcbcraft_rules::drc(&g.s.project)
         .iter()
-        .filter(|f| f.code != "unrouted")
+        .filter(|f| {
+            !matches!(
+                f.code,
+                "unrouted" | "decoupling_distance" | "decoupling_ground_via"
+            )
+        })
         .map(|f| {
             format!(
                 "{}: {} [{}]",
