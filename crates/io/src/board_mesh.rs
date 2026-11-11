@@ -887,17 +887,25 @@ fn capsule_ring(a: Point, b: Point, radius: f64) -> Vec<Point> {
     }
     let n = circle_segments(radius).max(8);
     let axis = (b.y - a.y).atan2(b.x - a.x);
-    // Half circle around the far centre, then half circle around the near
-    // one, so the ring runs along one side and back along the other.
+    let perp = axis + std::f64::consts::PI / 2.0;
+    let ox = radius * perp.cos();
+    let oy = radius * perp.sin();
+    // Top edge: from A + offset to B + offset
+    points.push(Point::new(a.x + ox, a.y + oy));
+    points.push(Point::new(b.x + ox, b.y + oy));
+    // Right semicircle: from top to bottom (angles PI/2 to -PI/2)
     for i in 0..=n {
-        let angle = axis + std::f64::consts::PI * (i as f64) / (n as f64);
+        let angle = std::f64::consts::PI / 2.0 - std::f64::consts::PI * (i as f64) / (n as f64);
         points.push(Point::new(
             b.x + radius * angle.cos(),
             b.y + radius * angle.sin(),
         ));
     }
+    // Bottom edge: from B - offset to A - offset
+    points.push(Point::new(a.x - ox, a.y - oy));
+    // Left semicircle: from bottom to top (angles -PI/2 to PI/2 via -PI)
     for i in 0..=n {
-        let angle = axis - std::f64::consts::PI * (i as f64) / (n as f64);
+        let angle = -std::f64::consts::PI / 2.0 - std::f64::consts::PI * (i as f64) / (n as f64);
         points.push(Point::new(
             a.x + radius * angle.cos(),
             a.y + radius * angle.sin(),
@@ -1837,7 +1845,7 @@ mod tests {
         p.board.height = 30.0;
         p.board.thickness = 1.6;
         p.nets.push(Net {
-            id: 1,
+            id: 2,
             name: "N1".into(),
             ..Net::default()
         });
@@ -2600,6 +2608,148 @@ mod tests {
             warnings: vec![],
         };
         assert_eq!(mesh.vertex_count(), 8);
+        Ok(())
+    }
+
+    // Issue #627: mounting holes in 3D view
+    #[test]
+    fn a_round_hole_shows_no_board_top_face_triangle_over_its_centre() -> Check {
+        let mut p = base();
+        p.board.holes.push(Hole {
+            id: 100,
+            position: Point::new(10.0, 10.0),
+            diameter: 3.0,
+            end: None,
+        });
+        let mesh = board_mesh(&p, slab_only())?;
+        let slab = part(&mesh, PartKind::Board)?;
+        // 1200 mm^2 board minus pi * 1.5^2 = ~7.07 mm^2
+        let expected = 1200.0 * 1.6 - std::f64::consts::PI * 1.5 * 1.5;
+        assert!(
+            volume(slab) < expected + 5.0,
+            "slab not cut: {}",
+            volume(slab)
+        );
+        assert!(
+            volume(slab) > expected - 5.0,
+            "slab over-cut: {}",
+            volume(slab)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_slot_shows_the_capsule_cut() -> Check {
+        let mut p = base();
+        // Slot from (8,10) to (12,10) with diameter 2.0
+        p.board.holes.push(Hole {
+            id: 101,
+            position: Point::new(8.0, 10.0),
+            diameter: 2.0,
+            end: Some(Point::new(12.0, 10.0)),
+        });
+        let mesh = board_mesh(&p, slab_only())?;
+        let slab = part(&mesh, PartKind::Board)?;
+        // Capsule area = diameter * length + pi * (diameter/2)^2
+        // = 2.0 * 4.0 + pi * 1.0^2 = ~8.0 + 3.14 = ~11.14 mm^2
+        let capsule_area = 2.0 * 4.0 + std::f64::consts::PI * 1.0 * 1.0;
+        let expected = 1200.0 * 1.6 - capsule_area;
+        assert!(
+            volume(slab) < expected + 8.0,
+            "slot not cut: {}",
+            volume(slab)
+        );
+        assert!(
+            volume(slab) > expected - 8.0,
+            "slot over-cut: {}",
+            volume(slab)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_hole_zero_point_two_mm_inside_the_outline_is_cut() -> Check {
+        let mut p = base();
+        // Board is 30x40, so edge is at x=30. Place hole at x=29.8 (0.2mm inside).
+        p.board.holes.push(Hole {
+            id: 102,
+            position: Point::new(29.8, 20.0),
+            diameter: 0.2,
+            end: None,
+        });
+        let mesh = board_mesh(&p, slab_only())?;
+        let slab = part(&mesh, PartKind::Board)?;
+        let expected = 1200.0 * 1.6 - std::f64::consts::PI * 0.1 * 0.1;
+        assert!(
+            volume(slab) < expected + 0.01,
+            "edge hole not cut: {}",
+            volume(slab)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_hole_that_cannot_be_cut_adds_a_warning_line_naming_the_count() -> Check {
+        let mut p = base();
+        p.board.holes.push(Hole {
+            id: 103,
+            position: Point::new(100.0, 100.0),
+            diameter: 2.0,
+            end: None,
+        });
+        p.board.holes.push(Hole {
+            id: 104,
+            position: Point::new(200.0, 200.0),
+            diameter: 2.0,
+            end: None,
+        });
+        let mesh = board_mesh(&p, slab_only())?;
+        assert!(
+            mesh.warnings.iter().any(|w| w.contains("2 holes")),
+            "missing warning for 2 uncut holes: {:?}",
+            mesh.warnings
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn showcase_example_holes_show_in_3d_and_the_test_counts_the_cut_rings() -> Check {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../examples/showcase.pcbcraft");
+        let content =
+            std::fs::read_to_string(&path).map_err(|e| format!("cannot read showcase: {}", e))?;
+        let p: Project =
+            serde_json::from_str(&content).map_err(|e| format!("cannot parse showcase: {}", e))?;
+        let mesh = board_mesh(&p, slab_only())?;
+        let slab = part(&mesh, PartKind::Board)?;
+        // Compute bounding box of board outline to get an upper bound on volume
+        let mut min_x = f64::INFINITY;
+        let mut max_x = f64::NEG_INFINITY;
+        let mut min_y = f64::INFINITY;
+        let mut max_y = f64::NEG_INFINITY;
+        let outline = p.board.outline.as_ref().ok_or("showcase has no outline")?;
+        for pt in outline {
+            if pt.x < min_x {
+                min_x = pt.x;
+            }
+            if pt.x > max_x {
+                max_x = pt.x;
+            }
+            if pt.y < min_y {
+                min_y = pt.y;
+            }
+            if pt.y > max_y {
+                max_y = pt.y;
+            }
+        }
+        let bbox_area = (max_x - min_x) * (max_y - min_y);
+        let expected_full = bbox_area * 1.6;
+        assert!(
+            volume(slab) < expected_full,
+            "showcase holes not cut: slab volume {} >= expected full {}",
+            volume(slab),
+            expected_full
+        );
         Ok(())
     }
 }
