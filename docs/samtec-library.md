@@ -40,7 +40,9 @@ the same cards. A card opens a form with the rows, the positions per row, the
 lead or stack code and the alignment posts the series allows. The form shows the
 part number it builds. When the position count sits at a series limit, a plain
 line says what the limit is. Place adds the generated symbol and footprint to the
-project in one undo step.
+project in one undo step. Typing a complete Samtec part number in the keyword
+box shows the card of the series that makes it. The form then shows the
+footprint that number describes.
 
 ## Owner decision
 
