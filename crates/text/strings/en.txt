@@ -4338,6 +4338,7 @@ schematic.page_part.close = Hide items of {page}
 schematic.page_part.close.tip = Close this page again so it shows as one part with its outward pins.
 schematic.main.open_all = Open all pages
 schematic.main.open_all.tip = Show the items of every page on Main. Turn it off to show each page as one part with its outward pins.
+schematic.resize_corner.tip = Drag this corner to resize the part. The body grows or shrinks around its centre and its pins move with the edges.
 
 # art layer properties (issue #98)
 tree.art_layer.missing = Layer not found
