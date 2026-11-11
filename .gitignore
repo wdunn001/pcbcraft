@@ -1,6 +1,10 @@
 /target/
 *.pcbcraft.tmp
 /work/
+
+# Local test run logs.
+/test-full.txt
+/test-out.txt
 __pycache__/
 
 site/docs-preview/
