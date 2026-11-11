@@ -47188,7 +47188,7 @@ mod tests {
         );
         Ok(())
     }
-    #[allow(dead_code)]
+    #[test]
     fn via_set_span_updates_range() -> Result<(), Error> {
         let (mut s, net) = six_layer_session()?;
         let id = s.execute(

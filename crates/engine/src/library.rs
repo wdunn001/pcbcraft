@@ -1619,7 +1619,7 @@ mod tests {
         Ok(())
     }
 
-    #[allow(dead_code)]
+    #[test]
     fn library_source_tools_answer_through_the_read_tool_router() -> Result<(), String> {
         let config = &UserConfig::detached();
         let listing = read_tool(config, "library.sources", &json!({}))?;
