@@ -82,6 +82,7 @@ mod schematic_labels;
 mod schematic_new_page;
 mod schematic_page_scope;
 mod schematic_pages;
+mod schematic_selection_outline;
 mod schematic_power_port_move;
 mod schematic_symbols;
 mod selection;

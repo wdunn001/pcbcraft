@@ -1,8 +1,8 @@
 ---
-type: feature
-area: ui
+type: fix
+area: schematic
 issues: [641]
 user_visible: true
-docs: n/a: written by the worker harness, the issue text records the behaviour
-summary: The selection outline of a schematic part misses part of it and shows resize handles.
+docs: n/a: a bug fix of an existing view, no page of the docs describes the outline
+summary: The selection outline of a part in the Schematic view now wraps the whole part, and no resize handles show on it.
 ---
