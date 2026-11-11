@@ -1502,9 +1502,9 @@ minimap.chip.selection.tip = Show or hide a box around the selected object.
 minimap.chip.net = Net
 minimap.chip.net.tip = Show or hide the highlighted net.
 
-minimap.eject = Eject the map
-minimap.eject.tip = Eject: open the map in its own frameless window, for a second screen. Press E while the map is open.
-minimap.eject.announced = The map is open in its own window.
+minimap.eject = Keep the map open
+minimap.eject.tip = Keep the map open on the canvas without pinning it. It stays on screen until you dock it back. Press E while the map is open.
+minimap.eject.announced = The map stays open until you dock it back.
 minimap.dock = Dock the map back
 minimap.dock.tip = Dock back: bring the map back next to the navigation card.
 minimap.dock.announced = The map is back with the navigation card.

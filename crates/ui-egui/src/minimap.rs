@@ -13,9 +13,10 @@
 //! revision, tab and sheet; selection, findings and the lit net are cheap marks
 //! built per frame. Tracks, parts and pour points are capped (level of detail),
 //! so the work count of a frame stays under [`WORK_BUDGET`]. Pinned state, width,
-//! opacity and position persist per tab in `Preferences::minimap`. Eject puts
-//! the map in its own frameless window (desktop only; the browser build offers
-//! pin only, and a true OS window reuses the workbench pop-out, #460).
+//! opacity and position persist per tab in `Preferences::minimap`. Eject keeps
+//! the map on screen without pinning it until it is docked back (desktop only; the browser
+//! build offers pin only). It does not open an OS window: that waits on the workbench
+//! pop-out (#460).
 
 use super::*;
 use egui::{Pos2, Sense};
@@ -663,10 +664,10 @@ pub(crate) struct State {
     /// The peek key is held.
     pub key_held: bool,
 
-    /// The map is shown in its own frameless window (desktop only; dock back returns it).
+    /// The map is kept open on the canvas until docked back (desktop only). It is not an OS window.
     pub ejected: bool,
 
-    /// The map was already in its own window on the previous frame, so the
+    /// The map was already kept open on the previous frame, so the
     /// frame that just opened does not swallow that frame's Esc.
     was_ejected: bool,
 
@@ -742,8 +743,8 @@ impl App {
         self.minimap.region = None;
     }
 
-    /// Eject: the map moves to its own frameless window; press again to dock
-    /// it back to the navigation card. The Map button shows a dot while out.
+    /// Eject: keep the map open on the canvas without pinning it; press again to dock
+    /// it back to the navigation card. No OS window is opened. The Map button shows a dot while out.
     ///
     /// # Rules
     /// - A no-op in the browser build, where the map offers pin only.

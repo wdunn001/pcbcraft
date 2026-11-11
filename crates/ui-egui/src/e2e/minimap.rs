@@ -733,11 +733,11 @@ fn a_newcomer_ejects_the_minimap() -> Result<(), String> {
     settle(&ctx, &mut app, 2);
     authoring::tests::tap_icon(&ctx, &mut app, "minimap-eject")?;
     settle(&ctx, &mut app, 2);
-    assert!(app.minimap.ejected, "the eject button opens its own window");
+    assert!(app.minimap.ejected, "the eject button keeps the map open");
     assert!(app.minimap_visible(), "the map is still on screen");
     assert!(
-        app.minimap.announced.contains("own window"),
-        "eject announces the new window: {}",
+        app.minimap.announced.contains("stays open"),
+        "eject announces that the map stays open: {}",
         app.minimap.announced
     );
     let dock = rect_of(&app, "minimap-dock")?;
