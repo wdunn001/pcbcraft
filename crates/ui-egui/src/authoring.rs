@@ -25,6 +25,39 @@ use std::collections::BTreeSet;
 /// Placing a footprint still stops at 64 pads until the placement limit is lifted.
 const PAD_LIST_LIMIT: usize = 1600;
 
+/// Plain sentence for one electrical pin type.
+fn pin_type_tip(kind: &str) -> String {
+    match kind {
+        "passive" => t!("library.library_editor.pin_type.passive.tip"),
+        "input" => t!("library.library_editor.pin_type.input.tip"),
+        "output" => t!("library.library_editor.pin_type.output.tip"),
+        "bidirectional" => t!("library.library_editor.pin_type.bidirectional.tip"),
+        "tri_state" => t!("library.library_editor.pin_type.tri_state.tip"),
+        "power_in" => t!("library.library_editor.pin_type.power_in.tip"),
+        "power_out" => t!("library.library_editor.pin_type.power_out.tip"),
+        "open_collector" => t!("library.library_editor.pin_type.open_collector.tip"),
+        "open_emitter" => t!("library.library_editor.pin_type.open_emitter.tip"),
+        "no_connect" => t!("library.library_editor.pin_type.no_connect.tip"),
+        _ => t!("library.library_editor.pin_graphical_style.tip"),
+    }
+}
+
+/// Plain sentence for one graphical pin style.
+fn pin_style_tip(style: &str) -> String {
+    match style {
+        "line" => t!("library.library_editor.pin_style.line.tip"),
+        "inverted" => t!("library.library_editor.pin_style.inverted.tip"),
+        "clock" => t!("library.library_editor.pin_style.clock.tip"),
+        "inverted_clock" => t!("library.library_editor.pin_style.inverted_clock.tip"),
+        "input_low" => t!("library.library_editor.pin_style.input_low.tip"),
+        "clock_low" => t!("library.library_editor.pin_style.clock_low.tip"),
+        "output_low" => t!("library.library_editor.pin_style.output_low.tip"),
+        "edge_clock_high" => t!("library.library_editor.pin_style.edge_clock_high.tip"),
+        "non_logic" => t!("library.library_editor.pin_style.non_logic.tip"),
+        _ => t!("library.library_editor.pin_graphical_style.tip"),
+    }
+}
+
 /// A half-built symbol or footprint, kept until the editor writes it.
 #[derive(Clone)]
 pub(super) enum Draft {
@@ -1890,14 +1923,17 @@ impl App {
                                         "open_emitter",
                                         "no_connect",
                                     ] {
-                                        ui.selectable_value(&mut pin.electrical_type, t.into(), t);
+                                        ui.selectable_value(&mut pin.electrical_type, t.into(), t)
+                                            .on_hover_text(pin_type_tip(t));
                                     }
                                 }).response.named("Pin type");
                             ui.separator();
                             ui.horizontal(|ui| {
-                                ui.label(t!("library.library_editor.pin_graphical_style"));
+                                ui.label(t!("library.library_editor.pin_graphical_style"))
+                                    .on_hover_text(t!("library.library_editor.pin_graphical_style.tip"));
                                 for s in PIN_GRAPHICAL_STYLES {
-                                    ui.selectable_value(&mut pin.graphical_style, (*s).into(), *s);
+                                    ui.selectable_value(&mut pin.graphical_style, (*s).into(), *s)
+                                        .on_hover_text(pin_style_tip(s));
                                 }
                             }).response.named("Pin graphical style");
                             if ui
