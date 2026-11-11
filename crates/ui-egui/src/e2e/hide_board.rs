@@ -341,6 +341,7 @@ fn a_newcomer_routes_from_a_pad_only_while_its_layer_is_shown() -> Result<(), St
 fn a_newcomer_hides_wires_on_the_schematic_and_cannot_pick_them() -> Result<(), String> {
     let (ctx, mut app) = sample()?;
     app.change_tab(Tab::Schematic);
+    app.main_open.all = true;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let sheet = app.sheet_view();
     let page = app.schematic_page();

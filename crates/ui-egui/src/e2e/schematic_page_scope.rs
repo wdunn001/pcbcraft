@@ -17,6 +17,8 @@ fn showcase() -> Result<(egui::Context, App), String> {
     authoring::tests::tap(&ctx, &mut app, "Showcase board")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Schematic")?;
+    // These stories are about the items of every page on Main, so every page is opened up.
+    app.main_open.all = true;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     Ok((ctx, app))
 }

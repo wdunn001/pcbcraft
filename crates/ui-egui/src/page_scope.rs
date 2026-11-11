@@ -329,7 +329,7 @@ pub(crate) fn page_of_object(project: &Project, object: Id) -> Option<Id> {
 #[derive(Default)]
 pub(crate) struct MainViewCache {
     /// The engine revision, the part count and the page count the view was built from.
-    key: Option<(u64, usize, usize)>,
+    key: Option<(u64, usize, usize, u64)>,
     /// The laid out project, shared with every caller until the project changes.
     view: Option<std::sync::Arc<Project>>,
 }
@@ -453,13 +453,14 @@ impl App {
             self.revision,
             self.project.components.len(),
             self.project.sheets.len(),
+            self.main_open.stamp(),
         );
         let mut cache = self
             .main_view
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if cache.key != Some(key) || cache.view.is_none() {
-            cache.view = Some(std::sync::Arc::new(main_sheet_project(&self.project)));
+            cache.view = Some(std::sync::Arc::new(main_view_project(&self.project, &self.main_open)));
             cache.key = Some(key);
         }
         match &cache.view {
@@ -483,7 +484,29 @@ impl App {
 /// # Do not
 /// - Send it to the engine or save it.
 pub(crate) fn main_sheet_project(p: &Project) -> Project {
-    let mut v = Project {
+    let mut v = light_copy(p);
+    apply_main_layout(&mut v);
+    v
+}
+
+/// Main as the canvas shows it: placed, with each closed page folded into one part.
+///
+/// Why: pickers and snaps must see the same parts the painter draws.
+///
+/// # Dependencies
+/// - crates/ui-egui/src/page_part.rs (`apply_main_view`)
+///
+/// # Do not
+/// - Send it to the engine or save it.
+pub(crate) fn main_view_project(p: &Project, open: &crate::page_part::MainOpen) -> Project {
+    let mut v = light_copy(p);
+    crate::page_part::apply_main_view(&mut v, open);
+    v
+}
+
+/// The part of `p` the schematic needs, copied, with nothing moved.
+fn light_copy(p: &Project) -> Project {
+    Project {
         name: p.name.clone(),
         meta: p.meta.clone(),
         components: p.components.clone(),
@@ -498,9 +521,7 @@ pub(crate) fn main_sheet_project(p: &Project) -> Project {
         page_settings: p.page_settings.clone(),
         root_sheet_name: p.root_sheet_name.clone(),
         ..Project::default()
-    };
-    apply_main_layout(&mut v);
-    v
+    }
 }
 
 impl App {

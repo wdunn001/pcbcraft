@@ -36,7 +36,8 @@ fn canvas_labels(app: &App) -> Vec<String> {
         |root_ui| {
             egui::CentralPanel::default().show(root_ui, |ui| {
                 let rect = ui.max_rect();
-                app.paint_schematic(ui.painter(), rect, app.schematic, &app.project);
+                let view = app.sheet_view();
+                app.paint_schematic(ui.painter(), rect, app.schematic, &view);
             });
         },
     );
@@ -90,8 +91,12 @@ fn a_newcomer_sees_one_schematic_page_at_a_time() -> Result<(), String> {
     let labels = canvas_labels(&app);
     assert!(labels.iter().any(|t| t.contains("R_ROOT")), "{labels:?}");
     assert!(
-        labels.iter().any(|t| t.contains("R_PAGE")),
-        "Main shows the part of every page: {labels:?}"
+        labels.iter().any(|t| t == "Page 1"),
+        "Main shows every page as one part: {labels:?}"
+    );
+    assert!(
+        !labels.iter().any(|t| t.contains("R_PAGE")),
+        "Main hides the items of a closed page: {labels:?}"
     );
     Ok(())
 }
@@ -177,8 +182,8 @@ fn a_newcomer_places_a_part_on_the_second_page_and_it_stays_there() -> Result<()
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let labels = canvas_labels(&app);
     assert!(
-        labels.iter().any(|t| t.contains(&reference)),
-        "Main shows the part of the other page, read only: {labels:?}"
+        labels.iter().any(|t| t == "Page 1") && !labels.iter().any(|t| t.contains(&reference)),
+        "Main shows the other page as one part: {labels:?}"
     );
     Ok(())
 }
@@ -505,6 +510,10 @@ fn a_newcomer_adds_a_second_page_and_carries_a_net_across() -> Result<(), String
         labels.iter().any(|t| t.contains("[SDA]")),
         "Main shows the port placed here: {labels:?}"
     );
+    assert!(
+        labels.iter().any(|t| t == "Page 1") && labels.iter().any(|t| t == "SDA"),
+        "Main shows the page as a part with a pin for its SDA net: {labels:?}"
+    );
     // Press the Page 1 tab: the copy of the label nearest the top of the window.
     let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let tab = output
@@ -797,6 +806,199 @@ fn a_newcomer_clicks_a_part_on_page_two_and_the_tree_goes_to_that_page_part() ->
         app.tree.expanded.contains(&symbols),
         "the Symbols row of that page opens: {:?}",
         app.tree.expanded
+    );
+    Ok(())
+}
+
+/// A design with a Main part and a page that owns R_CHILD and a port on SDA; the view is Main.
+fn main_with_a_page() -> Result<(egui::Context, App, Id), String> {
+    let mut app = start();
+    app.tool_call("net.create", json!({"name":"SDA"}));
+    add_part(&mut app, "R_ROOT", 10.0);
+    let ctx = egui::Context::default();
+    authoring::tests::tap(&ctx, &mut app, "+")?;
+    let child = app.project.sheets.first().ok_or("no page was added")?.id;
+    app.tool_call(
+        "component.add",
+        json!({"kind":"resistor","reference":"R_CHILD","position":{"x":40.0,"y":40.0}}),
+    );
+    let part = app
+        .project
+        .components
+        .iter()
+        .find(|c| c.reference == "R_CHILD")
+        .ok_or("the child part was not added")?
+        .id;
+    app.tool_call(
+        "schematic.move_component",
+        json!({"id": part, "sheet": child}),
+    );
+    let net = app
+        .project
+        .nets
+        .iter()
+        .find(|n| n.name == "SDA")
+        .ok_or("the net is missing")?
+        .id;
+    app.tool_call(
+        "schematic.place_port",
+        json!({"name":"SDA","net":net,"sheet":child,"position":{"x":45.0,"y":45.0}}),
+    );
+    authoring::tests::tap(&ctx, &mut app, "Main")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    Ok((ctx, app, child))
+}
+
+/// Centre the view on `at` so a control drawn there is on screen.
+fn look_at(ctx: &egui::Context, app: &mut App, at: Point) {
+    app.schematic.zoom = 6.0;
+    app.schematic.center = at;
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+}
+
+#[test]
+fn a_newcomer_opens_one_page_part_on_main_with_its_toggle() -> Result<(), String> {
+    let (ctx, mut app, child) = main_with_a_page()?;
+    let labels = canvas_labels(&app);
+    assert!(
+        !labels.iter().any(|t| t.contains("R_CHILD")),
+        "a closed page hides its parts: {labels:?}"
+    );
+    assert!(
+        labels.iter().any(|t| t.contains("R_ROOT")),
+        "Main keeps its own parts: {labels:?}"
+    );
+    let part = crate::page_part::PART_BASE + child;
+    let at = app
+        .sheet_view()
+        .component(part)
+        .ok_or("the page part is missing")?
+        .position;
+    look_at(&ctx, &mut app, at);
+    tap_named_holding(
+        &ctx,
+        &mut app,
+        "Button Show items of Page 1",
+        egui::Modifiers::NONE,
+    )?;
+    let labels = canvas_labels(&app);
+    assert!(
+        labels.iter().any(|t| t.contains("R_CHILD")),
+        "opening the page shows its parts: {labels:?}"
+    );
+    assert!(
+        !labels.iter().any(|t| t == "SDA"),
+        "the page part is gone once the page is open: {labels:?}"
+    );
+    let origin = app
+        .sheet_view()
+        .component(
+            app.project
+                .components
+                .iter()
+                .find(|c| c.reference == "R_CHILD")
+                .ok_or("the child part is missing")?
+                .id,
+        )
+        .ok_or("the placed child part is missing")?
+        .position;
+    look_at(&ctx, &mut app, origin);
+    tap_named_holding(
+        &ctx,
+        &mut app,
+        "Button Hide items of Page 1",
+        egui::Modifiers::NONE,
+    )?;
+    let labels = canvas_labels(&app);
+    assert!(
+        !labels.iter().any(|t| t.contains("R_CHILD")),
+        "closing the page folds it into one part again: {labels:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_opens_every_page_with_the_main_toolbar_toggle() -> Result<(), String> {
+    let (ctx, mut app, _) = main_with_a_page()?;
+    tap_named_holding(
+        &ctx,
+        &mut app,
+        "CheckBox Open all pages",
+        egui::Modifiers::NONE,
+    )?;
+    let labels = canvas_labels(&app);
+    assert!(
+        labels.iter().any(|t| t.contains("R_CHILD")),
+        "the toolbar toggle opens every page: {labels:?}"
+    );
+    tap_named_holding(
+        &ctx,
+        &mut app,
+        "CheckBox Open all pages",
+        egui::Modifiers::NONE,
+    )?;
+    let labels = canvas_labels(&app);
+    assert!(
+        !labels.iter().any(|t| t.contains("R_CHILD")),
+        "turning it off folds the pages again: {labels:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_wires_a_main_pin_to_a_page_part_pin_and_joins_the_net() -> Result<(), String> {
+    let (_ctx, mut app, child) = main_with_a_page()?;
+    let net = app
+        .project
+        .nets
+        .iter()
+        .find(|n| n.name == "SDA")
+        .ok_or("the net is missing")?
+        .id;
+    let root = app
+        .project
+        .components
+        .iter()
+        .find(|c| c.reference == "R_ROOT")
+        .ok_or("the Main part is missing")?
+        .id;
+    let part = crate::page_part::PART_BASE + child;
+    let (from, to) = {
+        let view = app.sheet_view();
+        let pin = view
+            .component(part)
+            .and_then(|c| c.pins.first())
+            .ok_or("the page part has no SDA pin")?;
+        assert_eq!(pin.net, Some(net), "the pin carries the SDA net");
+        let to = view
+            .pin_position(&PinRef {
+                component: part,
+                pin: pin.number.clone(),
+                unit: None,
+            })
+            .ok_or("the part pin has no place")?;
+        let from = view
+            .pin_position(&PinRef {
+                component: root,
+                pin: "1".into(),
+                unit: None,
+            })
+            .ok_or("the Main pin has no place")?;
+        (from, to)
+    };
+    let zoom = app.schematic.zoom;
+    app.canvas_click(from, zoom);
+    app.canvas_click(to, zoom);
+    let joined = app
+        .project
+        .component(root)
+        .and_then(|c| c.pins.iter().find(|p| p.number == "1"))
+        .and_then(|p| p.net);
+    assert_eq!(
+        joined,
+        Some(net),
+        "the Main pin joins the net of the page part pin: {}",
+        app.message
     );
     Ok(())
 }

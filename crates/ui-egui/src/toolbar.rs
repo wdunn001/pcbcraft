@@ -608,6 +608,10 @@ impl App {
         if keepout_on {
             right_w += 340.0;
         }
+        let main_open_on = !pcb && self.main_is_grouping();
+        if main_open_on {
+            right_w += 190.0;
+        }
         let more_label = t!("toolbar.more");
         let more_w = 2.0 * PAD + label_width(ui, &more_label) + 16.0 + 8.0;
         let avail = ui.available_width() - Self::PAGE_GUTTER - right_w - 16.0;
@@ -708,6 +712,8 @@ impl App {
             }
             if pcb {
                 self.toolbar_options(ui, &t);
+            } else if main_open_on {
+                self.toolbar_main_open(ui, &t);
             }
         });
         if let Some(act) = action {
