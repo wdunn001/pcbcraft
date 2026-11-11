@@ -159,6 +159,14 @@ fn a_newcomer_picks_a_part_from_the_layers_tree_in_3d() -> Result<(), String> {
 /// Give J1 a footprint that names `model_path`, then open the 3D tab and let
 /// the loader settle. The edit goes through the session so a refresh keeps it.
 fn open_3d_with_model(model_path: &str) -> Result<(egui::Context, App, Id), String> {
+    open_3d_with_model_part(model_path, None)
+}
+
+/// [`open_3d_with_model`] where the footprint also names one part inside the file.
+fn open_3d_with_model_part(
+    model_path: &str,
+    cad_part: Option<&str>,
+) -> Result<(egui::Context, App, Id), String> {
     let (ctx, mut app, j1) = open_3d()?;
     {
         let mut s = app.session.lock().map_err(|_| "session lock")?;
@@ -197,7 +205,7 @@ fn open_3d_with_model(model_path: &str) -> Result<(egui::Context, App, Id), Stri
                     offset: [0.0; 3],
                     scale: [1.0; 3],
                     rotate: [0.0; 3],
-                    cad_part: None,
+                    cad_part: cad_part.map(str::to_owned),
                     raw_source: String::new(),
                     body_id: Default::default(),
                     embedded: Default::default(),
@@ -267,6 +275,65 @@ fn a_newcomer_sees_the_real_part_model_in_3d() -> Result<(), String> {
         (hi[0] - lo[0] - 4.0).abs() < 1e-3 && (hi[1] - lo[1] - 3.0).abs() < 1e-3,
         "the 4 by 3 millimetre wedge sits on the board: {lo:?} {hi:?}"
     );
+    Ok(())
+}
+
+/// A model file with two parts: a 1 by 1 millimetre triangle on the root and a
+/// 4 by 3 millimetre triangle on the part named "Lid".
+fn two_part_model_file() -> String {
+    json!({
+        "format": "solidcraft/22",
+        "name": "Two parts",
+        "units": "mm",
+        "next_id": 2,
+        "components": [
+            {"id": 0, "name": "Root", "parent": 0},
+            {"id": 5, "name": "Lid", "parent": 0}
+        ],
+        "features": [
+            {"id": 1, "name": "Base", "type": "mesh_import", "file": "t",
+             "meshes": [{"name": "Base",
+                "positions": [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+                "triangles": [0, 1, 2]}]},
+            {"id": 2, "name": "Lid", "type": "mesh_import", "file": "t", "component": 5,
+             "meshes": [{"name": "Lid",
+                "positions": [0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 0.0, 3.0, 0.0],
+                "triangles": [0, 1, 2]}]}
+        ]
+    })
+    .to_string()
+}
+
+#[test]
+fn a_newcomer_sees_the_named_part_of_a_model_file_in_3d() -> Result<(), String> {
+    let path = scratch_file("two-parts.solidcraft", two_part_model_file().as_bytes())?;
+    let (_ctx, app, j1) = open_3d_with_model_part(&path, Some("Lid"))?;
+    assert_eq!(
+        app.view3d.model_status(j1),
+        Some(pcbcraft_io::ModelStatus::Loaded),
+        "the named part loads from the file"
+    );
+    assert_eq!(app.view3d.body_family(j1).as_deref(), Some("model"));
+    let (lo, hi) = app.view3d.body_bounds(j1).ok_or("bounds")?;
+    assert!(
+        (hi[0] - lo[0] - 4.0).abs() < 1e-3 && (hi[1] - lo[1] - 3.0).abs() < 1e-3,
+        "the 4 by 3 millimetre Lid is on the board, not the root: {lo:?} {hi:?}"
+    );
+    let (_ctx, whole, j1) = open_3d_with_model_part(&path, None)?;
+    let (lo, hi) = whole.view3d.body_bounds(j1).ok_or("bounds")?;
+    assert!(
+        (hi[0] - lo[0] - 1.0).abs() < 1e-3 && (hi[1] - lo[1] - 1.0).abs() < 1e-3,
+        "without a part name the root loads: {lo:?} {hi:?}"
+    );
+    let output_has_mesh = {
+        let ctx = egui::Context::default();
+        let mut app = app;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE)
+            .shapes
+            .iter()
+            .any(|s| matches!(s.shape, egui::Shape::Mesh(_)))
+    };
+    assert!(output_has_mesh, "the 3D view output draws triangles");
     Ok(())
 }
 
