@@ -10756,7 +10756,20 @@ fn toolpath_gap_findings(
     first.tool.passes = 1;
     let rings = pcbcraft_io::isolation_toolpaths(p, &first)?;
     let mut segments = Vec::new();
-    for (index, ring) in rings.iter().enumerate() {
+    // The preview rings step a few microns apiece; keeping a point every eighth of the bit
+    // width keeps the pair check inside its segment limit and moves a gap by far less than
+    // a thousandth of a millimetre on straight runs.
+    let keep_every = (opts.tool.diameter_mm / 8.0).max(0.01);
+    for (index, full) in rings.iter().enumerate() {
+        let mut ring: Vec<pcbcraft_geom::Point> = Vec::new();
+        for pt in full {
+            if ring
+                .last()
+                .is_none_or(|last| last.distance(*pt) >= keep_every)
+            {
+                ring.push(*pt);
+            }
+        }
         let path_id = u32::try_from(index).unwrap_or(u32::MAX);
         let closing = ring.first().zip(ring.last());
         for pair in ring.windows(2) {
