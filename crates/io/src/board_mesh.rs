@@ -1696,8 +1696,7 @@ pub fn board_mesh_with_dir(
             let proto = match parametric_prototypes.get(&key) {
                 Some(p) => p.clone(),
                 None => {
-                    let built =
-                        build_parametric_prototype(
+                    let built = build_parametric_prototype(
                         &body,
                         bottom,
                         marking,
