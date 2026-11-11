@@ -859,9 +859,6 @@ struct Preferences {
     /// Minimap look per tab (`layout`, `schematic`): pinned, width, opacity, position.
     #[serde(default)]
     minimap: std::collections::BTreeMap<String, minimap::MapPrefs>,
-    /// In-app tour progress; the browser build stores this in page storage.
-    #[serde(default)]
-    tour_replay: tour::playback::TourProgress,
     /// Interface scale, 0.75 to 2.0; 1.0 is normal size.
     #[serde(default = "default_ui_scale")]
     ui_scale: f32,
@@ -986,7 +983,6 @@ impl Default for Preferences {
             project_opened: Default::default(),
             reduced_motion: motion::os_prefers_reduced_motion(),
             minimap: Default::default(),
-            tour_replay: tour::playback::TourProgress::default(),
             ui_scale: a11y::DEFAULT_UI_SCALE,
             chamfer_corners: true,
             route_shove: false,
@@ -1312,8 +1308,6 @@ pub struct App {
     /// Embedded in-app tour definitions (#769).
     #[allow(dead_code)]
     tours: tour::data::Doc,
-    /// Active tour while steps are shown.
-    tour_playback: Option<tour::playback::Playback>,
     recent_designs: Vec<String>,
     /// The Files workspace: page, selection, pictures of recent projects.
     files_home: files_home::State,
@@ -2186,7 +2180,6 @@ impl App {
                 &preferences.language,
             )),
             tours: tour::data::embedded_for_shell(),
-            tour_playback: None,
             preferences,
             recent_designs: pcbcraft_engine::recents::load_recent_paths(&config),
             files_home: files_home::State::default(),
@@ -2445,19 +2438,6 @@ impl App {
             || self.rules_dialog.open
             || self.edit.dialog.open
             || self.edit.dialog.preview_open
-    }
-    #[allow(dead_code)]
-    fn tour_shell_view(&self) -> tour::state::ShellView<'_> {
-        tour::state::ShellView {
-            offer_tours: self.preferences.offer_tours,
-            modal_open: self.tour_modal_open(),
-            file_busy: self.pending_source.is_some(),
-            tab: self.tab,
-            workspace: tour::WorkspaceId::from_tab(self.tab),
-            progress: &self.preferences.tour_progress,
-            first_launch_done: self.preferences.tour_first_launch_done,
-            tab_changed_at: self.tour.tab_changed_at(),
-        }
     }
     fn tour_tick(&mut self) {
         if let Some(ws) = tour::WorkspaceId::from_tab(self.tab) {

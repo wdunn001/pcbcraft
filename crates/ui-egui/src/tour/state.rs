@@ -17,7 +17,6 @@ pub enum WorkspaceId {
 }
 
 impl WorkspaceId {
-    #[allow(dead_code)]
     pub fn parse(raw: &str) -> Option<Self> {
         match raw {
             "files" => Some(Self::Files),
@@ -49,7 +48,6 @@ pub enum Trigger {
 }
 
 impl Trigger {
-    #[allow(dead_code)]
     pub fn parse(raw: &str) -> Option<Self> {
         match raw {
             "first_launch" => Some(Self::FirstLaunch),

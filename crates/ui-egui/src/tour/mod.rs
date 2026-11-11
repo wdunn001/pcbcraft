@@ -2,12 +2,11 @@
 //! overlay (#770).
 
 pub mod anchor;
-mod app;
 pub mod data;
 pub(crate) mod layout;
 mod offer;
 mod overlay;
-pub mod playback;
+#[cfg(test)]
 pub mod replay;
 pub mod state;
 
