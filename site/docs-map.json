@@ -105,6 +105,7 @@
     "assistant.md": "Describes assistant work that is still being designed.",
     "assistant-backends.md": "Wire format notes for assistant work that is still being designed.",
     "design/assistant-shared-core.md": "A design note for assistant work that is still being designed.",
+    "design/plugin-system.md": "A design note for maintainers. The plugins page already covers what a user needs.",
     "mcp-conformance.md": "A test report for maintainers. The connection pages already cover what a user needs.",
     "part-search-index.md": "Describes the tag and vector data format, which a maintainer edits.",
     "portal-api.md": "Describes a service interface for the sharing portal, which has not shipped.",
