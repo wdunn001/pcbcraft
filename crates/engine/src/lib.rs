@@ -25464,6 +25464,209 @@ mod tests {
         );
         Ok(())
     }
+
+    /// Build the copper chain the inner-layer tests measure: a via pad, a
+    /// front-layer track, optionally a through via at the bend, an inner-layer
+    /// track and a second via pad. The two outer vias stand in for pads because
+    /// a through via conducts on every copper layer of its span, which is what
+    /// makes the front and inner copper one island.
+    ///
+    /// # Rules
+    /// A through via must sit at the end of the front-layer track to carry the
+    /// net onto the inner layer; without it the inner track is stranded and an
+    /// airwire remains.
+    ///
+    /// # Dependencies
+    /// crates/engine/src/lib.rs
+    /// crates/rules/src/lib.rs
+    ///
+    /// # Do not
+    /// Use this pattern for power distribution, and do not assume a via conducts
+    /// on a layer outside its span.
+    fn layer_chain(
+        session: &mut Session,
+        net: pcbcraft_doc::Id,
+        with_via: bool,
+    ) -> Result<(), Error> {
+        session.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":10.0,"y":10.0},"diameter":0.6,"drill":0.3}),
+            None,
+        )?;
+        session.execute(
+            "track.add",
+            json!({"net":net,"layer":"F.Cu","start":{"x":10.0,"y":10.0},"end":{"x":40.0,"y":10.0},"width":0.25}),
+            None,
+        )?;
+        if with_via {
+            session.execute(
+                "via.place",
+                json!({"net":net,"position":{"x":40.0,"y":10.0},"diameter":0.6,"drill":0.3}),
+                None,
+            )?;
+        }
+        session.execute(
+            "track.add",
+            json!({"net":net,"layer":"In1.Cu","start":{"x":40.0,"y":10.0},"end":{"x":40.0,"y":30.0},"width":0.25}),
+            None,
+        )?;
+        session.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":40.0,"y":30.0},"diameter":0.6,"drill":0.3}),
+            None,
+        )?;
+        Ok(())
+    }
+
+    /// Count the diagnostics that name one object, so a test can assert that a
+    /// violation exists on one piece of copper and disappears when that copper
+    /// moves to another layer. It reads the `drc` array of a checks value and
+    /// counts the entries whose `objects` list holds the id.
+    ///
+    /// # Rules
+    /// An unexpected shape counts as zero findings rather than failing; only the
+    /// `drc` array is read.
+    ///
+    /// # Dependencies
+    /// crates/engine/src/lib.rs
+    /// crates/rules/src/lib.rs
+    ///
+    /// # Do not
+    /// Use this to decide routing, and do not read a severity from it.
+    fn findings_for(checks: &serde_json::Value, id: pcbcraft_doc::Id) -> usize {
+        checks["drc"]
+            .as_array()
+            .map(|findings| {
+                findings
+                    .iter()
+                    .filter(|finding| {
+                        finding["objects"].as_array().is_some_and(|objects| {
+                            objects.iter().any(|other| other.as_u64() == Some(id))
+                        })
+                    })
+                    .count()
+            })
+            .unwrap_or(0)
+    }
+    #[test]
+    fn a_through_via_joins_a_top_track_to_an_inner_track() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("board.stackup_add_pair", json!({"after":"F.Cu"}), None)?;
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        layer_chain(&mut s, net, true)?;
+        assert!(
+            pcbcraft_rules::airwires(&s.project).is_empty(),
+            "the through via carries the net onto the inner layer"
+        );
+        let mut second = Session::default();
+        second.execute("board.stackup_add_pair", json!({"after":"F.Cu"}), None)?;
+        let net2 = second.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        layer_chain(&mut second, net2, false)?;
+        assert!(
+            !pcbcraft_rules::airwires(&second.project).is_empty(),
+            "without the through via the inner track is stranded"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn routing_across_layers_writes_two_tracks_and_a_via_in_one_step() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("board.stackup_add_pair", json!({"after":"F.Cu"}), None)?;
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let before_tracks = s.project.board.tracks.len();
+        let before_vias = s.project.board.vias.len();
+        s.execute(
+            "track.route",
+            json!({"from":{"x":10.0,"y":10.0},"to":{"x":40.0,"y":30.0},"net":net,"width":0.25,"layer":"F.Cu","end_layer":"In1.Cu"}),
+            None,
+        )?;
+        assert_eq!(s.project.board.tracks.len(), before_tracks + 2);
+        assert_eq!(s.project.board.vias.len(), before_vias + 1);
+        assert_eq!(
+            s.project
+                .layer_name(s.project.board.tracks[before_tracks].layer)
+                .as_str(),
+            "F.Cu"
+        );
+        assert_eq!(
+            s.project
+                .layer_name(s.project.board.tracks[before_tracks + 1].layer)
+                .as_str(),
+            "In1.Cu"
+        );
+        let via = &s.project.board.vias[before_vias];
+        assert!(
+            via.from_layer.is_none() && via.to_layer.is_none(),
+            "the layer change is carried by a through via, which conducts on every copper layer"
+        );
+        s.undo()?;
+        assert_eq!(s.project.board.tracks.len(), before_tracks);
+        assert_eq!(s.project.board.vias.len(), before_vias);
+        let result = s.execute(
+            "track.route",
+            json!({"from":{"x":10.0,"y":10.0},"to":{"x":40.0,"y":30.0},"net":net,"width":0.25,"layer":"F.Cu","end_layer":"In1.Cu","mode":"octilinear"}),
+            None,
+        );
+        assert!(result.is_err());
+        assert_eq!(s.project.board.tracks.len(), before_tracks);
+        assert_eq!(s.project.board.vias.len(), before_vias);
+        Ok(())
+    }
+
+    #[test]
+    fn inner_copper_is_measured_against_copper_on_the_same_layer_only() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("board.stackup_add_pair", json!({"after":"F.Cu"}), None)?;
+        let gnd = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let sig = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "zone.place",
+            json!({"net":gnd,"layer":"In1.Cu","outline":[{"x":5.0,"y":5.0},{"x":55.0,"y":5.0},{"x":55.0,"y":35.0},{"x":5.0,"y":35.0},{"x":5.0,"y":5.0}]}),
+            None,
+        )?;
+        let first = s.execute(
+            "track.add",
+            json!({"net":sig,"layer":"In1.Cu","start":{"x":10.1,"y":20.0},"end":{"x":10.1,"y":25.0},"width":0.25}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let second = s.execute(
+            "track.add",
+            json!({"net":gnd,"layer":"In1.Cu","start":{"x":10.25,"y":20.0},"end":{"x":10.25,"y":25.0},"width":0.25}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(
+            findings_for(&s.checks(), first) > 0,
+            "two nets sharing one inner layer must clear each other"
+        );
+        s.execute(
+            "track.set_layer",
+            json!({"id":second,"layer":"In2.Cu"}),
+            None,
+        )?;
+        assert_eq!(
+            findings_for(&s.checks(), first),
+            0,
+            "copper on another layer does not clear it"
+        );
+        assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+
     #[test]
     fn moving_a_zone_shifts_outline_and_cutouts_together() -> Result<(), Error> {
         let mut s = Session::default();
