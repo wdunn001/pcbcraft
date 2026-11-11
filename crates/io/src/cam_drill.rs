@@ -294,15 +294,30 @@ fn collect_drill_hits(p: &Project) -> Result<Vec<DrillHit>, String> {
         }
     }
     for h in &p.board.holes {
-        hits.push(DrillHit {
-            x: h.position.x,
-            y: h.position.y,
-            diameter_mm: h.diameter,
-            slot_mm: 0.0,
-            slot_ux: 0.0,
-            slot_uy: 0.0,
-            plated: false,
-        });
+        let slot_len = h.position.distance(h.finish());
+        if slot_len < 1e-9 {
+            hits.push(DrillHit {
+                x: h.position.x,
+                y: h.position.y,
+                diameter_mm: h.diameter,
+                slot_mm: 0.0,
+                slot_ux: 0.0,
+                slot_uy: 0.0,
+                plated: false,
+            });
+        } else {
+            let centre = h.center();
+            let end = h.finish();
+            hits.push(DrillHit {
+                x: centre.x,
+                y: centre.y,
+                diameter_mm: h.diameter,
+                slot_mm: slot_len,
+                slot_ux: end.x - centre.x,
+                slot_uy: end.y - centre.y,
+                plated: false,
+            });
+        }
     }
     for f in &p.board.footprints {
         for pad in &f.pads {
