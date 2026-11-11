@@ -907,8 +907,13 @@ pub(super) fn paint_power(
     }
 }
 
-/// Paint the selection box around a symbol: a dashed outline and a square
-/// handle on each corner. `bounds` is the screen rectangle to enclose.
+/// Paint the selection box around a symbol: a dashed outline and a 9 point
+/// square handle centred on each corner. `bounds` is the screen rectangle to
+/// enclose, the one `canvas::symbol_outline` returns.
+///
+/// # Rules
+/// - The squares are the resize handles. Dragging one resizes the part's body
+///   (`symbol_resize.rs`), so they must sit on the same corners it hit-tests.
 pub(super) fn paint_selection(painter: &egui::Painter, bounds: Rect, sc: &SheetColours) {
     let stroke = Stroke::new(1.5, sc.select);
     painter.add(egui::Shape::dashed_line(
@@ -923,6 +928,16 @@ pub(super) fn paint_selection(painter: &egui::Painter, bounds: Rect, sc: &SheetC
         6.0,
         4.0,
     ));
+    for corner in [
+        bounds.left_top(),
+        bounds.right_top(),
+        bounds.right_bottom(),
+        bounds.left_bottom(),
+    ] {
+        let handle = Rect::from_center_size(corner, Vec2::splat(9.0));
+        painter.rect_filled(handle, 0.0, sc.sheet);
+        painter.rect_stroke(handle, 0.0, stroke, egui::StrokeKind::Inside);
+    }
 }
 
 /// What a hit outline belongs to.

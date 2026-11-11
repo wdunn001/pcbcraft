@@ -1461,8 +1461,8 @@ pub struct App {
     drag: Option<(Id, Point)>,
     route_drag: route_drag::State,
     outline_ui: outline_arcs::OutlineUi,
-    /// The symbol body corner being dragged, and the part it belongs to.
-    symbol_resize: Option<(Id, pcbcraft_geom::Point)>,
+    /// The symbol corner handle being dragged, and the part it belongs to.
+    symbol_resize: Option<symbol_resize::SymbolGrab>,
     drag_offset: Point,
     cursor: Option<Point>,
     /// What the armed Add tool shows under the pointer this frame.
