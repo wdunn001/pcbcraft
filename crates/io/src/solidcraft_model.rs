@@ -24,22 +24,36 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
 /// Metadata key PCBCraft writes in exported SolidCraft files.
-#[allow(dead_code)]
 pub const PCBCRAFT_METADATA_KEY: &str = "org.pcbcraft";
 const DISPLAY_PREVIEW_JSON: &str = "cache/preview.json";
 const DISPLAY_PREVIEW_BIN: &str = "cache/preview.bin";
 
 /// Load triangles from a `.solidcraft` file for the 3D model reader.
+///
+/// # Rules
+/// - A PCBCraft footprint export holds one footprint body, so a part name on
+///   the footprint does not select inside it; the whole export loads.
+/// - Any other file selects the named component, or the root without a name.
+///
+/// # Dependencies
+/// [`solidcraft_is_footprint_export`] reads the export marker.
+///
+/// # Do not
+/// Do not move the footprint; placement stays on the footprint's own transform.
 pub fn load_solidcraft_model(
     bytes: &[u8],
     cad_part: Option<&str>,
 ) -> Result<LoadedModel, ModelError> {
     let design = read_solidcraft(bytes).map_err(ModelError)?;
-    design_to_model(&design, cad_part, bytes)
+    let part = if solidcraft_is_footprint_export(&design) {
+        None
+    } else {
+        cad_part
+    };
+    design_to_model(&design, part, bytes)
 }
 
 /// Cache token from file bytes and an optional in-file part name.
-#[allow(dead_code)]
 pub fn solidcraft_cache_token(bytes: &[u8], cad_part: Option<&str>) -> String {
     let hash = content_sha256_hex(bytes);
     match cad_part.filter(|p| !p.is_empty()) {
@@ -49,7 +63,6 @@ pub fn solidcraft_cache_token(bytes: &[u8], cad_part: Option<&str>) -> String {
 }
 
 /// True when metadata marks a PCBCraft footprint-body export (pad-plane frame).
-#[allow(dead_code)]
 pub fn solidcraft_is_footprint_export(design: &SolidcraftDesign) -> bool {
     design
         .metadata
@@ -60,7 +73,6 @@ pub fn solidcraft_is_footprint_export(design: &SolidcraftDesign) -> bool {
         .is_some_and(|f| f == "footprint_pad_plane")
 }
 
-#[allow(dead_code)]
 pub fn content_sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
@@ -518,6 +530,62 @@ mod tests {
         let m = load_solidcraft_model(text.as_bytes(), Some("Child")).map_err(|e| e.to_string())?;
         assert_eq!(m.indices.len(), 3, "one triangle on the child");
         assert_eq!(m.positions.len(), 3);
+        Ok(())
+    }
+
+    fn two_part_file() -> Result<String, String> {
+        let mut design = two_body_part();
+        design.components.push(SolidcraftComponent {
+            id: 5,
+            name: "Child".into(),
+            parent: 0,
+            extra: BTreeMap::new(),
+        });
+        design.features[1]["component"] = json!(5);
+        write_solidcraft_json(&design)
+    }
+
+    #[test]
+    fn two_parts_of_one_file_load_apart_and_cache_apart() -> Check {
+        let text = two_part_file()?;
+        let bytes = text.as_bytes();
+        let root = crate::model_load::load_model_with_part("p.solidcraft", bytes, None)
+            .map_err(|e| e.to_string())?;
+        let child = crate::model_load::load_model_with_part("p.solidcraft", bytes, Some("Child"))
+            .map_err(|e| e.to_string())?;
+        assert_ne!(root, child, "two parts give two models");
+        assert_eq!(root.indices.len(), 3);
+        assert_eq!(child.indices.len(), 3);
+        assert_ne!(root.positions, child.positions);
+        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let cache = crate::ImportCache::open(dir.path().to_path_buf());
+        let a = cache
+            .load_or_convert_part("p.solidcraft", bytes, None)
+            .map_err(|e| e.0)?;
+        let b = cache
+            .load_or_convert_part("p.solidcraft", bytes, Some("Child"))
+            .map_err(|e| e.0)?;
+        assert_ne!(a, b, "the disk cache keeps the parts apart");
+        let again = cache
+            .load_or_convert_part("p.solidcraft", bytes, Some("Child"))
+            .map_err(|e| e.0)?;
+        assert_eq!(again, b);
+        Ok(())
+    }
+
+    #[test]
+    fn footprint_export_ignores_the_part_name() -> Check {
+        let mut design = two_body_part();
+        design.metadata.insert(
+            PCBCRAFT_METADATA_KEY.into(),
+            json!({"frame": "footprint_pad_plane"}),
+        );
+        assert!(solidcraft_is_footprint_export(&design));
+        let text = write_solidcraft_json(&design)?;
+        let whole = load_solidcraft_model(text.as_bytes(), None).map_err(|e| e.to_string())?;
+        let named =
+            load_solidcraft_model(text.as_bytes(), Some("stale")).map_err(|e| e.to_string())?;
+        assert_eq!(whole, named, "an export loads whole whatever the part says");
         Ok(())
     }
 

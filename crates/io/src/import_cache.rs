@@ -1,6 +1,9 @@
 //! On-disk cache of converted 3D models under the user cache directory.
 use crate::model_compact::{cache_entry_name, decode_compact, encode_compact, source_digest};
-use crate::model_load::{LOADER_VERSION, LoadedModel, MAX_MODEL_BYTES, ModelError, load_model};
+use crate::model_load::{
+    LOADER_VERSION, LoadedModel, MAX_MODEL_BYTES, ModelError, load_model_with_part,
+    model_cache_key_solidcraft,
+};
 use crate::step_read::STEP_TOLERANCE_MM;
 use std::fs;
 use std::io::Write;
@@ -71,9 +74,21 @@ impl ImportCache {
         Self { root: None }
     }
 
-    fn entry_path(&self, path: &str, source: &[u8]) -> Option<PathBuf> {
+    /// Digest that names a cache entry: the file bytes alone for a whole file,
+    /// the bytes plus the part name when one part of the file is wanted.
+    fn entry_digest(path: &str, source: &[u8], cad_part: Option<&str>) -> String {
+        match cad_part.filter(|p| !p.is_empty()) {
+            None => source_digest(source),
+            Some(part) => {
+                let key = model_cache_key_solidcraft(path, source, Some(part));
+                source_digest(key.content_digest.unwrap_or_default().as_bytes())
+            }
+        }
+    }
+
+    fn entry_path(&self, path: &str, source: &[u8], cad_part: Option<&str>) -> Option<PathBuf> {
         let root = self.root.as_ref()?;
-        let digest = source_digest(source);
+        let digest = Self::entry_digest(path, source, cad_part);
         let name = cache_entry_name(&digest, LOADER_VERSION, step_tolerance_for_path(path));
         let shard = digest.get(..2).unwrap_or("00");
         Some(root.join(shard).join(name))
@@ -81,22 +96,44 @@ impl ImportCache {
 
     /// Read a cached compact model when present and valid.
     pub fn get(&self, path: &str, source: &[u8]) -> Option<LoadedModel> {
-        let file = self.entry_path(path, source)?;
+        self.get_part(path, source, None)
+    }
+
+    /// [`ImportCache::get`] for one named part of the file.
+    pub fn get_part(
+        &self,
+        path: &str,
+        source: &[u8],
+        cad_part: Option<&str>,
+    ) -> Option<LoadedModel> {
+        let file = self.entry_path(path, source, cad_part)?;
         let bytes = fs::read(&file).ok()?;
         decode_compact(&bytes).ok()
     }
 
     /// Convert source bytes to a model, using the disk cache when possible.
     pub fn load_or_convert(&self, path: &str, source: &[u8]) -> Result<LoadedModel, ModelError> {
+        self.load_or_convert_part(path, source, None)
+    }
+
+    /// [`ImportCache::load_or_convert`] for one named part of a multi-part file.
+    ///
+    /// Two parts of one file are two cache entries, so one never answers for the other.
+    pub fn load_or_convert_part(
+        &self,
+        path: &str,
+        source: &[u8],
+        cad_part: Option<&str>,
+    ) -> Result<LoadedModel, ModelError> {
         if source.len() > MAX_MODEL_BYTES {
             return Err(bad("the model file is over the size limit"));
         }
-        if let Some(m) = self.get(path, source) {
+        if let Some(m) = self.get_part(path, source, cad_part) {
             return Ok(m);
         }
-        let model = load_model(path, source)?;
-        if let Some(file) = self.entry_path(path, source) {
-            let digest = source_digest(source);
+        let model = load_model_with_part(path, source, cad_part)?;
+        if let Some(file) = self.entry_path(path, source, cad_part) {
+            let digest = Self::entry_digest(path, source, cad_part);
             let compact = encode_compact(
                 &model,
                 LOADER_VERSION,

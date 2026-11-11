@@ -214,7 +214,13 @@ pub fn load_model_with_part(
 }
 
 /// Cache key for SolidCraft models from file content, not modification time.
-#[allow(dead_code)]
+///
+/// # Rules
+/// - The part name is part of the key, so two parts of one file never collide.
+/// - The content digest carries the file hash and the part name.
+///
+/// # Do not
+/// Do not read the file here; the caller owns the bytes.
 pub fn model_cache_key_solidcraft(
     path: &str,
     bytes: &[u8],
@@ -222,12 +228,34 @@ pub fn model_cache_key_solidcraft(
 ) -> ModelCacheKey {
     let token = crate::solidcraft_model::solidcraft_cache_token(bytes, cad_part);
     ModelCacheKey {
-        path: format!("{path}#{token}"),
+        path: path.to_string(),
         len: bytes.len() as u64,
         mtime_nanos: None,
         loader_version: LOADER_VERSION,
-        content_digest: Default::default(),
+        content_digest: Some(token),
     }
+}
+
+/// The cache key for a file with this size and modification time, plus the
+/// part name when the file holds more than one part.
+///
+/// # Rules
+/// - An empty or missing part name gives exactly [`model_cache_key`].
+/// - A part name sets the digest, so parts of one file are separate entries.
+///
+/// # Do not
+/// Do not hash the file here; this runs on the UI thread every frame.
+pub fn model_cache_key_with_part(
+    path: &str,
+    len: u64,
+    mtime: Option<std::time::SystemTime>,
+    cad_part: Option<&str>,
+) -> ModelCacheKey {
+    let mut key = model_cache_key(path, len, mtime);
+    if let Some(part) = cad_part.filter(|p| !p.is_empty()) {
+        key.content_digest = Some(format!("part::{part}"));
+    }
+    key
 }
 
 fn buffer_bytes(
@@ -544,9 +572,28 @@ mod tests {
         let a = b"{\"format\":\"solidcraft/22\"}";
         let b = b"{\"format\":\"solidcraft/22\",\"x\":1}";
         let ka = model_cache_key_solidcraft("p.solidcraft", a, None);
+        assert_ne!(
+            ka,
+            model_cache_key_solidcraft("p.solidcraft", a, Some("lid"))
+        );
         let kb = model_cache_key_solidcraft("p.solidcraft", b, None);
         assert_ne!(ka, kb);
         assert_eq!(ka, model_cache_key_solidcraft("p.solidcraft", a, None));
+    }
+
+    #[test]
+    fn part_name_changes_the_lookup_key() {
+        let t0 = std::time::UNIX_EPOCH + std::time::Duration::from_secs(100);
+        let whole = model_cache_key_with_part("a.solidcraft", 10, Some(t0), None);
+        assert_eq!(whole, model_cache_key("a.solidcraft", 10, Some(t0)));
+        assert_eq!(
+            whole,
+            model_cache_key_with_part("a.solidcraft", 10, Some(t0), Some(""))
+        );
+        let lid = model_cache_key_with_part("a.solidcraft", 10, Some(t0), Some("lid"));
+        let base = model_cache_key_with_part("a.solidcraft", 10, Some(t0), Some("base"));
+        assert_ne!(lid, base);
+        assert_ne!(lid, whole);
     }
 
     #[test]
