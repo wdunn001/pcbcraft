@@ -40,10 +40,14 @@ the same cards. A card opens a form with the rows, the positions per row, the
 lead or stack code and the alignment posts the series allows. The form shows the
 part number it builds. When the position count sits at a series limit, a plain
 line says what the limit is. Place adds the generated symbol and footprint to the
-project in one undo step.
+project in one undo step. Typing a complete Samtec part number in the keyword
+box shows the card of the series that makes it. The form then shows the
+footprint that number describes.
 
 ## Owner decision
 
-Written permission from Samtec for automated fetch or redistribution has not
-been requested yet. The catalog records `permission_status = not_requested`
-until the owner updates it.
+Written permission to bundle and to fetch Samtec CAD files automatically was
+asked of Samtec in writing. The answer will be noted here as soon as it
+arrives. Until then the app keeps linking to the public product page and
+importing only files the person downloads themselves. The catalog keeps a
+permission field the owner updates when the answer arrives.

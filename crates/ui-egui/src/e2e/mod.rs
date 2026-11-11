@@ -76,6 +76,7 @@ mod rules;
 mod rules_dialog;
 mod samtec_cards;
 mod samtec_manufacturer;
+mod samtec_partnumber;
 mod schematic_add;
 mod schematic_label_edit;
 mod schematic_labels;
