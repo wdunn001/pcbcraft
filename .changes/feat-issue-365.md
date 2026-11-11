@@ -1,8 +1,8 @@
 ---
-type: feature
+type: test
 area: library
 issues: [365]
-user_visible: true
-docs: [crates/library/tests/a_newcomer_reviews_a_datasheet_pin_table.rs]
-summary: Pin table values from a datasheet keep their page and rectangle and rejected values are never written to the part
+user_visible: false
+docs: n/a: adds one story for the datasheet pin table extraction that already exists, nothing a person sees changes
+summary: A story extracts a pin table from a fixture datasheet and checks every row keeps its page label.
 ---
