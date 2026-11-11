@@ -99,6 +99,7 @@ mod tours_progress;
 mod tours_replay;
 mod track_round_corners;
 mod tree_rows;
+mod ui_kit_rows;
 mod via_backdrill;
 mod via_covering;
 mod vias;
