@@ -1,3 +1,5 @@
 # Reviewed tooltip exemptions for `cargo xtask tooltips` (docs/tooltips.md).
 # One per line: file | rule | exact tip text | reason. A line without a reason is an error.
 # An exemption that no longer matches a finding is reported as stale.
+# The list is empty today and it stays a ratchet that only shrinks toward zero.
+# Give the control a tooltip instead of exempting it.

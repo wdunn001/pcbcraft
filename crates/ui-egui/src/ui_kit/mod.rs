@@ -46,7 +46,7 @@ pub mod focus;
 pub mod form_row;
 pub mod gallery;
 #[cfg(test)]
-mod gates;
+pub(crate) mod gates;
 pub mod icons;
 pub mod menu;
 pub mod menu_icons;

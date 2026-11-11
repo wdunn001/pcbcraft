@@ -4,7 +4,10 @@
 //! name) and ticket #764. The contrast gate lives next to the existing contrast
 //! tests in `crates/ui-egui/src/contrast.rs`. These tests run in `cargo test`, so CI
 //! fails when a kit control has no accessible name, or when a catalog string reads
-//! like debug output.
+//! like debug output. The same detector is reused by the end-to-end story in
+//! `crates/ui-egui/src/e2e/shell.rs`, and this file also holds the ratchet that
+//! keeps `crates/ui-egui/src/e2e/accessible-name-exemptions.txt` and
+//! `crates/ui-egui/tooltip-exemptions.txt` at no entries at all.
 //! Local rules: test-only; the detector is a plain function so other tests can call it.
 //! Strings that still carry developer wording are listed with an issue in
 //! `crates/ui-egui/developer-wording-exemptions.txt`; the list can only shrink.
@@ -14,6 +17,8 @@
 //! - crates/ui-egui/src/ui_kit/gallery.rs
 //! - crates/text/strings/en.txt
 //! - crates/ui-egui/developer-wording-exemptions.txt
+//! - crates/ui-egui/src/e2e/accessible-name-exemptions.txt
+//! - crates/ui-egui/tooltip-exemptions.txt
 //!
 //! # Do not
 //! - Add an exemption without an issue number; fix the string instead.
@@ -197,6 +202,83 @@ mod tests {
             );
         }
         Ok(())
+    }
+
+    /// The live (non-comment) lines of an exemption list, in file order.
+    fn exemption_lines(text: &str) -> Vec<String> {
+        text.lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .map(str::to_owned)
+            .collect()
+    }
+
+    /// The accessible-name list and the tooltip list are ratchets that only
+    /// shrink, and both are empty today.
+    ///
+    /// Why: ticket 308 asks for both lists to head toward zero, so a new line has
+    /// to be argued for in review rather than added quietly by the next change.
+    ///
+    /// # Rules
+    /// - Neither list may hold an entry; the allowed count is zero.
+    ///
+    /// # Dependencies
+    /// - crates/ui-egui/src/e2e/accessible-name-exemptions.txt
+    /// - crates/ui-egui/tooltip-exemptions.txt
+    ///
+    /// # Do not
+    /// - Raise a ceiling instead of naming a control or writing its tooltip.
+    #[test]
+    fn the_accessible_name_and_tooltip_lists_stay_empty() -> Result<(), String> {
+        let names = exemption_lines(include_str!("../e2e/accessible-name-exemptions.txt"));
+        assert!(
+            names.is_empty(),
+            "accessible-name-exemptions.txt is empty and stays empty; name the control \
+             with a11y::name_control or label it instead: {names:?}"
+        );
+        let tips = exemption_lines(include_str!("../../tooltip-exemptions.txt"));
+        assert!(
+            tips.is_empty(),
+            "tooltip-exemptions.txt is empty and stays empty; give the control a tooltip \
+             instead: {tips:?}"
+        );
+        Ok(())
+    }
+
+    /// A label a control actually exposes goes through the same detector as a
+    /// catalog string, and plain wording passes it.
+    ///
+    /// # Rules
+    /// - A plain name passes; a revision counter and a snake_case id do not.
+    ///
+    /// # Dependencies
+    /// - crates/ui-egui/src/ui_kit/button.rs draws the button under test.
+    /// - crates/ui-egui/src/a11y.rs reports the names it exposes.
+    ///
+    /// # Do not
+    /// - Compare rendered text against the catalog here; the catalog gate does that.
+    #[test]
+    fn a_control_label_is_checked_the_same_way_as_a_catalog_string() {
+        assert_eq!(developer_wording("Add layer"), None);
+        assert!(developer_wording("rev {revision}").is_some());
+        assert!(developer_wording("place_part_now").is_some());
+        let ctx = context(true);
+        let out = frame(&ctx, vec![], |ui| {
+            button::icon_button(
+                ui,
+                icons::PLUS,
+                "Add layer",
+                "Add a layer",
+                Size::Normal,
+                true,
+            );
+        });
+        for (_, name) in crate::a11y::audit::interactive_nodes(&out) {
+            assert!(
+                developer_wording(&name).is_none(),
+                "the kit exposes developer wording: {name}"
+            );
+        }
     }
 
     /// The names of interactive nodes in one frame that have no name.
