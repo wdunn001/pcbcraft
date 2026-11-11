@@ -47459,7 +47459,8 @@ mod tests {
         Ok(())
     }
 
-    /// A board with two tracks `gap_mm` apart (edge to edge) and the preview run on it.
+    /// A board with two tracks of one net `gap_mm` apart (edge to edge) and the preview run on
+    /// it. One net keeps the preview clear of the separate net clearance refusal.
     fn isolation_preview_with_gap(s: &mut Session, gap_mm: f64) -> Result<Vec<Value>, Error> {
         s.execute(
             "board.set_outline",
@@ -47467,9 +47468,6 @@ mod tests {
             None,
         )?;
         let first = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
-            .as_u64()
-            .ok_or_else(missing)?;
-        let second = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
             .as_u64()
             .ok_or_else(missing)?;
         let y = 5.0 + 0.3 + gap_mm;
@@ -47480,7 +47478,7 @@ mod tests {
         )?;
         s.execute(
             "track.add",
-            json!({"net":second,"start":[5.0,y],"end":[15.0,y],"width":0.3,"layer":"F.Cu"}),
+            json!({"net":first,"start":[5.0,y],"end":[15.0,y],"width":0.3,"layer":"F.Cu"}),
             None,
         )?;
         let out = s.execute(
