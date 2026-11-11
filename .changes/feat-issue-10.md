@@ -1,8 +1,8 @@
 ---
-type: feature
+type: fix
 area: io
 issues: [10]
 user_visible: true
-docs: n/a: written by the worker harness, the issue text records the behaviour
-summary: Slots, notches and dimensioned patterns.
+docs: n/a: drill output detail only, no screen, command or file format changes
+summary: Unplated slots on the board are now drilled as a slot along their length, not as a round hole at their start.
 ---

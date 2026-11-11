@@ -1180,4 +1180,151 @@ mod tests {
         assert_eq!(o1, o2);
         Ok(())
     }
+
+    fn slot_project(from: Point, to: Point, diameter: f64) -> Project {
+        let mut p = Project::default();
+        p.board.holes.push(Hole {
+            id: 1,
+            position: from,
+            diameter,
+            end: Some(to),
+        });
+        p
+    }
+
+    fn close(a: f64, b: f64, tol: f64) -> bool {
+        (a - b).abs() <= tol
+    }
+
+    /// Reads the X and Y numbers from a G-code line such as `G0 X1.000 Y2.000`.
+    fn xy_of(line: &str) -> Option<(f64, f64)> {
+        let mut x = None;
+        let mut y = None;
+        for word in line.split_whitespace() {
+            if let Some(v) = word.strip_prefix('X') {
+                x = v.parse::<f64>().ok();
+            } else if let Some(v) = word.strip_prefix('Y') {
+                y = v.parse::<f64>().ok();
+            }
+        }
+        Some((x?, y?))
+    }
+
+    /// The slot start (last rapid before the cut) and end (the cut move) of a one-slot drill file.
+    fn slot_moves(gcode: &str) -> Result<((f64, f64), (f64, f64)), String> {
+        let lines: Vec<&str> = gcode.lines().collect();
+        let cut_at = lines
+            .iter()
+            .position(|l| l.starts_with("G1 X") && l.contains('Y'))
+            .ok_or("no cut move along the slot")?;
+        let end = xy_of(lines[cut_at]).ok_or("cut move has no X and Y")?;
+        let before = lines[..cut_at]
+            .last()
+            .ok_or("nothing before the cut move")?;
+        if !before.starts_with("G0 X") {
+            return Err(format!("expected a rapid to the slot start, got {before}"));
+        }
+        let start = xy_of(before).ok_or("rapid has no X and Y")?;
+        Ok((start, end))
+    }
+
+    fn one_hit(p: &Project) -> Result<DrillHit, String> {
+        let hits = collect_drill_hits(p)?;
+        if hits.len() != 1 {
+            return Err(format!("expected one hit, got {}", hits.len()));
+        }
+        hits.into_iter().next().ok_or_else(|| "no hit".to_string())
+    }
+
+    #[test]
+    fn an_unplated_slot_is_one_hit_at_its_midpoint() -> Result<(), String> {
+        let p = slot_project(Point::new(10.0, 10.0), Point::new(14.0, 10.0), 2.0);
+        let hit = one_hit(&p)?;
+        assert!(close(hit.slot_mm, 4.0, 1e-9), "slot_mm was {}", hit.slot_mm);
+        assert!(close(hit.x, 12.0, 1e-9), "x was {}", hit.x);
+        assert!(close(hit.y, 10.0, 1e-9), "y was {}", hit.y);
+        assert!(close(hit.diameter_mm, 2.0, 1e-9));
+        assert!(!hit.plated);
+        Ok(())
+    }
+
+    #[test]
+    fn a_round_hole_has_no_slot_length() -> Result<(), String> {
+        let mut p = slot_project(Point::new(10.0, 10.0), Point::new(14.0, 10.0), 2.0);
+        p.board.holes[0].end = None;
+        let hit = one_hit(&p)?;
+        assert!(close(hit.slot_mm, 0.0, 1e-12));
+        assert!(close(hit.x, 10.0, 1e-9));
+        assert!(close(hit.y, 10.0, 1e-9));
+        assert!(close(hit.diameter_mm, 2.0, 1e-9));
+        Ok(())
+    }
+
+    #[test]
+    fn a_vertical_slot_points_along_y() -> Result<(), String> {
+        let p = slot_project(Point::new(5.0, 5.0), Point::new(5.0, 1.0), 1.5);
+        let hit = one_hit(&p)?;
+        let len = hit.slot_ux.hypot(hit.slot_uy);
+        assert!(len > 0.0, "direction must not be zero");
+        assert!(close(hit.slot_ux / len, 0.0, 1e-9));
+        assert!(close(hit.slot_uy / len, -1.0, 1e-9));
+        assert!(close(hit.slot_mm, 4.0, 1e-9));
+        assert!(close(hit.x, 5.0, 1e-9));
+        assert!(close(hit.y, 3.0, 1e-9));
+        Ok(())
+    }
+
+    #[test]
+    fn a_diagonal_slot_points_along_its_axis() -> Result<(), String> {
+        // A 3 by 4 run has length 5, so the unit axis is (0.6, 0.8).
+        let p = slot_project(Point::new(10.0, 10.0), Point::new(13.0, 14.0), 1.0);
+        let hit = one_hit(&p)?;
+        let len = hit.slot_ux.hypot(hit.slot_uy);
+        assert!(len > 0.0, "direction must not be zero");
+        assert!(close(hit.slot_ux / len, 0.6, 1e-9));
+        assert!(close(hit.slot_uy / len, 0.8, 1e-9));
+        assert!(close(hit.slot_mm, 5.0, 1e-9));
+        assert!(close(hit.x, 11.5, 1e-9));
+        assert!(close(hit.y, 12.0, 1e-9));
+        Ok(())
+    }
+
+    fn slot_gcode(p: &Project, bit: f64) -> Result<String, String> {
+        let options = DrillOptions {
+            tools: vec![tool(1, bit)],
+            peck_mm: None,
+            order: DrillOrder::Nearest,
+            alignment_holes: vec![],
+            tool_change: ToolChange::PauseM0,
+        };
+        let files = drill_gcode(p, &options, &test_profile())?;
+        let first = files.into_iter().next().ok_or("no drill file")?;
+        Ok(first.1)
+    }
+
+    #[test]
+    fn the_gcode_rapids_to_the_slot_start_and_cuts_to_its_end() -> Result<(), String> {
+        let p = slot_project(Point::new(10.0, 10.0), Point::new(14.0, 10.0), 2.0);
+        let text = slot_gcode(&p, 2.0)?;
+        let (start, end) = slot_moves(&text)?;
+        // Centre (12, 10), unit axis (1, 0), half length 2.
+        assert!(close(start.0, 12.0 - 1.0 * 2.0, 5e-4), "start {start:?}");
+        assert!(close(start.1, 10.0 - 0.0 * 2.0, 5e-4), "start {start:?}");
+        assert!(close(end.0, 12.0 + 1.0 * 2.0, 5e-4), "end {end:?}");
+        assert!(close(end.1, 10.0 + 0.0 * 2.0, 5e-4), "end {end:?}");
+        Ok(())
+    }
+
+    #[test]
+    fn the_gcode_for_a_diagonal_slot_runs_between_its_two_centres() -> Result<(), String> {
+        let p = slot_project(Point::new(10.0, 10.0), Point::new(13.0, 14.0), 1.0);
+        let text = slot_gcode(&p, 1.0)?;
+        let (start, end) = slot_moves(&text)?;
+        // Centre (11.5, 12), unit axis (0.6, 0.8), half length 2.5.
+        assert!(close(start.0, 11.5 - 0.6 * 2.5, 5e-4), "start {start:?}");
+        assert!(close(start.1, 12.0 - 0.8 * 2.5, 5e-4), "start {start:?}");
+        assert!(close(end.0, 11.5 + 0.6 * 2.5, 5e-4), "end {end:?}");
+        assert!(close(end.1, 12.0 + 0.8 * 2.5, 5e-4), "end {end:?}");
+        Ok(())
+    }
 }
