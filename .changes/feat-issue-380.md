@@ -1,8 +1,8 @@
 ---
-type: feature
-area: text
+type: fix
+area: ui-shell
 issues: [380]
 user_visible: true
-docs: n/a: written by the worker harness, the issue text records the behaviour
-summary: Browser build: reload loses edits and desktop-only controls are shown.
+docs: n/a: the browser build already restores its saved project, this adds a story and fixes the status wording
+summary: The browser build's status line now says edits are kept in this browser until its storage is cleared, and a story proves a reload brings an edit back.
 ---
