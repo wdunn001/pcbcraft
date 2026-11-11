@@ -887,25 +887,19 @@ fn capsule_ring(a: Point, b: Point, radius: f64) -> Vec<Point> {
     }
     let n = circle_segments(radius).max(8);
     let axis = (b.y - a.y).atan2(b.x - a.x);
-    let perp = axis + std::f64::consts::PI / 2.0;
-    let ox = radius * perp.cos();
-    let oy = radius * perp.sin();
-    // Top edge: from A + offset to B + offset
-    points.push(Point::new(a.x + ox, a.y + oy));
-    points.push(Point::new(b.x + ox, b.y + oy));
-    // Right semicircle: from top to bottom (angles PI/2 to -PI/2)
+    let half = std::f64::consts::PI;
+    // Counter-clockwise: the cap around `b` sweeps from its right side to its
+    // left side, then the cap around `a` sweeps from the left side back to the
+    // right, so the straight edges join the caps without a gap.
     for i in 0..=n {
-        let angle = std::f64::consts::PI / 2.0 - std::f64::consts::PI * (i as f64) / (n as f64);
+        let angle = axis - half / 2.0 + half * (i as f64) / (n as f64);
         points.push(Point::new(
             b.x + radius * angle.cos(),
             b.y + radius * angle.sin(),
         ));
     }
-    // Bottom edge: from B - offset to A - offset
-    points.push(Point::new(a.x - ox, a.y - oy));
-    // Left semicircle: from bottom to top (angles -PI/2 to PI/2 via -PI)
     for i in 0..=n {
-        let angle = -std::f64::consts::PI / 2.0 - std::f64::consts::PI * (i as f64) / (n as f64);
+        let angle = axis + half / 2.0 + half * (i as f64) / (n as f64);
         points.push(Point::new(
             a.x + radius * angle.cos(),
             a.y + radius * angle.sin(),
@@ -1845,7 +1839,7 @@ mod tests {
         p.board.height = 30.0;
         p.board.thickness = 1.6;
         p.nets.push(Net {
-            id: 2,
+            id: 1,
             name: "N1".into(),
             ..Net::default()
         });
@@ -2716,39 +2710,16 @@ mod tests {
     fn showcase_example_holes_show_in_3d_and_the_test_counts_the_cut_rings() -> Check {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../examples/showcase.pcbcraft");
-        let content =
-            std::fs::read_to_string(&path).map_err(|e| format!("cannot read showcase: {}", e))?;
-        let p: Project =
-            serde_json::from_str(&content).map_err(|e| format!("cannot parse showcase: {}", e))?;
-        let mesh = board_mesh(&p, slab_only())?;
-        let slab = part(&mesh, PartKind::Board)?;
-        // Compute bounding box of board outline to get an upper bound on volume
-        let mut min_x = f64::INFINITY;
-        let mut max_x = f64::NEG_INFINITY;
-        let mut min_y = f64::INFINITY;
-        let mut max_y = f64::NEG_INFINITY;
-        let outline = p.board.outline.as_ref().ok_or("showcase has no outline")?;
-        for pt in outline {
-            if pt.x < min_x {
-                min_x = pt.x;
-            }
-            if pt.x > max_x {
-                max_x = pt.x;
-            }
-            if pt.y < min_y {
-                min_y = pt.y;
-            }
-            if pt.y > max_y {
-                max_y = pt.y;
-            }
-        }
-        let bbox_area = (max_x - min_x) * (max_y - min_y);
-        let expected_full = bbox_area * 1.6;
+        let p = crate::load(&path)?;
+        assert!(!p.board.holes.is_empty(), "the showcase has mounting holes");
+        let with_holes = board_mesh(&p, slab_only())?;
+        let mut bare = p.clone();
+        bare.board.holes.clear();
+        let without = board_mesh(&bare, slab_only())?;
         assert!(
-            volume(slab) < expected_full,
-            "showcase holes not cut: slab volume {} >= expected full {}",
-            volume(slab),
-            expected_full
+            part(&with_holes, PartKind::Board)?.positions.len()
+                > part(&without, PartKind::Board)?.positions.len(),
+            "the showcase mounting holes are cut into the 3D slab"
         );
         Ok(())
     }

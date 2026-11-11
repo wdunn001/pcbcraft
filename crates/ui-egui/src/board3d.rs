@@ -360,6 +360,17 @@ impl View3d {
                 .count()
         })
     }
+    /// How many vertices the board slab holds; each cut hole adds a wall.
+    #[cfg(test)]
+    pub(crate) fn board_slab_vertex_count(&self) -> usize {
+        self.mesh.as_ref().map_or(0, |(_, m)| {
+            m.parts
+                .iter()
+                .filter(|p| p.kind == PartKind::Board)
+                .map(|p| p.positions.len())
+                .sum()
+        })
+    }
     /// The family word the parts list shows after the reference.
     #[cfg(test)]
     pub(crate) fn body_family(&self, id: Id) -> Option<String> {
