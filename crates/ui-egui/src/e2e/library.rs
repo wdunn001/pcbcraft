@@ -998,7 +998,7 @@ fn a_newcomer_picks_how_a_symbol_pin_is_drawn() -> Result<(), String> {
     tap_id(&ctx, &mut app, "button:Pin # · unit #")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        paints_text(&ctx, &mut app, "Pin graphical style")?,
+        paints_text_tall(&ctx, &mut app, "Pin graphical style")?,
         "the open pin shows its drawing style row"
     );
     pick_pin_style(&ctx, &mut app, "inverted")?;
