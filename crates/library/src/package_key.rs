@@ -5,7 +5,6 @@
 //! clamped to a finite positive range, and no panic, unwrap or unsafe
 //! appears anywhere in this file.
 use crate::{FootprintDefinition, Graphic};
-use pcbcraft_geom::Point;
 use serde::{Deserialize, Serialize};
 
 pub const PITCH_TOLERANCE_MM: f64 = 0.08;
@@ -286,15 +285,6 @@ fn classify(
         span_y.max(1.0),
         span_x.max(span_y),
     ))
-}
-
-pub fn pad_extent(pad: &crate::FootprintPad) -> (Point, Point) {
-    let hx = pad.size.x / 2.0;
-    let hy = pad.size.y / 2.0;
-    (
-        pad.position.offset(Point::new(-hx, -hy)),
-        pad.position.offset(Point::new(hx, hy)),
-    )
 }
 
 /// Parsed shape of a package name: family, pin count, pitch, body length,

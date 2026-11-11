@@ -95,13 +95,3 @@ pub fn response(status: u16, body: &str) -> HttpResponse {
         body: body.as_bytes().to_vec(),
     }
 }
-
-pub fn response_with_header(status: u16, name: &str, value: &str, body: &str) -> HttpResponse {
-    let mut headers = BTreeMap::new();
-    headers.insert(name.into(), value.into());
-    HttpResponse {
-        status,
-        headers,
-        body: body.as_bytes().to_vec(),
-    }
-}
