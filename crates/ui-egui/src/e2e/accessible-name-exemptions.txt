@@ -4,3 +4,6 @@
 # The gate in shell.rs fails when a role has more unnamed controls than listed, and
 # when it has fewer (lower the count or delete the line). Name the control instead of
 # raising a count.
+# The list is empty today. The story a_newcomer_hears_a_plain_name_for_every_control
+# in shell.rs fails for any unlabelled interactive node, so an entry needs a count, an
+# issue number and a reason, and the list only shrinks back toward zero.

@@ -414,4 +414,34 @@ mod tests {
         let out = auto_align_model(&mesh, &fp, &unit_model(), false);
         assert!(out.bbox_fallback);
     }
+
+    // A newcomer shifts a model and the auto-aligner snaps it back to the pads.
+    #[test]
+    fn a_newcomer_aligns_a_shifted_model_to_its_pads() {
+        let pitch = 3.0;
+        let fp = two_pad_footprint(pitch);
+        let mesh = test_chip_mesh(pitch);
+        let shifted = shift_mesh(&mesh, 0.32, -0.18, 0.0);
+        let out = auto_align_model(&shifted, &fp, &unit_model(), true);
+        assert!(out.residual_mm < 0.05, "residual {} mm", out.residual_mm);
+        assert!(!out.coarse);
+        assert!(!out.bbox_fallback);
+        let verify = auto_align_model(&mesh, &fp, &out.model, false);
+        assert!(
+            verify.residual_mm < 0.05,
+            "after apply {}",
+            verify.residual_mm
+        );
+    }
+
+    // When the lead spacing does not match the pad spacing the fit is reported as coarse.
+    #[test]
+    fn a_poor_lead_fit_is_reported_as_coarse() {
+        let fp = two_pad_footprint(2.0);
+        let mesh = test_chip_mesh(3.0);
+        let out = auto_align_model(&mesh, &fp, &unit_model(), false);
+        assert!(!out.bbox_fallback);
+        assert!(out.coarse);
+        assert!(out.residual_mm > COARSE_ALIGN_MM);
+    }
 }

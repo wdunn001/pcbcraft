@@ -2,9 +2,13 @@
 //!
 //! Context: criteria 1.4.3 (text 4.5:1, large text 3:1) and 1.4.11 (non-text
 //! parts and focus indicators 3:1). Colours come from `./palette.rs`, the same
-//! values `App::style` and `canvas.rs` paint with.
+//! values `App::style` and `canvas.rs` paint with. The file also gates the
+//! design tokens in `./theme.rs`: every colour role pair of both shipped themes
+//! is measured, coloured text sitting on its own translucent tint included,
+//! after that tint is composited over the surface underneath it.
 //! Local rules: a failing pair is fixed in `palette.rs` or listed with a reason
-//! in `../contrast-exemptions.txt`; never loosen a minimum here.
+//! in `../contrast-exemptions.txt`; a failing token pair is fixed in `theme.rs`,
+//! never loosened here.
 use egui::Color32;
 
 /// Relative luminance of an sRGB colour (WCAG 2.2 definition).
@@ -400,8 +404,19 @@ mod tests {
 
     /// Every role pair of the design tokens for one theme, with its minimum.
     ///
-    /// Why: the design's colour roles are checked pair by pair, so a changed token
+    /// Why: the design's colour roles are checked pair by pair, so a token change
     /// that breaks reading fails here, not in front of a user.
+    ///
+    /// # Rules
+    /// - Composite a translucent tint over the surface behind it before measuring.
+    /// - Text roles need 4.5:1, borders, bars and focus rings need 3:1.
+    ///
+    /// # Dependencies
+    /// - crates/ui-egui/src/theme.rs owns the roles and `composite`.
+    /// - crates/ui-egui/src/ui_kit/button.rs owns the hovered and pressed copper.
+    ///
+    /// # Do not
+    /// - Add a pair for `line` or `scrim`; both are decorative by design.
     fn token_pairs(t: &Tokens) -> Vec<Pair> {
         use crate::ui_kit::button::{brighten, darken};
         let mut pairs = Vec::new();
@@ -416,41 +431,29 @@ mod tests {
             add("gold-on-surface", t.gold, bg, TEXT);
             add("cyan-on-surface", t.cyan, bg, TEXT);
             add("red-on-surface", t.red, bg, TEXT);
+            add("edge-on-surface", t.edge, bg, NON_TEXT);
+        }
+        // The design lays a tint under a card or a selected row, never under a
+        // hovered one, so a tint is measured over the two surfaces it meets.
+        for bg in [t.panel, t.ground] {
+            let copper_tint = composite(t.copper_tint, bg);
+            let gold_tint = composite(t.gold_tint, bg);
+            let red_tint = composite(t.red_tint, bg);
+            let mask_tint = composite(t.mask_tint, bg);
+            add("copper-on-copper-tint", t.copper, copper_tint, TEXT);
+            add("text-on-copper-tint", t.text, copper_tint, TEXT);
+            add("gold-on-gold-tint", t.gold, gold_tint, TEXT);
+            add("text-on-gold-tint", t.text, gold_tint, TEXT);
+            add("red-on-red-tint", t.red, red_tint, TEXT);
+            add("text-on-red-tint", t.text, red_tint, TEXT);
+            add("mask-on-mask-tint", t.mask, mask_tint, TEXT);
+            add("text-on-mask-tint", t.text, mask_tint, TEXT);
         }
         add("onacc-on-copper", t.onacc, t.copper, TEXT);
         add("onacc-on-copper-hover", t.onacc, brighten(t.copper), TEXT);
         add("onacc-on-copper-active", t.onacc, darken(t.copper), TEXT);
-        for bg in [t.panel, t.ground] {
-            add(
-                "copper-on-copper-tint",
-                t.copper,
-                composite(t.copper_tint, bg),
-                TEXT,
-            );
-            add(
-                "gold-on-gold-tint",
-                t.gold,
-                composite(t.gold_tint, bg),
-                TEXT,
-            );
-            add("red-on-red-tint", t.red, composite(t.red_tint, bg), TEXT);
-            add(
-                "mask-on-mask-tint",
-                t.mask,
-                composite(t.mask_tint, bg),
-                TEXT,
-            );
-            add(
-                "text-on-copper-tint",
-                t.text,
-                composite(t.copper_tint, bg),
-                TEXT,
-            );
-        }
-        for bg in [t.ground, t.panel, t.raised] {
-            add("edge-on-surface", t.edge, bg, NON_TEXT);
-        }
         add("copper-bar-on-panel", t.copper, t.panel, NON_TEXT);
+        add("copper-bar-on-ground", t.copper, t.ground, NON_TEXT);
         add("focus-ring-on-panel", t.text, t.panel, NON_TEXT);
         add("focus-ring-on-ground", t.text, t.ground, NON_TEXT);
         pairs
@@ -480,7 +483,19 @@ mod tests {
         );
     }
 
-    /// A deliberately bad token turns the gate red, in either text or non-text pairs.
+    /// A deliberately bad token turns the gate red, in either theme.
+    ///
+    /// Why: the gate is only worth having if it catches a token someone nudged
+    /// too far, as text, as a border, on a tint or on a filled button.
+    ///
+    /// # Rules
+    /// - Each case names the pair it expects to fail.
+    ///
+    /// # Dependencies
+    /// - crates/ui-egui/src/theme.rs supplies `Tokens::DARK` and `Tokens::LIGHT`.
+    ///
+    /// # Do not
+    /// - Soften a case here to let a changed palette through.
     #[test]
     fn a_deliberately_bad_token_is_caught() {
         let mut bad = Tokens::DARK;
@@ -499,6 +514,17 @@ mod tests {
         );
         let mut bad_tint = Tokens::DARK;
         bad_tint.copper = Color32::from_rgb(90, 60, 40);
-        assert!(!token_failures("bad", &bad_tint).is_empty());
+        let lines = token_failures("bad", &bad_tint);
+        assert!(
+            lines.iter().any(|l| l.contains("copper-on-copper-tint")),
+            "{lines:?}"
+        );
+        let mut bad_onacc = Tokens::LIGHT;
+        bad_onacc.onacc = bad_onacc.copper;
+        let lines = token_failures("bad", &bad_onacc);
+        assert!(
+            lines.iter().any(|l| l.contains("onacc-on-copper")),
+            "{lines:?}"
+        );
     }
 }

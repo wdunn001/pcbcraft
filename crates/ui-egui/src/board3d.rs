@@ -70,6 +70,10 @@ pub(crate) struct View3d {
     error: Option<String>,
     /// Whether the list of parts without a model file is open.
     pub(crate) notes_open: bool,
+    /// Whether part marking text is drawn on the top of bodies.
+    pub(crate) show_marking: bool,
+    /// Whether the current mesh was built with part marking.
+    mesh_marking: bool,
     /// Set by the Enclosure toggle; the app runs `board.enclosure.set_view` with it.
     pub(crate) enclosure_visible_request: Option<bool>,
     /// Where the viewport was painted last frame, so tests and picking agree.
@@ -103,6 +107,7 @@ struct FrameKey {
     gold: bool,
     mask: [u8; 3],
     silk: [u8; 3],
+    marking: bool,
 }
 impl View3d {
     /// A view whose converted models are cached below the session's settings
@@ -137,6 +142,8 @@ impl Default for View3d {
             notes: Default::default(),
             error: None,
             notes_open: false,
+            show_marking: true,
+            mesh_marking: true,
             enclosure_visible_request: None,
             rect: Rect::NOTHING,
             frame: None,
@@ -327,6 +334,22 @@ impl View3d {
             .find(|p| p.kind == PartKind::Body && p.component == Some(id))
             .and_then(|p| p.bounds())
     }
+    /// Triangles that print marking on this part's body.
+    #[cfg(test)]
+    pub(crate) fn marking_triangles(&self, id: Id) -> Option<usize> {
+        let (_, mesh) = self.mesh.as_ref()?;
+        mesh.parts
+            .iter()
+            .find(|p| p.kind == PartKind::Body && p.component == Some(id))
+            .and_then(|p| p.prototype.as_ref())
+            .map(|proto| {
+                proto
+                    .materials
+                    .iter()
+                    .filter(|m| **m == pcbcraft_io::MaterialClass::Marking)
+                    .count()
+            })
+    }
     /// How many parts of the built mesh carry this family word.
     #[cfg(test)]
     pub(crate) fn part_count_in_family(&self, family: &str) -> usize {
@@ -366,12 +389,17 @@ impl View3d {
         let revision = env.revision;
         let generation = self.models.generation();
         let same_design = self.mesh.as_ref().is_some_and(|(r, _)| *r == revision);
-        if same_design && self.model_gen == generation {
+        if same_design && self.model_gen == generation && self.mesh_marking == self.show_marking {
             return;
         }
         let had_mesh = self.mesh.is_some();
-        match board_mesh_with_dir(project, MeshLayers::default(), env.design_dir) {
+        let layers = MeshLayers {
+            marking: self.show_marking,
+            ..MeshLayers::default()
+        };
+        match board_mesh_with_dir(project, layers, env.design_dir) {
             Ok(mut mesh) => {
+                self.mesh_marking = self.show_marking;
                 if let Some(enc) = &project.board.enclosure
                     && let Err(why) =
                         pcbcraft_io::append_enclosure_parts(&mut mesh.parts, project, enc)
@@ -546,6 +574,7 @@ fn picture(
         gold,
         mask,
         silk,
+        marking: view.mesh_marking,
     };
     if let Some(Held(held, tex)) = &view.frame
         && *held == key
