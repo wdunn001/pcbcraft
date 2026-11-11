@@ -249,7 +249,9 @@ pub(crate) fn apply_main_view(project: &mut Project, open: &MainOpen) -> Vec<Pag
     let mut gone = label_gone.into_iter();
     project.labels.retain(|_| !gone.next().unwrap_or(false));
     let mut gone = wire_gone.into_iter();
-    project.drawn_wires.retain(|_| !gone.next().unwrap_or(false));
+    project
+        .drawn_wires
+        .retain(|_| !gone.next().unwrap_or(false));
     let kept: HashSet<Id> = project.components.iter().map(|c| c.id).collect();
     project
         .wires

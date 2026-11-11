@@ -460,7 +460,10 @@ impl App {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if cache.key != Some(key) || cache.view.is_none() {
-            cache.view = Some(std::sync::Arc::new(main_view_project(&self.project, &self.main_open)));
+            cache.view = Some(std::sync::Arc::new(main_view_project(
+                &self.project,
+                &self.main_open,
+            )));
             cache.key = Some(key);
         }
         match &cache.view {
