@@ -503,17 +503,31 @@ fn make_j1_a_marked_ic(app: &mut App, j1: Id) -> Result<(), String> {
                 geometry.push(g);
             }
         }
+        let c = s
+            .project
+            .components
+            .iter_mut()
+            .find(|c| c.id == j1)
+            .ok_or("J1 vanished")?;
+        // Pins the connector already had keep their nets, so its wires stay valid.
+        let old_pins = c.pins.clone();
         let pins: Vec<pcbcraft_doc::Pin> = geometry
             .iter()
-            .map(|g| pcbcraft_doc::Pin {
-                number: g.number.clone(),
-                name: g.number.clone(),
-                offset: pcbcraft_geom::Point::new(0.0, 0.0),
-                net: None,
-                electrical_type: "passive".into(),
-                direction: None,
-                unit: 1,
-                appearances: Default::default(),
+            .map(|g| {
+                old_pins
+                    .iter()
+                    .find(|p| p.number == g.number)
+                    .cloned()
+                    .unwrap_or_else(|| pcbcraft_doc::Pin {
+                        number: g.number.clone(),
+                        name: g.number.clone(),
+                        offset: pcbcraft_geom::Point::new(0.0, 0.0),
+                        net: None,
+                        electrical_type: "passive".into(),
+                        direction: None,
+                        unit: 1,
+                        appearances: Default::default(),
+                    })
             })
             .collect();
         let pads: Vec<pcbcraft_doc::Pad> = geometry
@@ -522,17 +536,14 @@ fn make_j1_a_marked_ic(app: &mut App, j1: Id) -> Result<(), String> {
                 number: g.number.clone(),
                 offset: g.position,
                 diameter: 1.6,
-                net: None,
+                net: pins
+                    .iter()
+                    .find(|p| p.number == g.number)
+                    .and_then(|p| p.net),
                 castellated: None,
                 geometry: Some(g.clone()),
             })
             .collect();
-        let c = s
-            .project
-            .components
-            .iter_mut()
-            .find(|c| c.id == j1)
-            .ok_or("J1 vanished")?;
         c.kind = "ic".into();
         c.value = "LM358".into();
         c.pins = pins;
