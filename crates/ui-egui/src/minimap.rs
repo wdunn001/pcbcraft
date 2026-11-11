@@ -13,8 +13,9 @@
 //! revision, tab and sheet; selection, findings and the lit net are cheap marks
 //! built per frame. Tracks, parts and pour points are capped (level of detail),
 //! so the work count of a frame stays under [`WORK_BUDGET`]. Pinned state, width,
-//! opacity and position persist per tab in `Preferences::minimap`. Eject (an OS
-//! window) is not here: it reuses the dockable-workbench pop-out (#460).
+//! opacity and position persist per tab in `Preferences::minimap`. Eject puts
+//! the map in its own frameless window (desktop only; the browser build offers
+//! pin only, and a true OS window reuses the workbench pop-out, #460).
 
 use super::*;
 use egui::{Pos2, Sense};
@@ -661,6 +662,14 @@ enum Grab {
 pub(crate) struct State {
     /// The peek key is held.
     pub key_held: bool,
+
+    /// The map is shown in its own frameless window (desktop only; dock back returns it).
+    pub ejected: bool,
+
+    /// The map was already in its own window on the previous frame, so the
+    /// frame that just opened does not swallow that frame's Esc.
+    was_ejected: bool,
+
     /// The Map button opened it.
     pub click_open: bool,
     /// The pointer opened it by resting on the card.
@@ -696,6 +705,9 @@ fn tab_key(tab: Tab) -> &'static str {
     }
 }
 
+/// Eject is desktop only: the browser build offers pin, not a second window.
+pub(crate) const EJECTABLE: bool = !cfg!(target_arch = "wasm32");
+
 impl App {
     /// The saved look of the current tab's map, in range.
     pub(crate) fn map_prefs(&self) -> MapPrefs {
@@ -716,14 +728,40 @@ impl App {
     /// True while the map is on screen.
     pub(crate) fn minimap_visible(&self) -> bool {
         let s = &self.minimap;
-        self.map_prefs().pinned || s.key_held || s.click_open || s.hover_open
+        self.map_prefs().pinned || s.key_held || s.click_open || s.hover_open || s.ejected
     }
 
     /// The Map button: open or close the peek.
     pub(crate) fn minimap_toggle(&mut self) {
+        if self.minimap.ejected {
+            self.minimap_eject();
+            return;
+        }
         self.minimap.click_open = !self.minimap.click_open;
         self.minimap.cancelled = false;
         self.minimap.region = None;
+    }
+
+    /// Eject: the map moves to its own frameless window; press again to dock
+    /// it back to the navigation card. The Map button shows a dot while out.
+    ///
+    /// # Rules
+    /// - A no-op in the browser build, where the map offers pin only.
+    /// - Ejecting or docking never changes the pin, the view or the saved size.
+    /// # Dependencies
+    /// - crates/ui-egui/src/minimap.rs (`State::ejected`, `EJECTABLE`).
+    /// # Do not
+    /// - Close or reopen the map here: the open flags stay as they are.
+    pub(crate) fn minimap_eject(&mut self) {
+        if !EJECTABLE {
+            return;
+        }
+        self.minimap.ejected = !self.minimap.ejected;
+        self.minimap.announced = if self.minimap.ejected {
+            t!("minimap.eject.announced")
+        } else {
+            t!("minimap.dock.announced")
+        };
     }
 
     /// Send the view to `target`, gliding unless Reduce motion is on.
@@ -871,6 +909,10 @@ impl App {
         let origin = clamp_origin(origin, total, canvas.size());
         let frame_rect = Rect::from_min_size(canvas.min + origin, total);
         let pinned = prefs.pinned;
+        let ejected = self.minimap.ejected;
+        let eject_just = ejected && !std::mem::take(&mut self.minimap.was_ejected);
+        self.minimap.was_ejected = ejected;
+        let chrome_on = pinned || eject_just || self.minimap.chrome > 0.01;
         // An unpinned peek leaves with the pointer; a grab keeps it open.
         let near = pointer.is_some_and(|p| frame_rect.expand(GAP).union(card).contains(p));
         // With no pointer position (it left the window) the peek stays as it
@@ -895,8 +937,8 @@ impl App {
         if (self.minimap.chrome - before).abs() > f32::EPSILON && !reduced {
             ctx.request_repaint();
         }
-        let chrome = if pinned { self.minimap.chrome } else { 1.0 };
-        let map_alpha = if pinned { prefs.opacity } else { 1.0 };
+        let chrome = if chrome_on { self.minimap.chrome } else { 1.0 };
+        let map_alpha = if chrome_on { prefs.opacity } else { 1.0 };
         let colours = self.colours();
         let camera = if pcb { self.pcb } else { self.schematic };
         let area_rect =
@@ -949,7 +991,7 @@ impl App {
                     }
                     .as_shape(area_rect, 6.0),
                 );
-                if pinned {
+                if chrome_on {
                     let a = chrome;
                     painter.rect_filled(frame_rect, 8.0, colours.panel.gamma_multiply(0.94 * a));
                     painter.rect_stroke(
@@ -1038,9 +1080,17 @@ impl App {
                     let (lo, hi) = view_box(target, canvas.size());
                     go = Some((target, announce_text(lo, hi)));
                 }
-                // Keyboard: the arrows move the region box, Enter goes.
+                // Keyboard: the arrows move the region box, Enter goes, P pins, E ejects.
                 if map_resp.has_focus() || self.minimap.key_held || self.minimap.click_open {
-                    self.minimap_keys(ui, view, &overview, canvas.size(), camera, &mut go);
+                    self.minimap_keys(
+                        ui,
+                        view,
+                        &overview,
+                        canvas.size(),
+                        camera,
+                        &mut next_prefs,
+                        &mut go,
+                    );
                 }
                 if self.minimap.region.is_some() {
                     map_resp.request_focus();
@@ -1088,15 +1138,15 @@ impl App {
                     &colours,
                     frame_rect,
                     area_rect,
-                    pinned,
+                    chrome_on,
                     chrome,
                     canvas,
                     &overview,
                     &mut next_prefs,
                 );
             });
-        // Esc: close the popup first, then the peek.
-        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        // Esc: close the popup first, then the peek. The frame that just opened swallows nothing.
+        if !eject_just && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             if self.minimap.opacity_open {
                 self.minimap.opacity_open = false;
             } else if self.minimap.drag.is_some() || self.minimap.region.is_some() {
@@ -1147,6 +1197,7 @@ impl App {
         overview: &Overview,
         canvas: Vec2,
         camera: Camera,
+        prefs: &mut MapPrefs,
         go: &mut Option<(Camera, String)>,
     ) {
         let dir = ui.input(|i| {
@@ -1178,6 +1229,15 @@ impl App {
                 camera_for_point(camera, Point::new((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0));
             let _ = canvas;
             go.get_or_insert((target, announce_text(lo, hi)));
+        }
+        // P pins or unpins; E ejects or docks back (desktop only).
+        if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::P)) {
+            prefs.pinned = !prefs.pinned;
+            self.minimap.click_open = false;
+            self.minimap.hover_open = false;
+        }
+        if EJECTABLE && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::E)) {
+            self.minimap_eject();
         }
     }
 
@@ -1230,12 +1290,12 @@ impl App {
                 t!("minimap.pin.off.tip")
             },
             t!("minimap.pin"),
-            Some(pinned),
+            Some(prefs.pinned),
         );
         self.record_icon("minimap-pin", r);
         paint_pin(painter, r, pinned, resp.hovered(), colours, icon_alpha);
         if resp.clicked() {
-            prefs.pinned = !pinned;
+            prefs.pinned = !prefs.pinned;
             self.minimap.click_open = false;
             self.minimap.hover_open = false;
         }
@@ -1269,6 +1329,38 @@ impl App {
                 self.minimap.click_open = false;
                 self.minimap.hover_open = false;
             }
+
+            // Eject or dock back: the browser build offers pin alone.
+            if EJECTABLE {
+                if !self.minimap.ejected {
+                    let (resp, r) = button(
+                        ui,
+                        "minimap-eject",
+                        t!("minimap.eject.tip"),
+                        t!("minimap.eject"),
+                        None,
+                    );
+                    self.record_icon("minimap-eject", r);
+                    paint_window(painter, r, true, resp.hovered(), colours, icon_alpha);
+                    if resp.clicked() {
+                        self.minimap_eject();
+                    }
+                } else {
+                    let (resp, r) = button(
+                        ui,
+                        "minimap-dock",
+                        t!("minimap.dock.tip"),
+                        t!("minimap.dock"),
+                        None,
+                    );
+                    self.record_icon("minimap-dock", r);
+                    paint_window(painter, r, false, resp.hovered(), colours, icon_alpha);
+                    if resp.clicked() {
+                        self.minimap_eject();
+                    }
+                }
+            }
+
             // Title.
             painter.text(
                 Pos2::new(
@@ -1456,10 +1548,13 @@ impl App {
                     Stroke::new(1.0, colours.muted.gamma_multiply(icon_alpha)),
                 );
             }
-            // Opacity popup.
-            if self.minimap.opacity_open {
+            // Opacity popup: only while pinned.
+            if self.minimap.opacity_open && prefs.pinned {
                 self.opacity_popup(ui.ctx(), frame_rect, prefs);
             }
+        }
+        if self.minimap.ejected {
+            self.minimap.opacity_open = false;
         }
     }
 
@@ -1512,6 +1607,30 @@ impl App {
         if esc || pressed_at.is_some_and(|p| !inside.contains(p) && !on_button) {
             self.minimap.opacity_open = false;
         }
+    }
+}
+
+fn paint_window(
+    painter: &egui::Painter,
+    r: Rect,
+    open_mode: bool,
+    hovered: bool,
+    colours: &palette::ThemeColours,
+    alpha: f32,
+) {
+    let ink = if hovered {
+        colours.ink.gamma_multiply(alpha)
+    } else {
+        colours.muted.gamma_multiply(alpha)
+    };
+    let small = Rect::from_min_size(r.center() - Vec2::new(7.0, 4.0), Vec2::splat(8.0));
+    let big = Rect::from_min_size(r.center() - Vec2::new(1.0, 1.0), Vec2::new(9.0, 6.0));
+    if open_mode {
+        painter.rect_stroke(small, 1.0, Stroke::new(1.2, ink), egui::StrokeKind::Inside);
+        painter.rect_filled(big, 1.0, ink);
+    } else {
+        painter.rect_filled(small, 1.0, ink);
+        painter.rect_stroke(big, 1.0, Stroke::new(1.2, ink), egui::StrokeKind::Inside);
     }
 }
 

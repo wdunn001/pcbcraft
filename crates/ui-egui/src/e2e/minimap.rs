@@ -646,3 +646,77 @@ fn a_newcomer_sees_schematic_findings_on_the_minimap() -> Result<(), String> {
 
     Ok(())
 }
+#[test]
+fn a_newcomer_ejects_the_minimap() -> Result<(), String> {
+    let (mut app, ctx) = open(Tab::Pcb);
+    app.preferences.reduced_motion = true;
+    assert!(!app.minimap.ejected, "the peek starts docked");
+
+    authoring::tests::tap_icon(&ctx, &mut app, "canvas-map")?;
+    settle(&ctx, &mut app, 2);
+    authoring::tests::tap_icon(&ctx, &mut app, "minimap-eject")?;
+    settle(&ctx, &mut app, 2);
+    assert!(app.minimap.ejected, "the eject button opens its own window");
+    assert!(app.minimap_visible(), "the map is still on screen");
+    assert!(
+        app.minimap.announced.contains("own window"),
+        "eject announces the new window: {}",
+        app.minimap.announced
+    );
+    let dock = rect_of(&app, "minimap-dock")?;
+    assert!(
+        dock.width() > 10.0,
+        "the dock-back control appears while out"
+    );
+
+    // Put the peek itself away; only the ejected window keeps its ground.
+    frame(
+        &ctx,
+        &mut app,
+        vec![key(egui::Key::Escape, true)],
+        egui::Modifiers::NONE,
+    );
+    settle(&ctx, &mut app, 2);
+    let before = (app.pcb.center, app.pcb.zoom);
+    pointer_away(&ctx, &mut app);
+    settle(&ctx, &mut app, 3);
+    assert!(app.minimap_visible(), "an ejected map keeps its ground");
+    assert_eq!(
+        before,
+        (app.pcb.center, app.pcb.zoom),
+        "eject never moves the view"
+    );
+
+    // The pointer back over the map brings the chrome in, and dock answers.
+    let over = rect_of(&app, "minimap-surface")?.center();
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::PointerMoved(over)],
+        egui::Modifiers::NONE,
+    );
+    settle(&ctx, &mut app, 1);
+
+    authoring::tests::tap_icon(&ctx, &mut app, "minimap-dock")?;
+    settle(&ctx, &mut app, 2);
+    assert!(!app.minimap.ejected, "dock back returns it");
+    assert!(
+        app.minimap.announced.contains("navigation card"),
+        "dock back announces the card: {}",
+        app.minimap.announced
+    );
+
+    // The Map button docks it back while it is out.
+    authoring::tests::tap_icon(&ctx, &mut app, "canvas-map")?;
+    settle(&ctx, &mut app, 2);
+    authoring::tests::tap_icon(&ctx, &mut app, "minimap-eject")?;
+    settle(&ctx, &mut app, 2);
+    assert!(app.minimap.ejected);
+    authoring::tests::tap_icon(&ctx, &mut app, "canvas-map")?;
+    settle(&ctx, &mut app, 2);
+    assert!(
+        !app.minimap.ejected,
+        "the Map button docks the map back while it is out"
+    );
+    Ok(())
+}
