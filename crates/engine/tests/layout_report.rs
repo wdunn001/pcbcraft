@@ -84,6 +84,45 @@ fn decoupling(s: &Session) -> Vec<String> {
         .collect()
 }
 
+/// Joins U1 pad 1 to C1 pad 1 with one straight VCC track, so the copper path
+/// between them is as long as the straight run, and moves J1 out of its way.
+fn route_supply(s: &mut Session, u1: u64, c1: u64, vcc: u64) -> Result<(), Error> {
+    let at = |s: &Session, component: u64| -> Result<(f64, f64), Error> {
+        let fp = fp_of(s, component)?;
+        let p = s
+            .project
+            .footprint(fp)
+            .and_then(|f| f.pad_position("1"))
+            .ok_or_else(|| Error::Invalid("no pad 1".into()))?;
+        Ok((p.x, p.y))
+    };
+    let j1 = s
+        .project
+        .components
+        .iter()
+        .find(|c| c.reference == "J1")
+        .map(|c| c.id)
+        .ok_or_else(|| Error::Invalid("no J1".into()))?;
+    place(s, j1, 30.0, 40.0)?;
+    let (ax, ay) = at(s, u1)?;
+    let (bx, by) = at(s, c1)?;
+    s.execute(
+        "track.add",
+        json!({"net":vcc,"start":{"x":ax,"y":ay},"end":{"x":bx,"y":by},"width":0.3}),
+        None,
+    )?;
+    Ok(())
+}
+
+/// Messages of the `decoupling_distance` findings of the board check.
+fn far_capacitor(s: &Session) -> Vec<String> {
+    pcbcraft_rules::drc(&s.project)
+        .into_iter()
+        .filter(|f| f.code == "decoupling_distance")
+        .map(|f| f.message)
+        .collect()
+}
+
 #[test]
 fn an_empty_scope_is_refused_and_a_named_one_is_not() -> Result<(), Error> {
     let (mut s, u1, _, _) = board()?;
@@ -283,7 +322,7 @@ fn a_power_pin_with_no_capacitor_is_a_finding_and_adding_one_clears_it() -> Resu
 #[test]
 fn a_capacitor_that_is_too_far_is_a_finding_and_the_distance_is_configurable() -> Result<(), Error>
 {
-    let (mut s, u1, c1, _) = board()?;
+    let (mut s, u1, c1, vcc) = board()?;
     s.execute(
         "rules.decoupling_set",
         json!({"max_distance_mm":10.0}),
@@ -291,10 +330,13 @@ fn a_capacitor_that_is_too_far_is_a_finding_and_the_distance_is_configurable() -
     )?;
     place(&mut s, u1, 10.0, 10.0)?;
     place(&mut s, c1, 40.0, 10.0)?;
-    let found = decoupling(&s);
-    assert_eq!(found.len(), 1);
+    route_supply(&mut s, u1, c1, vcc)?;
+    // Presence is satisfied; the copper path length is the board check.
+    assert!(decoupling(&s).is_empty(), "{:?}", decoupling(&s));
+    let found = far_capacitor(&s);
+    assert_eq!(found.len(), 1, "{found:?}");
     assert!(
-        found[0].contains("C1") && found[0].contains("10.0 mm limit"),
+        found[0].contains("C1") && found[0].contains("10.0 mm"),
         "{}",
         found[0]
     );
@@ -303,7 +345,7 @@ fn a_capacitor_that_is_too_far_is_a_finding_and_the_distance_is_configurable() -
         json!({"max_distance_mm":50.0}),
         None,
     )?;
-    assert!(decoupling(&s).is_empty());
+    assert!(far_capacitor(&s).is_empty());
     assert!(
         s.execute("rules.decoupling_set", json!({"max_distance_mm":0.0}), None)
             .is_err()
@@ -314,26 +356,27 @@ fn a_capacitor_that_is_too_far_is_a_finding_and_the_distance_is_configurable() -
 
 #[test]
 fn the_decoupling_finding_obeys_severity_and_off() -> Result<(), Error> {
-    let (mut s, u1, c1, _) = board()?;
+    let (mut s, u1, c1, vcc) = board()?;
     s.execute("rules.decoupling_set", json!({"max_distance_mm":0.1}), None)?;
     place(&mut s, u1, 10.0, 10.0)?;
     place(&mut s, c1, 40.0, 10.0)?;
+    route_supply(&mut s, u1, c1, vcc)?;
     let level = |s: &Session| {
-        pcbcraft_rules::erc(&s.project)
+        pcbcraft_rules::drc(&s.project)
             .into_iter()
-            .find(|f| f.code == "missing_decoupling")
+            .find(|f| f.code == "decoupling_distance")
             .map(|f| f.severity)
     };
     assert_eq!(level(&s).as_deref(), Some("warning"));
     s.execute(
         "rules.severity",
-        json!({"code":"missing_decoupling","severity":"error"}),
+        json!({"code":"decoupling_distance","severity":"error"}),
         None,
     )?;
     assert_eq!(level(&s).as_deref(), Some("error"));
     s.execute(
         "rules.severity",
-        json!({"code":"missing_decoupling","severity":"off"}),
+        json!({"code":"decoupling_distance","severity":"off"}),
         None,
     )?;
     assert_eq!(level(&s), None);
