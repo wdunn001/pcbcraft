@@ -1,3 +1,9 @@
+//! Package identity: family classification, pad-pattern inference and
+//! package-name grammar (millimetres). Keys decide which parametric 3D
+//! body a footprint gets and when two parts share one package.
+//! Local rules: name grammar wins over pad inference, every dimension is
+//! clamped to a finite positive range, and no panic, unwrap or unsafe
+//! appears anywhere in this file.
 use crate::{FootprintDefinition, Graphic};
 use pcbcraft_geom::Point;
 use serde::{Deserialize, Serialize};
@@ -95,6 +101,61 @@ impl PackageKey {
             courtyard_half_x,
             courtyard_half_y,
         })
+    }
+}
+
+impl PackageKey {
+    /// Build a package key from the package text embedded in a footprint name.
+    ///
+    /// This parses the name first, before any pad measurement, so the caller
+    /// can decide whether to trust the name or fall back to pad inference.
+    ///
+    /// # Rules
+    ///
+    /// - Names up to 64 characters are accepted.
+    /// - Recognised families are chip size codes, SOT, SOIC/SOP/MSOP/SSOP/TSSOP,
+    ///   QFP/LQFP/TQFP, QFN/DFN, DIP/SIP and pin headers.
+    /// - Every dimension lands in a finite positive range and height_mm is never
+    ///   zero.
+    /// - Unknown names return Err.
+    ///
+    /// # Dependencies
+    ///
+    /// crates/library/src/param_body.rs (the body generator calls this first).
+    ///
+    /// # Do not
+    ///
+    /// Never fall back to a fabricated key here; return Err and let the caller
+    /// use pad inference instead.
+    pub fn from_footprint_name(name: &str) -> Result<Self, String> {
+        if name.is_empty() || name.len() > 64 {
+            return Err(format!("footprint name out of range: {name}"));
+        }
+        let (family, pin_count, pitch, length, width, span, height) = parse_package_name(name)?;
+        if family == PackageFamily::Unknown {
+            return Err(format!("unrecognised package name: {name}"));
+        }
+        Ok(Self {
+            family,
+            pin_count,
+            pitch_mm: clamp_dim(pitch, 50.0),
+            body_length_mm: clamp_dim(length, 60.0),
+            body_width_mm: clamp_dim(width, 60.0),
+            lead_span_mm: clamp_dim(span, 60.0),
+            exposed_pad_mm: 0.0,
+            height_mm: clamp_dim(height, 30.0),
+            courtyard_half_x: None,
+            courtyard_half_y: None,
+        })
+    }
+}
+
+/// Clamp a dimension to at least 0.1 and at most cap, mapping non-finite to 0.1.
+fn clamp_dim(v: f64, cap: f64) -> f64 {
+    if !v.is_finite() {
+        0.1
+    } else {
+        v.clamp(0.1, cap)
     }
 }
 
@@ -234,4 +295,263 @@ pub fn pad_extent(pad: &crate::FootprintPad) -> (Point, Point) {
         pad.position.offset(Point::new(-hx, -hy)),
         pad.position.offset(Point::new(hx, hy)),
     )
+}
+
+/// Parsed shape of a package name: family, pin count, pitch, body length,
+/// body width, lead span and height, all in millimetres.
+type PackageShape = (PackageFamily, u32, f64, f64, f64, f64, f64);
+
+/// Parse a footprint name into a package key.
+///
+/// Reads the package grammar out of a footprint name and returns the family,
+/// pin count, pitch, body length, body width, lead span and height.
+///
+/// # Rules
+///
+/// Case insensitive; separators between letters and digits are ignored.
+///
+/// # Dependencies
+///
+/// crates/library/src/package_key.rs (PackageFamily)
+///
+/// # Do not
+///
+/// Never panic; return Err for names that do not match.
+fn parse_package_name(name: &str) -> Result<PackageShape, String> {
+    let compact: String = name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_uppercase())
+        .collect();
+    if compact.is_empty() || compact.len() > 64 {
+        return Err("package name is empty or too long".to_string());
+    }
+
+    fn first_digits(compact: &str, at: usize) -> Option<(u32, usize)> {
+        let rest = &compact[at..];
+        let mut value: u32 = 0;
+        let mut len = 0;
+        for ch in rest.chars() {
+            if ch.is_ascii_digit() {
+                let d = (ch as u32) - ('0' as u32);
+                value = value.checked_mul(10)?.checked_add(d)?;
+                len += 1;
+            } else {
+                break;
+            }
+        }
+        if len == 0 { None } else { Some((value, len)) }
+    }
+    fn starts_with_any<'a>(compact: &str, prefixes: &[&'a str]) -> Option<&'a str> {
+        let mut best: Option<&str> = None;
+        for prefix in prefixes {
+            if compact.starts_with(prefix) && best.is_none_or(|done| prefix.len() > done.len()) {
+                best = Some(prefix);
+            }
+        }
+        best
+    }
+
+    let mut work = compact.clone();
+    if work.starts_with('P') || work.starts_with('C') {
+        work = work[1..].to_string();
+    }
+    for prefix in ["TR", "RL", "R"] {
+        if work.starts_with(prefix) {
+            work = work[prefix.len()..].to_string();
+            break;
+        }
+    }
+    for suffix in ["TR", "RL", "R"] {
+        if work.ends_with(suffix) {
+            work = work[..work.len() - suffix.len()].to_string();
+            break;
+        }
+    }
+
+    let chip_sizes: [(&str, f64, f64, f64); 11] = [
+        ("01005", 0.5, 0.25, 0.13),
+        ("0201", 0.6, 0.3, 0.3),
+        ("0402", 1.0, 0.5, 0.5),
+        ("0603", 1.6, 0.8, 0.8),
+        ("0805", 2.0, 1.25, 1.25),
+        ("1206", 3.2, 1.6, 1.6),
+        ("1210", 3.2, 2.5, 2.5),
+        ("1812", 4.5, 3.2, 3.2),
+        ("2010", 5.0, 2.5, 2.5),
+        ("2512", 6.3, 3.2, 3.2),
+        ("0204", 0.6, 0.4, 0.3),
+    ];
+    for (code, length, width, height) in &chip_sizes {
+        if work == *code {
+            return Ok((
+                PackageFamily::Chip,
+                2,
+                0.0,
+                *length,
+                *width,
+                *length,
+                *height,
+            ));
+        }
+    }
+
+    if let Some(rest) = work.strip_prefix("SOT") {
+        let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+        let table: [(&str, u32, f64, f64, f64, f64, f64); 4] = [
+            ("323", 3, 0.65, 2.0, 1.25, 2.2, 1.0),
+            ("523", 5, 0.65, 1.7, 1.25, 1.9, 1.0),
+            ("89", 3, 1.0, 4.5, 2.5, 6.2, 1.5),
+            ("23", 3, 0.95, 2.9, 1.3, 2.8, 1.1),
+        ];
+        if let Some((code, pins, pitch, length, width, span, height)) =
+            table.iter().find(|entry| digits.starts_with(entry.0))
+        {
+            let pin_count = digits[code.len()..]
+                .parse::<u32>()
+                .ok()
+                .filter(|over| [3, 4, 5, 6, 8].contains(over))
+                .unwrap_or(*pins);
+            return Ok((
+                PackageFamily::Sot,
+                pin_count,
+                *pitch,
+                *length,
+                *width,
+                *span,
+                *height,
+            ));
+        }
+        return Err("unknown SOT code".to_string());
+    }
+
+    if let Some(prefix) = starts_with_any(&work, &["MSOP", "SSOP", "TSSOP", "SOIC", "SOP", "SO"]) {
+        let after_prefix = prefix.len();
+        let (pin_count, pitch, width, span, length, height) =
+            if let Some((pins, _)) = first_digits(&work, after_prefix) {
+                if pins % 2 != 0 || !(2..=56).contains(&pins) {
+                    return Err("invalid pin count for SOIC/SOP/SO/MSOP/SSOP/TSSOP".to_string());
+                }
+                match prefix {
+                    "SOIC" | "SOP" | "SO" => {
+                        let length = ((pins / 2) as f64 - 1.0) * 1.27 + 2.4;
+                        (pins, 1.27, 3.9, 6.0, length, 1.5)
+                    }
+                    "MSOP" => {
+                        let length = ((pins / 2) as f64 - 1.0) * 0.65 + 2.0;
+                        (pins, 0.65, 3.0, 5.0, length, 1.0)
+                    }
+                    "TSSOP" => {
+                        let length = ((pins / 2) as f64 - 1.0) * 0.65 + 3.0;
+                        (pins, 0.65, 4.4, 6.4, length, 1.0)
+                    }
+                    "SSOP" => {
+                        let length = ((pins / 2) as f64 - 1.0) * 0.635 + 2.4;
+                        (pins, 0.635, 3.9, 5.6, length, 1.1)
+                    }
+                    _ => {
+                        let length = ((pins / 2) as f64 - 1.0) * 1.27 + 2.4;
+                        (pins, 1.27, 3.9, 6.0, length, 1.5)
+                    }
+                }
+            } else {
+                return Err("missing pin count for SOIC/SOP/SO/MSOP/SSOP/TSSOP".to_string());
+            };
+        return Ok((
+            PackageFamily::GullWing,
+            pin_count,
+            pitch,
+            length,
+            width,
+            span,
+            height,
+        ));
+    }
+
+    if let Some(prefix) = starts_with_any(&work, &["LQFP", "TQFP", "QFP"]) {
+        let after_prefix = prefix.len();
+        if let Some((pins, _)) = first_digits(&work, after_prefix) {
+            if pins % 4 != 0 || !(4..=60).contains(&(pins / 4)) {
+                return Err("invalid pin count for QFP".to_string());
+            }
+            let per_side = pins / 4;
+            let body_side = (per_side as f64 - 1.0) * 0.5 + 1.5;
+            let span = body_side + 2.9;
+            return Ok((
+                PackageFamily::GullWing,
+                pins,
+                0.5,
+                body_side,
+                body_side,
+                span,
+                1.6,
+            ));
+        }
+    }
+
+    if let Some(prefix) = starts_with_any(&work, &["QFN", "DFN"]) {
+        let after_prefix = prefix.len();
+        if let Some((pins, _)) = first_digits(&work, after_prefix) {
+            if !(4..=100).contains(&pins) {
+                return Err("invalid pin count for QFN/DFN".to_string());
+            }
+            let body = ((pins / 4).max(1) as f64 - 1.0) * 0.5 + 2.0;
+            let length = body.max(2.0);
+            let span = body + 1.0;
+            return Ok((PackageFamily::Qfn, pins, 0.5, length, length, span, 0.9));
+        }
+    }
+
+    if let Some(prefix) = starts_with_any(&work, &["PDIP", "DIP", "SIP"]) {
+        let after_prefix = prefix.len();
+        if let Some((pins, _)) = first_digits(&work, after_prefix) {
+            if !(4..=40).contains(&pins) {
+                return Err("invalid pin count for DIP/SIP".to_string());
+            }
+            if prefix == "SIP" {
+                let length = (pins as f64 - 1.0) * 2.54 + 2.0;
+                return Ok((PackageFamily::Dip, pins, 2.54, length, 2.54, 2.54, 3.3));
+            }
+            let length = ((pins / 2) as f64 - 1.0) * 2.54 + 4.06;
+            let span = length + 2.54;
+            return Ok((PackageFamily::Dip, pins, 2.54, length, 6.35, span, 3.3));
+        }
+    }
+
+    if work.contains("X") || work.contains("HEADER") || work.contains("HDR") {
+        let mut rows: u32 = 1;
+        let mut cols: u32 = 0;
+        if let Some(pos) = work.find("X") {
+            if let Some((r, _)) = first_digits(&work, 0) {
+                rows = r;
+            }
+            if let Some((c, _)) = first_digits(&work, pos + 1) {
+                cols = c;
+            }
+        } else if let Some((c, _)) = first_digits(&work, 0) {
+            cols = c;
+        }
+        if cols == 0
+            && let Some((c, _)) = first_digits(&work, work.len() - 1)
+        {
+            cols = c;
+        }
+        let pin_count = rows.checked_mul(cols).ok_or("pin count overflow")?;
+        if !(1..=100).contains(&pin_count) {
+            return Err("invalid pin count for pin header".to_string());
+        }
+        let body_length = rows.max(cols) as f64 * 2.54;
+        let body_width = rows.min(cols) as f64 * 2.54;
+        return Ok((
+            PackageFamily::PinHeader,
+            pin_count,
+            2.54,
+            body_length,
+            body_width,
+            body_length,
+            2.54,
+        ));
+    }
+
+    Err("package name is not recognised".to_string())
 }

@@ -116,6 +116,7 @@ impl App {
     /// The object under the pointer, skipping anything on a locked Layers tree row.
     pub(super) fn pick_filtered(&self, pos: Point, zoom: f32) -> Option<Id> {
         self.pick_object(pos, zoom)
+            .filter(|id| !crate::page_part::is_page_part(*id))
             .filter(|id| self.id_allowed(*id))
     }
 

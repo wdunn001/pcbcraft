@@ -72,7 +72,7 @@ impl SheetColours {
     };
 
     /// The colour set for the dark or the light theme.
-    pub(super) fn for_theme(dark: bool) -> Self {
+    pub(crate) fn for_theme(dark: bool) -> Self {
         if dark { Self::DARK } else { Self::LIGHT }
     }
 }

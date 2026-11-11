@@ -751,8 +751,9 @@ impl App {
             }
         }
         let mut visible = self.project.clone();
+        let mut page_parts = Vec::new();
         if self.tab == Tab::Schematic && self.schematic_page() == 0 {
-            crate::page_scope::apply_main_layout(&mut visible);
+            page_parts = crate::page_part::apply_main_view(&mut visible, &self.main_open);
         }
         if let Some((id, pos)) = self.drag {
             if let Some(c) = visible.components.iter_mut().find(|c| c.id == id) {
@@ -805,6 +806,9 @@ impl App {
         }
         if self.tab == Tab::Schematic {
             self.paint_schematic(&painter, rect, camera, &visible);
+            if self.schematic_page() == 0 {
+                self.page_part_controls(ui, rect, camera, &page_parts);
+            }
         } else {
             self.paint_board(&painter, rect, camera, &visible);
         }
@@ -2227,6 +2231,7 @@ impl App {
             .iter()
             .flat_map(|c| c.schematic_views())
             .filter(|c| crate::page_scope::in_view(p, page, c.sheet))
+            .filter(|c| !crate::page_part::is_page_part(c.id))
             .filter(|_| shown("Symbols") && row_shown("symbols"))
         {
             self.symbol(
@@ -2238,6 +2243,9 @@ impl App {
                     && self.selected_unit == c.library_symbol.as_ref().map(|s| s.unit).unwrap_or(1),
                 false,
             );
+        }
+        if shown("Symbols") && row_shown("symbols") {
+            self.paint_page_parts(painter, rect, camera, p);
         }
         self.paint_sheet_lit(painter, rect, camera, p, page);
         let outlines = sheet::hit_outlines(p, page, rect, camera, &kinds);

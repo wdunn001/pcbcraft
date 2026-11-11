@@ -54,6 +54,38 @@ fn drag(ctx: &egui::Context, app: &mut App, from: egui::Pos2, by: egui::Vec2) {
     frame(ctx, app, vec![], egui::Modifiers::NONE);
 }
 
+// This is the umbrella check for issue 357.
+// Every part shows a model or a generated body and metal pins make parts read as real.
+#[test]
+fn a_newcomer_opens_the_3d_view_and_every_part_shows_a_model_or_a_generated_body_with_pins()
+-> Result<(), String> {
+    let (ctx, mut app, _) = open_3d()?;
+    let mesh = pcbcraft_io::board_mesh(&app.project, pcbcraft_io::MeshLayers::default())?;
+    let bodies = mesh
+        .parts
+        .iter()
+        .filter(|p| p.kind == pcbcraft_io::PartKind::Body)
+        .collect::<Vec<_>>();
+    for component in &app.project.components {
+        if !bodies.iter().any(|b| b.name == component.reference) {
+            return Err(format!(
+                "component {} shows no body in the 3D view",
+                component.reference
+            ));
+        }
+    }
+    let leads = mesh
+        .parts
+        .iter()
+        .filter(|p| p.materials.contains(&pcbcraft_io::MaterialClass::TinLead))
+        .count();
+    if leads == 0 {
+        return Err("the 3D view shows no metal pins on the parts".to_string());
+    }
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    Ok(())
+}
+
 #[test]
 fn a_newcomer_opens_the_3d_view_and_sees_the_parts() -> Result<(), String> {
     let (ctx, mut app, _) = open_3d()?;

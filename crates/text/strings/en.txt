@@ -4309,6 +4309,12 @@ schematic.port.direction.output = Output
 schematic.port.direction.bidirectional = Both
 schematic.port.direction.passive = Passive
 schematic.main.read_only = This part belongs to another page. Open that page to change it.
+schematic.page_part.open = Show items of {page}
+schematic.page_part.open.tip = Open this page part to show the parts, wires and labels of the page here on Main.
+schematic.page_part.close = Hide items of {page}
+schematic.page_part.close.tip = Close this page again so it shows as one part with its outward pins.
+schematic.main.open_all = Open all pages
+schematic.main.open_all.tip = Show the items of every page on Main. Turn it off to show each page as one part with its outward pins.
 
 # art layer properties (issue #98)
 tree.art_layer.missing = Layer not found
