@@ -1,5 +1,5 @@
 ---
-type: feat
+type: feature
 area: ui
 issues: [394]
 user_visible: true
