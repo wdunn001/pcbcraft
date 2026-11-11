@@ -33,6 +33,9 @@ mod digikey;
 mod drill_table;
 mod editing;
 mod export;
+
+mod export_packages;
+
 mod files_home;
 mod files_shape;
 mod findings_counts;
@@ -76,6 +79,7 @@ mod rules;
 mod rules_dialog;
 mod samtec_cards;
 mod samtec_manufacturer;
+mod samtec_partnumber;
 mod schematic_add;
 mod schematic_label_edit;
 mod schematic_labels;
