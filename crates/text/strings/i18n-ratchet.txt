@@ -15,8 +15,8 @@ literals | impedance_panel.rs | 18
 literals | reference_panel.rs | 23
 literals | sources.rs | 0
 literals | via_span.rs | 13
-missing | de | 814
-missing | es | 1973
-missing | fr | 814
+missing | de | 815
+missing | es | 1974
+missing | fr | 815
 unused | keys | 83
 concatenation | library_dock.rs | 0

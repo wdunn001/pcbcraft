@@ -106,6 +106,7 @@ pub const CHECK_CODES: &[(&str, &str)] = &[
     ("cutout_clearance", "error"),
     ("track_width", "error"),
     ("track_length", "error"),
+    ("net_too_long", "warning"),
     ("unrouted", "warning"),
     ("missing_footprint", "warning"),
     ("unassigned_via", "warning"),
@@ -2394,6 +2395,34 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                 objects: vec![*net],
                 hint: None,
             });
+        }
+    }
+    if !project.rule_disabled("net_too_long") {
+        for class in &project.net_classes {
+            let Some(max) = class.max_length else {
+                continue;
+            };
+            for net in &class.nets {
+                let Some(length) = lengths.get(net) else {
+                    continue;
+                };
+                if *length <= max + 1e-9 {
+                    continue;
+                }
+                result.push(Finding {
+                    code: "net_too_long",
+                    severity: project.rule_severity("net_too_long", "warning"),
+                    message: format!(
+                        "{} routed to {:.3} mm, {} allows at most {:.3} mm",
+                        project.net_name(*net),
+                        length,
+                        class.name,
+                        max
+                    ),
+                    objects: vec![*net],
+                    hint: None,
+                });
+            }
         }
     }
     for net in &project.nets {
