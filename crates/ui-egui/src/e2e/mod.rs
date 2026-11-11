@@ -51,6 +51,7 @@ mod library;
 mod library_browser;
 mod library_datasheet;
 mod library_dock;
+mod library_part_3d;
 mod library_real_part;
 mod library_sources;
 mod library_workspace;

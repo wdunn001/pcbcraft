@@ -43,6 +43,7 @@ pub(crate) mod machines;
 mod machines_view;
 mod model;
 mod overview;
+mod part3d;
 pub(crate) mod sources;
 mod vendors;
 
@@ -117,6 +118,8 @@ pub(crate) struct State {
     pub(crate) model_project: pcbcraft_doc::Project,
     pub(crate) model_rev: u64,
     pub(crate) model_centre: pcbcraft_geom::Point,
+    /// 3D page: the plain-sentence load result shown beside the viewport.
+    pub(crate) model3d: part3d::Part3d,
     /// 3D page: what the project above was built from, so edits rebuild it and nothing else does.
     pub(crate) model_key: String,
     pub(crate) model_part: String,
@@ -156,6 +159,7 @@ impl Default for State {
             model_project: pcbcraft_doc::Project::default(),
             model_rev: 0,
             model_centre: pcbcraft_geom::Point::new(0.0, 0.0),
+            model3d: part3d::Part3d::default(),
             model_key: String::new(),
             model_part: String::new(),
             compare_only_diff: false,
