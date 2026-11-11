@@ -4,7 +4,7 @@
 
 use super::super::*;
 use super::board::right_click;
-use super::modifiers::{centre_of, click, drag, sample};
+use super::modifiers::{centre_of, click, drag, hover as hover_to, press as press_button, sample};
 use super::support::*;
 use crate::authoring;
 use egui::Modifiers;
@@ -162,6 +162,73 @@ fn a_newcomer_moves_a_part_by_dragging_it() -> Result<(), String> {
         app.message
     );
     assert!(matches!(app.tool, Tool::Select), "no tool was needed");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_cancels_a_drag_with_escape_and_the_design_stays_as_it_was() -> Result<(), String> {
+    let (mut app, ctx) = sample(Tab::Schematic);
+    let c = app.schematic.center;
+    app.run(
+        "component.add",
+        json!({"kind": "resistor", "position": Point::new(c.x, c.y + 8.0)}),
+    );
+    frame(&ctx, &mut app, vec![], Modifiers::NONE);
+    let id = app
+        .project
+        .components
+        .last()
+        .map(|p| p.id)
+        .ok_or("no part")?;
+    let start = app.project.component(id).ok_or("no part")?.position;
+    let from = centre_of(&app, id)?;
+    let away = from + egui::vec2(60.0, 0.0);
+    let revision = |app: &App| -> Result<u64, String> {
+        app.session
+            .lock()
+            .map(|s| s.revision)
+            .map_err(|_| "session is busy".to_owned())
+    };
+    let before = revision(&app)?;
+
+    // Grab the part, pull it away, then change your mind with Escape while
+    // the button is still down.
+    hover_to(&ctx, &mut app, from, Modifiers::NONE);
+    hover_to(&ctx, &mut app, from, Modifiers::NONE);
+    press_button(&ctx, &mut app, from, true, Modifiers::NONE);
+    for step in 1..=6 {
+        hover_to(
+            &ctx,
+            &mut app,
+            from + (away - from) * (step as f32 / 6.0),
+            Modifiers::NONE,
+        );
+    }
+    assert!(app.drag.is_some(), "the part is being carried");
+    key(&ctx, &mut app, egui::Key::Escape);
+    assert!(app.drag.is_none(), "Escape put the part down");
+    press_button(&ctx, &mut app, away, false, Modifiers::NONE);
+    frame(&ctx, &mut app, vec![], Modifiers::NONE);
+    let after = app.project.component(id).ok_or("part vanished")?.position;
+    assert_eq!(
+        after, start,
+        "the part is back where it was ({})",
+        app.message
+    );
+    assert_eq!(
+        revision(&app)?,
+        before,
+        "the cancelled drag left no history entry"
+    );
+
+    // The same drag without Escape moves the part, as one edit.
+    drag(&ctx, &mut app, from, away, Modifiers::NONE);
+    let moved = app.project.component(id).ok_or("part vanished")?.position;
+    assert!(
+        (moved.x - start.x).abs() > 1.0,
+        "the second drag moved the part: {start:?} to {moved:?}"
+    );
+    assert_eq!(revision(&app)?, before + 1, "the move is one edit");
     Ok(())
 }
 
