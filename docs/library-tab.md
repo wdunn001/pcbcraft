@@ -97,9 +97,17 @@ With a key stored, the part search in the dock also asks Digi-Key. Its cards are
 name Digi-Key as their source, with stock and the first price break.
 
 - With no key stored the dock builds no Digi-Key source and shows no error.
-- Answers are kept for the source's cache window, so the same words do not ask again. The source's
-  own pacing applies, and a pause the distributor asks for is shown in plain words.
-- The Offline switch stops Digi-Key requests and the dock says so.
+- Answers are kept on disk in the app's own cache folder, each with the date it was taken, and the
+  dock shows that date under the cards (Digi-Key answer from 2026-11-11). An answer younger than the
+  source's cache window is used again, so the same words do not ask again, even after a restart. An
+  older one is asked for again. Answers older than the window are deleted when the app starts.
+- Nothing secret is stored: an answer that names a key, secret or token is shown but never kept, each
+  source keeps at most 128 answers, and saving or removing the key empties the cache.
+- The source's own pacing applies, and a pause the distributor asks for is shown in plain words.
+- The Offline switch stops Digi-Key requests. The dock then shows the saved answer with its date
+  (Saved Digi-Key answer from 2026-11-11), or says no saved answer exists for a search never made.
+  Prices are cached values and may have changed since their date.
+- This is the desktop app only; the browser build has no distributor sources, so it keeps no answers.
 - A Digi-Key card lists stock and price. It has no symbol or footprint, so clicking it places nothing.
 - The sources are built by `configured_sources` in `crates/ui-egui/src/distributors.rs`, which is
   where the other distributors join the list.

@@ -14,14 +14,37 @@ use pcbcraft_library::sources::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+#[cfg(not(target_arch = "wasm32"))]
 use std::fs;
+#[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
-use std::path::{Path, PathBuf};
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::Path;
+use std::path::PathBuf;
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 
 const MAX_SOURCE_ID_BYTES: usize = 64;
 const MAX_BODY_BYTES: usize = 4 * 1024 * 1024;
+/// Most answers kept for one source; the oldest go first.
+const MAX_ANSWERS_PER_SOURCE: usize = 128;
+/// Words that mark text as holding a key or token. An answer with any of them is never stored.
+const KEY_MARKERS: [&str; 12] = [
+    "client_secret",
+    "client_id",
+    "clientid",
+    "secret",
+    "api_key",
+    "apikey",
+    "api-key",
+    "access_token",
+    "authorization",
+    "bearer ",
+    "password",
+    "token=",
+];
+#[cfg(not(target_arch = "wasm32"))]
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Whether a stored answer should be shown as current, dated, or gone.
@@ -60,6 +83,125 @@ fn cache_key(source: &str, query: &str) -> String {
     format!("{source}\u{1f}search\u{1f}{}", query.trim().to_lowercase())
 }
 
+/// True when the text names a key, secret or token.
+fn holds_a_key(text: &str) -> bool {
+    let low = text.to_ascii_lowercase();
+    KEY_MARKERS.iter().any(|m| low.contains(m))
+}
+
+/// Where dated answers are kept: one small text file per answer, grouped by source.
+///
+/// # Rules
+/// - `name` is a file name made by the cache; `source` was checked by the cache.
+/// - The desktop app uses [`DiskFiles`]; the browser build and the tests use [`MemoryFiles`].
+///
+/// # Do not
+/// - Call `std::fs` for answers anywhere else: the browser build has no disk.
+pub trait AnswerFiles: Send + Sync {
+    /// The text of one answer file, or `None` when it is missing or unreadable.
+    fn read(&self, source: &str, name: &str) -> Option<String>;
+    /// Replace one answer file.
+    fn write(&self, source: &str, name: &str, text: &str) -> Result<(), SourceError>;
+    /// Delete one answer file; a missing file is fine.
+    fn remove(&self, source: &str, name: &str);
+    /// Every answer file name held for the source.
+    fn names(&self, source: &str) -> Vec<String>;
+    /// Delete every answer of every source.
+    fn clear(&self) -> Result<(), SourceError>;
+}
+
+/// Answers held in memory, lost when the program ends.
+#[derive(Default)]
+pub struct MemoryFiles {
+    files: Mutex<BTreeMap<(String, String), String>>,
+}
+
+/// Contract: [`AnswerFiles`]
+impl AnswerFiles for MemoryFiles {
+    fn read(&self, source: &str, name: &str) -> Option<String> {
+        let m = self.files.lock().ok()?;
+        m.get(&(source.to_owned(), name.to_owned())).cloned()
+    }
+    fn write(&self, source: &str, name: &str, text: &str) -> Result<(), SourceError> {
+        let mut m = self.files.lock().map_err(lock_err)?;
+        m.insert((source.to_owned(), name.to_owned()), text.to_owned());
+        Ok(())
+    }
+    fn remove(&self, source: &str, name: &str) {
+        if let Ok(mut m) = self.files.lock() {
+            m.remove(&(source.to_owned(), name.to_owned()));
+        }
+    }
+    fn names(&self, source: &str) -> Vec<String> {
+        match self.files.lock() {
+            Ok(m) => m
+                .keys()
+                .filter(|(s, _)| s == source)
+                .map(|(_, n)| n.clone())
+                .collect(),
+            Err(_) => Vec::new(),
+        }
+    }
+    fn clear(&self) -> Result<(), SourceError> {
+        self.files.lock().map_err(lock_err)?.clear();
+        Ok(())
+    }
+}
+
+/// Answers kept as files under `{root}/responses/{source}/`. Not built for the browser.
+#[cfg(not(target_arch = "wasm32"))]
+pub struct DiskFiles {
+    root: PathBuf,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl DiskFiles {
+    fn dir(&self, source: &str) -> PathBuf {
+        self.root.join("responses").join(source)
+    }
+}
+
+/// Contract: [`AnswerFiles`]
+#[cfg(not(target_arch = "wasm32"))]
+impl AnswerFiles for DiskFiles {
+    fn read(&self, source: &str, name: &str) -> Option<String> {
+        fs::read_to_string(self.dir(source).join(name)).ok()
+    }
+    fn write(&self, source: &str, name: &str, text: &str) -> Result<(), SourceError> {
+        let dir = self.dir(source);
+        fs::create_dir_all(&dir)
+            .map_err(|e| SourceError::Unavailable(format!("response cache write failed: {e}")))?;
+        write_atomic(&dir.join(name), text.as_bytes())
+    }
+    fn remove(&self, source: &str, name: &str) {
+        let _ = fs::remove_file(self.dir(source).join(name));
+    }
+    fn names(&self, source: &str) -> Vec<String> {
+        let dir = self.dir(source);
+        if !dir.is_dir() {
+            return Vec::new();
+        }
+        fs::read_dir(&dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|e| e.path().is_file())
+            .filter_map(|e| e.file_name().into_string().ok())
+            .filter(|n| !n.starts_with(".tmp-"))
+            .collect()
+    }
+    fn clear(&self) -> Result<(), SourceError> {
+        let dir = self.root.join("responses");
+        if dir.exists() {
+            fs::remove_dir_all(&dir).map_err(|e| {
+                SourceError::Unavailable(format!("response cache purge failed: {e}"))
+            })?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), SourceError> {
     let n = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
     let stamp = pcbcraft_clock::unix_secs();
@@ -83,28 +225,21 @@ struct StoredResponse {
     results: Vec<PartResult>,
 }
 
+/// Reads and writes dated answers through an [`AnswerFiles`].
 struct DiskLayer {
-    root: Option<PathBuf>,
-    memory: Mutex<BTreeMap<String, StoredResponse>>,
+    files: Arc<dyn AnswerFiles>,
+}
+
+fn file_name(key: &str) -> String {
+    format!("{}.json", content_hash(key.as_bytes()))
+}
+
+fn stored_time(text: &str) -> Option<u64> {
+    text.split_once('\n')
+        .and_then(|(h, _)| h.parse::<u64>().ok())
 }
 
 impl DiskLayer {
-    fn open(root: Option<PathBuf>) -> Self {
-        Self {
-            root,
-            memory: Mutex::new(BTreeMap::new()),
-        }
-    }
-
-    fn path(&self, source: &str, key: &str) -> Result<Option<PathBuf>, SourceError> {
-        check_source_id(source)?;
-        Ok(self.root.as_ref().map(|r| {
-            r.join("responses")
-                .join(source)
-                .join(format!("{}.json", content_hash(key.as_bytes())))
-        }))
-    }
-
     fn put(
         &self,
         source: &str,
@@ -112,80 +247,70 @@ impl DiskLayer {
         stored_at: u64,
         results: &[PartResult],
     ) -> Result<(), SourceError> {
+        check_source_id(source)?;
         let body = serde_json::to_string(results)
             .map_err(|e| bad(&format!("could not store the answer: {e}")))?;
         if body.len() > MAX_BODY_BYTES {
             return Err(bad("the answer is too large to keep"));
         }
-        let record = StoredResponse {
-            stored_at,
-            results: results.to_vec(),
-        };
-        let Some(path) = self.path(source, key)? else {
-            let mut m = self.memory.lock().map_err(lock_err)?;
-            if m.len() < 512 {
-                m.insert(format!("{source}\u{1f}{key}"), record);
-            }
-            return Ok(());
-        };
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|e| {
-                SourceError::Unavailable(format!("response cache write failed: {e}"))
-            })?;
+        if holds_a_key(&body) {
+            return Err(bad("the answer holds a key and is not kept"));
         }
         let text = format!("{stored_at}\n{body}");
-        write_atomic(&path, text.as_bytes())?;
+        self.files.write(source, &file_name(key), &text)?;
+        self.trim(source);
         Ok(())
     }
 
+    /// Drop the oldest answers of a source while it holds more than the bound.
+    fn trim(&self, source: &str) {
+        let names = self.files.names(source);
+        if names.len() <= MAX_ANSWERS_PER_SOURCE {
+            return;
+        }
+        let mut dated: Vec<(u64, String)> = names
+            .into_iter()
+            .map(|n| {
+                let at = self
+                    .files
+                    .read(source, &n)
+                    .as_deref()
+                    .and_then(stored_time)
+                    .unwrap_or(0);
+                (at, n)
+            })
+            .collect();
+        dated.sort();
+        let extra = dated.len() - MAX_ANSWERS_PER_SOURCE;
+        for (_, name) in dated.into_iter().take(extra) {
+            self.files.remove(source, &name);
+        }
+    }
+
     fn get(&self, source: &str, key: &str) -> Result<Option<StoredResponse>, SourceError> {
-        let Some(path) = self.path(source, key)? else {
-            let m = self.memory.lock().map_err(lock_err)?;
-            return Ok(m.get(&format!("{source}\u{1f}{key}")).cloned());
-        };
-        let Ok(text) = fs::read_to_string(&path) else {
+        check_source_id(source)?;
+        let name = file_name(key);
+        let Some(text) = self.files.read(source, &name) else {
             return Ok(None);
         };
         let Some((head, body)) = text.split_once('\n') else {
-            let _ = fs::remove_file(&path);
+            self.files.remove(source, &name);
             return Ok(None);
         };
         let Ok(stored_at) = head.parse::<u64>() else {
-            let _ = fs::remove_file(&path);
+            self.files.remove(source, &name);
             return Ok(None);
         };
         let parsed: Result<Vec<PartResult>, _> = serde_json::from_str(body);
         let Ok(results) = parsed else {
-            let _ = fs::remove_file(&path);
+            self.files.remove(source, &name);
             return Ok(None);
         };
         Ok(Some(StoredResponse { stored_at, results }))
     }
 
-    #[allow(dead_code)]
-    fn remove(&self, source: &str, key: &str) -> Result<(), SourceError> {
-        if let Some(path) = self.path(source, key)? {
-            let _ = fs::remove_file(path);
-        }
-        if let Ok(mut m) = self.memory.lock() {
-            m.remove(&format!("{source}\u{1f}{key}"));
-        }
-        Ok(())
-    }
-
     fn purge(&self) -> Result<(), SourceError> {
-        if let Ok(mut m) = self.memory.lock() {
-            m.clear();
-        }
-        if let Some(root) = &self.root {
-            let dir = root.join("responses");
-            if dir.exists() {
-                fs::remove_dir_all(&dir).map_err(|e| {
-                    SourceError::Unavailable(format!("response cache purge failed: {e}"))
-                })?;
-            }
-        }
-        Ok(())
+        self.files.clear()
     }
 }
 
@@ -309,13 +434,21 @@ impl SourcePacer {
 /// Memory, disk and pacing for part source searches.
 ///
 /// # Rules
-/// - Disk rows live under `{cache root}/responses/{source id}/`.
-/// - Offline mode serves stale rows; online mode re-asks after the source window.
+/// - Answers live as files under `{cache root}/responses/{source id}/` (through [`AnswerFiles`]).
+/// - Offline mode serves stored rows, fresh or stale, and never calls the source; online mode re-asks
+///   after the source window.
+/// - Every answer is dated: each part carries `retrieved_at`, set when the source answered.
+/// - An answer that names a key, secret or token, or is too large, is returned but never stored.
+/// - A failure to store an answer never fails the search.
 /// - `search` uses `now` as seconds since the Unix epoch (tests pass a fake clock).
 ///
 /// # Dependencies
 /// - crates/library/src/sources.rs `PartSource`, `ResponseCache`
 /// - crates/library/src/cad_cache.rs `default_cache_dir`, `content_hash`
+/// - crates/ui-egui/src/distributors.rs (the Library dock search)
+///
+/// # Do not
+/// - Open the disk store in the browser build; it uses [`MemoryFiles`] there.
 pub struct PartSourceCache {
     memory: ResponseCache,
     disk: DiskLayer,
@@ -323,25 +456,34 @@ pub struct PartSourceCache {
     offline: bool,
 }
 
+impl Default for PartSourceCache {
+    fn default() -> Self {
+        Self::in_memory()
+    }
+}
+
 impl PartSourceCache {
-    /// Cache with no disk root; answers stay in memory only.
+    /// Cache that keeps answers in memory only.
     pub fn in_memory() -> Self {
+        Self::with_files(Arc::new(MemoryFiles::default()))
+    }
+
+    /// Cache over any file store, such as an in-memory stand-in in tests.
+    pub fn with_files(files: Arc<dyn AnswerFiles>) -> Self {
         Self {
             memory: ResponseCache::default(),
-            disk: DiskLayer::open(None),
+            disk: DiskLayer { files },
             pacer: SourcePacer::new(4.0),
             offline: false,
         }
     }
 
-    /// Open or create the response cache under `root`.
+    /// Open or create the response cache under `root` (desktop builds only).
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn open(root: &Path) -> Self {
-        Self {
-            memory: ResponseCache::default(),
-            disk: DiskLayer::open(Some(root.to_path_buf())),
-            pacer: SourcePacer::new(4.0),
-            offline: false,
-        }
+        Self::with_files(Arc::new(DiskFiles {
+            root: root.to_path_buf(),
+        }))
     }
 
     /// Set the fallback requests-per-second when a source returns zero.
@@ -365,28 +507,22 @@ impl PartSourceCache {
         self.pacer.pause_remaining(source.id(), now)
     }
 
-    /// Drop answers older than each source's own window from disk.
+    /// Drop answers older than each source's own window from the store.
     pub fn purge_expired(&self, source: &dyn PartSource, now: u64) -> Result<(), SourceError> {
+        check_source_id(source.id())?;
         let window = source.cache_secs();
-        if let Some(root) = self.disk.root.as_ref() {
-            let base = root.join("responses").join(source.id());
-            if base.is_dir() {
-                for entry in fs::read_dir(&base).into_iter().flatten().flatten() {
-                    let path = entry.path();
-                    if !path.is_file() {
-                        continue;
-                    }
-                    let Ok(text) = fs::read_to_string(&path) else {
-                        let _ = fs::remove_file(&path);
-                        continue;
-                    };
-                    let stored_at = text
-                        .split_once('\n')
-                        .and_then(|(h, _)| h.parse::<u64>().ok());
-                    if stored_at.is_some_and(|t| now.saturating_sub(t) >= window) {
-                        let _ = fs::remove_file(&path);
-                    }
-                }
+        let files = &self.disk.files;
+        for name in files.names(source.id()) {
+            let Some(text) = files.read(source.id(), &name) else {
+                files.remove(source.id(), &name);
+                continue;
+            };
+            let expired = match stored_time(&text) {
+                Some(t) => now.saturating_sub(t) >= window,
+                None => true,
+            };
+            if expired {
+                files.remove(source.id(), &name);
             }
         }
         Ok(())
@@ -468,8 +604,10 @@ impl PartSourceCache {
         for part in &mut results {
             part.retrieved_at = now;
         }
-        self.disk.put(source.id(), &key, now, &results)?;
-        self.memory.remember(source, query, now, results.clone())?;
+        // Keeping the answer is best effort: a refused or failed write still returns it.
+        if self.disk.put(source.id(), &key, now, &results).is_ok() {
+            self.memory.remember(source, query, now, results.clone())?;
+        }
         Ok(CachedSearch {
             results,
             age: AnswerAge::Fresh,

@@ -323,3 +323,107 @@ fn a_newcomer_turns_offline_on_and_digikey_stops_answering() -> Result<(), Strin
     );
     Ok(())
 }
+
+/// The dated line the dock paints for an answer, for today or a second after midnight.
+fn dated_lines(prefix: &str) -> [String; 2] {
+    let today = crate::library_workspace::facts::date_text(pcbcraft_clock::unix_secs());
+    let just_before =
+        crate::library_workspace::facts::date_text(pcbcraft_clock::unix_secs().saturating_sub(5));
+    [
+        format!("{prefix} {today}."),
+        format!("{prefix} {just_before}."),
+    ]
+}
+
+fn paints_any(ctx: &egui::Context, app: &mut App, lines: &[String]) -> Result<bool, String> {
+    for line in lines {
+        if waits_for_text(ctx, app, line)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+#[test]
+fn a_newcomer_searches_twice_and_the_second_answer_comes_from_the_cache_with_its_date()
+-> Result<(), String> {
+    let http = Arc::new(Recorded::good()?);
+    let (ctx, mut app) = dock(http.clone(), keyed_store()?);
+    search_for(&ctx, &mut app, "RC0603FR-0710KL")?;
+    assert!(
+        paints_any(&ctx, &mut app, &dated_lines("Digi-Key answer from"))?,
+        "the first answer is dated: {}",
+        app.distributors_state()
+    );
+    search_for(&ctx, &mut app, "GRM155R71C104KA88D")?;
+    let asked = http.searches.lock().map_err(|e| e.to_string())?.len();
+    assert_eq!(asked, 2, "a different search is sent");
+    search_for(&ctx, &mut app, "RC0603FR-0710KL")?;
+    let again = http.searches.lock().map_err(|e| e.to_string())?.len();
+    assert_eq!(again, 2, "the first search is answered from the cache");
+    assert!(
+        paints_any(&ctx, &mut app, &dated_lines("Digi-Key answer from"))?,
+        "the cached answer shows its date: {}",
+        app.distributors_state()
+    );
+    assert!(paints_text(&ctx, &mut app, "450000 in stock")?);
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_searches_a_distributor_offline_and_sees_the_dated_answer() -> Result<(), String> {
+    let folder = tempfile::TempDir::new().map_err(|e| e.to_string())?;
+    let http = Arc::new(Recorded::good()?);
+    let (ctx, app) = dock(http.clone(), keyed_store()?);
+    let mut app = app.with_distributor_cache_dir(Some(folder.path().to_path_buf()));
+    search_for(&ctx, &mut app, "RC0603FR-0710KL")?;
+    assert!(
+        waits_for_text(&ctx, &mut app, "450000 in stock")?,
+        "the first search answers: {}",
+        app.distributors_state()
+    );
+    assert_eq!(http.searches.lock().map_err(|e| e.to_string())?.len(), 1);
+
+    // Offline, the same search shows the saved answer and its date, and sends nothing.
+    let flag = Arc::new(AtomicBool::new(true));
+    app.part_sources_offline_for_test(flag.clone());
+    search_for(&ctx, &mut app, "RC0603FR-0710KL")?;
+    assert!(
+        paints_any(&ctx, &mut app, &dated_lines("Saved Digi-Key answer from"))?,
+        "offline shows the saved answer with its date: {}",
+        app.distributors_state()
+    );
+    assert!(paints_text(&ctx, &mut app, "450000 in stock")?);
+    assert_eq!(
+        http.searches.lock().map_err(|e| e.to_string())?.len(),
+        1,
+        "offline sends no search"
+    );
+
+    // A search never made says there is nothing saved.
+    search_for(&ctx, &mut app, "NEVER-SEARCHED-PART")?;
+    assert!(
+        paints_text(&ctx, &mut app, "No saved Digi-Key answer for")?,
+        "an unsearched query says so: {}",
+        app.distributors_state()
+    );
+    assert_eq!(http.searches.lock().map_err(|e| e.to_string())?.len(), 1);
+
+    // A new run of the app reads the same answer from the cache folder, still offline.
+    let later = Arc::new(Recorded::good()?);
+    let (ctx2, app2) = dock(later.clone(), keyed_store()?);
+    let mut app2 = app2.with_distributor_cache_dir(Some(folder.path().to_path_buf()));
+    app2.part_sources_offline_for_test(flag);
+    search_for(&ctx2, &mut app2, "RC0603FR-0710KL")?;
+    assert!(
+        paints_any(&ctx2, &mut app2, &dated_lines("Saved Digi-Key answer from"))?,
+        "a new run shows the saved answer: {}",
+        app2.distributors_state()
+    );
+    assert_eq!(
+        later.calls.load(Ordering::SeqCst),
+        0,
+        "no connection opened"
+    );
+    Ok(())
+}
