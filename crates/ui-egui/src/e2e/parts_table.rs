@@ -339,25 +339,6 @@ fn a_newcomer_groups_identical_parts() -> Result<(), String> {
     Ok(())
 }
 
-/// What is painted at the height of the Parts grid headings, left to right, to
-/// explain a missing heading.
-fn header_band(ctx: &egui::Context, app: &mut App) -> String {
-    let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
-    let mut found: Vec<(f32, f32, String)> = Vec::new();
-    for shape in &output.shapes {
-        if let egui::Shape::Text(text) = &shape.shape {
-            let word = text.galley.text().to_string();
-            if matches!(
-                word.as_str(),
-                "Reference" | "Part number" | "Side" | "Rotation"
-            ) {
-                found.push((text.pos.x, text.pos.y, word));
-            }
-        }
-    }
-    format!("{found:?}; screen {:?}", ctx.content_rect())
-}
-
 #[test]
 fn a_newcomer_turns_on_layout_columns_in_the_parts_grid_and_finds_side_rotation_locked_x_and_y()
 -> Result<(), String> {
@@ -386,11 +367,30 @@ fn a_newcomer_turns_on_layout_columns_in_the_parts_grid_and_finds_side_rotation_
         app.parts_table.layout_columns_on(),
         "ticking Layout columns turns the columns on"
     );
+    // The five part columns with their sort buttons fill the width of the sheet, so the
+    // Layout columns sit to the right: a newcomer scrolls the grid sideways to read them.
+    let grip = painted_text_at(&ctx, &mut app, "Sort by Value")?
+        .ok_or("the Value sort button is not on screen")?
+        + egui::vec2(4.0, 4.0);
+    let wheel = egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(-1200.0, 0.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    };
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::PointerMoved(grip), wheel],
+        egui::Modifiers::NONE,
+    );
+    for _ in 0..12 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
     for heading in ["Side", "Rotation", "Locked", "X", "Y"] {
         assert!(
             paints_text(&ctx, &mut app, heading)?,
-            "the grid shows a {heading} column once Layout columns is on; header band: {}",
-            header_band(&ctx, &mut app)
+            "the grid shows a {heading} column once Layout columns is on"
         );
     }
     assert!(

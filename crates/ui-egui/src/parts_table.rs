@@ -133,10 +133,6 @@ struct PartRow {
     quantity: usize,
 }
 
-/// Width of an editable cell and of a filter box. Kept narrow so the Layout columns
-/// still fit on screen beside the five part columns without scrolling sideways.
-const CELL_WIDTH: f32 = 96.0;
-
 /// How many Layout columns there are: Side, Rotation, Locked, X and Y.
 const LAYOUT_COLUMNS: usize = 5;
 
@@ -280,7 +276,7 @@ impl App {
             part = row.cells[0].clone()
         );
         let r = ui
-            .add(crate::targets::text_field(&mut text).desired_width(CELL_WIDTH))
+            .add(crate::targets::text_field(&mut text).desired_width(140.0))
             .named(&name)
             .on_hover_text(tip);
         let done =
@@ -594,7 +590,7 @@ impl App {
                             let name = t!("parts_table.filter_name", column = column.label());
                             ui.add(
                                 crate::targets::text_field(&mut state.filters[column.index()])
-                                    .desired_width(CELL_WIDTH),
+                                    .desired_width(140.0),
                             )
                             .named(&name)
                             .on_hover_text(t!("parts_table.filter.tip"));
