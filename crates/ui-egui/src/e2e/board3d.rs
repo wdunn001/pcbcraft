@@ -578,6 +578,9 @@ fn make_j1_a_marked_ic(app: &mut App, j1: Id) -> Result<(), String> {
     Ok(())
 }
 
+const PART_MARKING: &str =
+    "button:Show or hide the part number or value printed on the top of chip bodies in the 3D view. Small parts show no text.";
+
 #[test]
 fn a_newcomer_sees_the_chip_marking_in_3d_and_switches_it_off() -> Result<(), String> {
     let (ctx, mut app, j1) = open_3d()?;
@@ -592,7 +595,7 @@ fn a_newcomer_sees_the_chip_marking_in_3d_and_switches_it_off() -> Result<(), St
         .view3d
         .marking_triangles(j1)
         .ok_or("the chip should have a body in the 3D output")?;
-    tap_id(&ctx, &mut app, "checkbox:Part marking")?;
+    tap_id(&ctx, &mut app, PART_MARKING)?;
     for _ in 0..4 {
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     }
@@ -604,7 +607,7 @@ fn a_newcomer_sees_the_chip_marking_in_3d_and_switches_it_off() -> Result<(), St
         shown > hidden,
         "the printed text adds triangles to the body ({shown} with it, {hidden} without)"
     );
-    tap_id(&ctx, &mut app, "checkbox:Part marking")?;
+    tap_id(&ctx, &mut app, PART_MARKING)?;
     for _ in 0..4 {
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     }

@@ -649,13 +649,6 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &mut Env<'_>) -> O
             }
         });
     }
-    // Part marking is a view option, so the toggle writes the view and the next
-    // refresh rebuilds the mesh without the text.
-    ui.horizontal_wrapped(|ui| {
-        ui.add_space(12.0);
-        ui.checkbox(&mut view.show_marking, t!("board.board3d.part_marking"))
-            .on_hover_text(t!("board.board3d.part_marking.tip"));
-    });
     ui.add_space(6.0);
     ui.horizontal_wrapped(|ui| {
         ui.add_space(12.0);
