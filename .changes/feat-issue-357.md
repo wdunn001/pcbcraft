@@ -1,10 +1,8 @@
 ---
-type: feature
-area: ui
+type: test
+area: 3d
 issues: [357]
-user_visible: true
-docs: n/a: the Library tab tooltip and the 3D view already explain this and no new page is needed
-summary: Parts get a 3D model the owner can view and edit, and the board's 3D view shows real models or generated bodies with pins.
+user_visible: false
+docs: n/a: adds one story for behaviour that already exists, nothing a person sees changes
+summary: A story checks that every part in the 3D view shows a body and that the parts carry metal pins.
 ---
-
-The Library tab now shows each part's 3D model and lets the owner align it against the pads. The board's 3D view draws the real model when a file exists and a generated body with metal pins when it does not. A 600-part board renders inside the time budget.
