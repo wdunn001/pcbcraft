@@ -16,7 +16,8 @@ use egui::{Pos2, Sense};
 use pcbcraft_geom::point_segment;
 use pcbcraft_library::{
     ChamferCorners, Drill, FootprintBoxBody, FootprintDefinition, FootprintPad, Graphic,
-    MAX_PAD_POLYGON_VERTICES, PadChamfer, SymbolDefinition, SymbolPin, UnitGraphic,
+    MAX_PAD_POLYGON_VERTICES, PIN_GRAPHICAL_STYLES, PadChamfer, SymbolDefinition, SymbolPin,
+    UnitGraphic,
 };
 use std::collections::BTreeSet;
 
@@ -1892,6 +1893,13 @@ impl App {
                                         ui.selectable_value(&mut pin.electrical_type, t.into(), t);
                                     }
                                 }).response.named("Pin type");
+                            ui.separator();
+                            ui.horizontal(|ui| {
+                                ui.label(t!("library.library_editor.pin_graphical_style"));
+                                for s in PIN_GRAPHICAL_STYLES {
+                                    ui.selectable_value(&mut pin.graphical_style, (*s).into(), *s);
+                                }
+                            }).response.named("Pin graphical style");
                             if ui
                                 .button(t!("library.library_editor.delete_pin"))
                                 .on_hover_text(t!("library.library_editor.delete_pin.tip"))

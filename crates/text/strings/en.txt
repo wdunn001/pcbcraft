@@ -714,6 +714,7 @@ library.library_editor.pin_number_unit_unit = Pin {number} · unit {unit}
 library.library_editor.unit = Unit
 library.library_editor.delete_pin = Delete pin
 library.library_editor.delete_pin.tip = Take this pin out of the symbol you are drawing. Add pin puts a new one back.
+library.library_editor.pin_graphical_style = Pin graphical style
 library.model_transform.heading = 3D model placement
 library.model_transform.hint = Offset is millimetres; rotation is degrees (scale, then X, Y, Z turns, then offset). Each edit is one undo step on the project library footprint.
 library.model_transform.no_model = No 3D model on this footprint yet. Attach one from the footprint settings or import a package that carries a model.
