@@ -4597,10 +4597,19 @@ pub struct Project {
     /// sync from and it would reset the imported pads.
     #[serde(default, skip_serializing_if = "is_false")]
     pub board_only: bool,
+    /// Last collaboration relay sequence number applied to this project.  
+    /// Written only while inside a collaborative room; used for late-joiner
+    /// resync from the relay log.
+    #[serde(default, skip_serializing_if = "is_none")]
+    pub collab_seq: Option<u64>,
 }
 
 fn is_false(v: &bool) -> bool {
     !*v
+}
+
+fn is_none<T>(v: &Option<T>) -> bool {
+    v.is_none()
 }
 
 fn default_auto_sync() -> bool {
@@ -4881,6 +4890,7 @@ impl Default for Project {
             board: Board::default(),
             auto_sync: true,
             board_only: false,
+            collab_seq: None,
         }
     }
 }

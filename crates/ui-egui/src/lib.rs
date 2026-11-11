@@ -78,6 +78,7 @@ mod placement_machine_ui;
 mod plot_viewer;
 mod pour_panel;
 mod preferences;
+mod presence_bar;
 mod project_settings;
 mod project_status;
 mod properties;
@@ -1551,6 +1552,8 @@ pub struct App {
     recovery_open: bool,
     /// The folder this window autosaves into and offers snapshots from.
     recovery_dir: Option<std::path::PathBuf>,
+    /// Names of collaborators currently in the room (for the presence bar).
+    presence_participants: Vec<String>,
     /// Stored position for the sheet text tool while waiting for text input.
     sheet_text_position: Option<Point>,
     /// The text the user is typing for the sheet text tool.
@@ -2422,6 +2425,7 @@ impl App {
             recovery_open: !recovery_offer.is_empty(),
             recovery_offer,
             recovery_dir: recovery,
+            presence_participants: Vec::new(),
             sheet_text_position: None,
             sheet_text_input: String::new(),
         };
@@ -3774,6 +3778,19 @@ impl App {
                         self.help_menu(ui);
                     }
                 });
+                if !self.presence_participants.is_empty() {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let infos: Vec<presence_bar::PresenceInfo> = self
+                            .presence_participants
+                            .iter()
+                            .map(|n| presence_bar::PresenceInfo {
+                                name: n.clone(),
+                                is_you: false,
+                            })
+                            .collect();
+                        presence_bar::presence_bar(ui, &infos);
+                    });
+                }
             });
     }
     /// The tab row: Files, Schematic, Layout, Analyze, Manufacture and Library, left-aligned
