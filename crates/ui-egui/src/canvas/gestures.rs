@@ -710,6 +710,13 @@ impl App {
             _ => {}
         }
     }
+    /// Escape was pressed during a drag: throw away the drag and restore the
+    /// pre-drag state. No command is issued, so the design and history are
+    /// unchanged.
+    pub(crate) fn press_cancel(&mut self) {
+        self.drag = None;
+        self.edit.press = None;
+    }
 
     /// Move the preview of an in-flight segment or track-end drag onto a copy
     /// of the project so the canvas draws it where it will land.

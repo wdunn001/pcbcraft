@@ -1107,6 +1107,9 @@ impl App {
                 _ => self.draw_finish(),
             }
         }
+        if ui.input(|i| i.key_pressed(egui::Key::Escape)) && self.edit.press.is_some() {
+            self.press_cancel();
+        }
         if response.clicked() {
             self.canvas_menu = None;
             if let Some(pos) = cursor {
