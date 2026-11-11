@@ -17,6 +17,8 @@
 //!
 //! # Do not
 //! - Call this from `drc()`; it takes segments as a parameter, not a Project reference.
+//!   The `cam.isolation_paths` command runs it on the first-pass isolation rings and
+//!   applies the project severity there.
 //! - Report segments from the same path_id; they are not a gap issue.
 
 use super::Finding;
@@ -89,12 +91,14 @@ pub fn toolpath_gap_findings(
                 pcbcraft_geom::Point::new(b.to[0], b.to[1]),
             );
             if dist < minimum - 1e-6 {
+                let at_x = (a.from[0] + a.to[0] + b.from[0] + b.to[0]) / 4.0;
+                let at_y = (a.from[1] + a.to[1] + b.from[1] + b.to[1]) / 4.0;
                 result.push(Finding {
                     code: "toolpath_gap",
                     severity: "warning".to_owned(),
                     message: format!(
-                        "Toolpath gap is {:.3} mm; need at least {:.3} mm (tool {:.3} mm + clearance {:.3} mm)",
-                        dist, minimum, tool_diameter_mm, clearance_mm
+                        "Toolpath gap near {:.2}, {:.2} mm is {:.3} mm; need at least {:.3} mm (tool {:.3} mm + clearance {:.3} mm)",
+                        at_x, at_y, dist, minimum, tool_diameter_mm, clearance_mm
                     ),
                     objects: vec![],
                     hint: Some("Move the toolpaths apart or reduce the clearance.".into()),

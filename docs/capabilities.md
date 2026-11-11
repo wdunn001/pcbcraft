@@ -58,7 +58,7 @@ Pad and unit limits, unsupported styles, and fixture licenses:
 
 Initial ERC and DRC with object IDs: shorts, clearance, board edge, cutout,
 unrouted nets, pin assignment. Findings can be re-levelled or silenced per
-code, per object, or per rectangle. Pad table, drill chart, board statistics,
+code, per object, or per rectangle. A design that sets a probe minimum (probe_min_pad_mm or probe_min_spacing_mm) also lists each net with no probe pad as a finding, and the isolation toolpath preview returns a warning where two copper regions leave a gap narrower than the bit. Pad table, drill chart, board statistics,
 impedance estimates from recorded stackup, net chain walk, library part
 compare. The responsible sourcing rule set checks minerals reporting, PFAS status and Proposition 65 listed substances, surfacing findings as information or warnings. Compliance data report export (CSV, Markdown, HTML or PDF) summarises
 part declarations and supplier questions; it is not a product certification.

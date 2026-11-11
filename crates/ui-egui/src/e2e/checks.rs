@@ -609,3 +609,112 @@ fn a_newcomer_sees_a_pin_conflict_in_the_findings_list() -> Result<(), String> {
     );
     Ok(())
 }
+
+/// A newcomer asks for probe coverage on a design whose only pad is a small
+/// surface mount pad and reads the uncovered net on the Findings sheet.
+#[test]
+fn a_newcomer_sees_an_uncovered_net_in_the_findings_list() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared.clone(), Preferences::default(), None, None);
+    app.refresh();
+    {
+        let mut s = shared.lock().map_err(|e| e.to_string())?;
+        let geometry = pcbcraft_library::FootprintPad {
+            number: "1".into(),
+            pad_type: "smd".into(),
+            shape: "circle".into(),
+            position: pcbcraft_geom::Point::default(),
+            rotation: 0.0,
+            size: pcbcraft_geom::Point::new(0.6, 0.6),
+            layers: vec!["F.Cu".into()],
+            drill: None,
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        s.project.nets.push(pcbcraft_doc::Net {
+            id: 2,
+            name: "I2C_SDA".into(),
+            ..Default::default()
+        });
+        s.project.components.push(pcbcraft_doc::Component {
+            id: 11,
+            reference: "U1".into(),
+            value: "U".into(),
+            kind: "library".into(),
+            position: pcbcraft_geom::Point::default(),
+            rotation: 0.0,
+            pins: vec![pcbcraft_doc::Pin {
+                number: "1".into(),
+                net: Some(2),
+                ..Default::default()
+            }],
+            units: vec![],
+            library_symbol: None,
+            library_footprint: Some(pcbcraft_doc::LibraryFootprint {
+                library: "test".into(),
+                definition: pcbcraft_library::FootprintDefinition {
+                    name: "TP".into(),
+                    pads: vec![geometry.clone()],
+                    ..Default::default()
+                },
+            }),
+            fields: vec![],
+            sheet: 0,
+            compliance: Default::default(),
+            part: None,
+            sourcing: Default::default(),
+            instance: Default::default(),
+            prototype: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+        });
+        s.project.board.footprints.push(pcbcraft_doc::Footprint {
+            id: 21,
+            component: 11,
+            position: pcbcraft_geom::Point::new(5.0, 5.0),
+            rotation: 0.0,
+            locked: None,
+            side: None,
+            pads: vec![pcbcraft_doc::Pad {
+                number: "1".into(),
+                offset: pcbcraft_geom::Point::default(),
+                diameter: 0.6,
+                net: Some(2),
+                castellated: None,
+                geometry: Some(geometry),
+            }],
+            preserved: Default::default(),
+        });
+        s.project.parameters.insert(
+            "probe_min_pad_mm".into(),
+            pcbcraft_doc::Parameter {
+                value: 0.8,
+                note: String::new(),
+            },
+        );
+        // The app only recomputes its findings when the revision moves.
+        s.revision += 1;
+    }
+    app.refresh();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::open_page(&ctx, &mut app, "Checks")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let message = app
+        .checks
+        .get("drc")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|f| f.get("code").and_then(Value::as_str) == Some("testpoint_coverage"))
+        .and_then(|f| f.get("message").and_then(Value::as_str).map(str::to_owned))
+        .ok_or("the board checks list the uncovered net")?;
+    assert!(message.contains("I2C_SDA"), "{message}");
+    assert!(
+        paints_text(&ctx, &mut app, &message)?,
+        "the Findings sheet shows the uncovered net: {message}"
+    );
+    Ok(())
+}

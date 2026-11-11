@@ -10730,11 +10730,66 @@ fn cam_isolation_paths(p: &Project, params: &Value) -> Result<Value, String> {
             )
         })
         .collect();
+    let findings = toolpath_gap_findings(p, &opts)?;
     let out = pcbcraft_io::isolation_gcode(p, &opts, &pcbcraft_io::CncProfile::default())?;
     Ok(json!({
         "paths": paths_json,
         "estimate_s": out.estimate_s,
+        "findings": findings,
     }))
+}
+
+/// Warnings for first-pass isolation rings of different copper regions that sit closer than
+/// the bit is wide, so their grooves overlap. Each names the place on the board in millimetres.
+/// The severity follows the project's `toolpath_gap` setting and `off` returns nothing.
+fn toolpath_gap_findings(
+    p: &Project,
+    opts: &pcbcraft_io::IsolationOptions,
+) -> Result<Vec<pcbcraft_rules::Finding>, String> {
+    if p.rule_disabled("toolpath_gap") {
+        return Ok(vec![]);
+    }
+    let mut first = opts.clone();
+    first.tool.passes = 1;
+    let rings = pcbcraft_io::isolation_toolpaths(p, &first)?;
+    let mut segments = Vec::new();
+    // The preview rings step a few microns apiece; keeping a point every eighth of the bit
+    // width keeps the pair check inside its segment limit and moves a gap by far less than
+    // a thousandth of a millimetre on straight runs.
+    let keep_every = (opts.tool.diameter_mm / 8.0).max(0.01);
+    for (index, full) in rings.iter().enumerate() {
+        let mut ring: Vec<pcbcraft_geom::Point> = Vec::new();
+        for pt in full {
+            if ring
+                .last()
+                .is_none_or(|last| last.distance(*pt) >= keep_every)
+            {
+                ring.push(*pt);
+            }
+        }
+        let path_id = u32::try_from(index).unwrap_or(u32::MAX);
+        let closing = ring.first().zip(ring.last());
+        for pair in ring.windows(2) {
+            segments.push(pcbcraft_rules::toolpath_gap::ToolpathSegmentRef {
+                from: [pair[0].x, pair[0].y],
+                to: [pair[1].x, pair[1].y],
+                path_id,
+            });
+        }
+        if let Some((start, end)) = closing {
+            segments.push(pcbcraft_rules::toolpath_gap::ToolpathSegmentRef {
+                from: [end.x, end.y],
+                to: [start.x, start.y],
+                path_id,
+            });
+        }
+    }
+    let diameter = opts.tool.diameter_mm;
+    let mut found = pcbcraft_rules::toolpath_gap::toolpath_gap_findings(&segments, diameter, 0.0);
+    for f in &mut found {
+        f.severity = p.rule_severity("toolpath_gap", "warning");
+    }
+    Ok(found)
 }
 
 fn run_command(
@@ -47420,6 +47475,93 @@ mod tests {
             "a batch of previews must not edit the project"
         );
         assert!(batch["results"][0]["paths"].is_array());
+        Ok(())
+    }
+
+    /// A board with two tracks of one net `gap_mm` apart (edge to edge) and the preview run on
+    /// it. One net keeps the preview clear of the separate net clearance refusal.
+    fn isolation_preview_with_gap(s: &mut Session, gap_mm: f64) -> Result<Vec<Value>, Error> {
+        s.execute(
+            "board.set_outline",
+            json!({"points":[[0.0,0.0],[40.0,0.0],[40.0,30.0],[0.0,30.0]]}),
+            None,
+        )?;
+        let first = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let y = 5.0 + 0.3 + gap_mm;
+        s.execute(
+            "track.add",
+            json!({"net":first,"start":[5.0,5.0],"end":[15.0,5.0],"width":0.3,"layer":"F.Cu"}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":first,"start":[5.0,y],"end":[15.0,y],"width":0.3,"layer":"F.Cu"}),
+            None,
+        )?;
+        let out = s.execute(
+            "cam.isolation_paths",
+            json!({
+                "side":"top",
+                "tool":{"diameter_mm":0.4,"feed_mm_min":300.0,"plunge_mm_min":60.0,"depth_mm":0.08,"passes":1,"spindle_rpm":18000}
+            }),
+            None,
+        )?;
+        Ok(out["result"]["findings"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    #[test]
+    fn cam_isolation_paths_warns_where_two_regions_leave_a_narrow_gap() -> Result<(), Error> {
+        let mut s = Session::default();
+        let found = isolation_preview_with_gap(&mut s, 0.6)?;
+        assert!(
+            !found.is_empty(),
+            "a 0.6 mm gap for a 0.4 mm bit is flagged"
+        );
+        assert_eq!(found[0]["code"], "toolpath_gap");
+        assert_eq!(found[0]["severity"], "warning");
+        assert!(
+            found[0]["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("near")),
+            "the warning names the place on the board"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn cam_isolation_paths_is_quiet_when_the_regions_are_far_apart() -> Result<(), Error> {
+        let mut s = Session::default();
+        let found = isolation_preview_with_gap(&mut s, 5.0)?;
+        assert!(found.is_empty(), "{found:?}");
+        Ok(())
+    }
+
+    #[test]
+    fn cam_isolation_paths_gap_warning_follows_the_severity_setting() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.project
+            .rule_severity
+            .insert("toolpath_gap".into(), "error".into());
+        let raised = isolation_preview_with_gap(&mut s, 0.6)?;
+        assert!(!raised.is_empty());
+        assert_eq!(raised[0]["severity"], "error");
+        s.project
+            .rule_severity
+            .insert("toolpath_gap".into(), "off".into());
+        let off = s.execute(
+            "cam.isolation_paths",
+            json!({
+                "side":"top",
+                "tool":{"diameter_mm":0.4,"feed_mm_min":300.0,"plunge_mm_min":60.0,"depth_mm":0.08,"passes":1,"spindle_rpm":18000}
+            }),
+            None,
+        )?;
+        assert_eq!(off["result"]["findings"], json!([]));
         Ok(())
     }
 
