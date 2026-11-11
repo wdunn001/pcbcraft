@@ -771,3 +771,37 @@ fn place_apply_fails_for_locked_footprint() -> Result<(), Error> {
     assert!(result.is_err(), "should fail for locked footprint");
     Ok(())
 }
+
+#[test]
+fn a_newcomer_lets_the_app_place_a_decoupling_capacitor_next_to_its_pin() -> Result<(), Error> {
+    let (mut s, u1, c1, _) = board()?;
+    place(&mut s, u1, 10.0, 10.0)?;
+    place(&mut s, c1, 20.0, 10.0)?;
+    let result = s.execute(
+        "layout.place_suggest",
+        json!({"satellite": c1, "anchor": u1, "rule": "decoupling"}),
+        None,
+    )?;
+    let r = result["result"].clone();
+    assert_eq!(r["rule"], json!("decoupling"));
+    let candidates = r["candidates"]
+        .as_array()
+        .ok_or(Error::Invalid("no candidates".into()))?;
+    assert!(!candidates.is_empty(), "should have at least one candidate");
+    let best = &candidates[0];
+    let pos = best["position"].clone();
+    let apply_result = s.execute(
+        "layout.place_apply",
+        json!({"component": c1, "position": pos}),
+        None,
+    )?;
+    assert_eq!(apply_result["result"]["component"], json!(c1));
+    let fp = fp_of(&s, c1)?;
+    let fp_data = s
+        .project
+        .footprint(fp)
+        .ok_or(Error::Invalid("no footprint".into()))?;
+    let dist = ((fp_data.position.x - 10.0).powi(2) + (fp_data.position.y - 10.0).powi(2)).sqrt();
+    assert!(dist <= 3.001, "capacitor must be within 3mm of power pin");
+    Ok(())
+}
