@@ -970,6 +970,57 @@ fn a_newcomer_adds_pins_and_shapes_to_a_symbol_and_makes_a_second_unit() -> Resu
     Ok(())
 }
 
+/// Click one entry of the pin form's style row by the words it shows.
+fn pick_pin_style(ctx: &egui::Context, app: &mut App, style: &str) -> Result<(), String> {
+    let found = ["selectable", "button", "radiobutton"]
+        .iter()
+        .any(|role| tap_id(ctx, app, &format!("{role}:{style}")).is_ok());
+    if found {
+        Ok(())
+    } else {
+        authoring::tests::tap(ctx, app, style)
+    }
+}
+
+#[test]
+fn a_newcomer_picks_how_a_symbol_pin_is_drawn() -> Result<(), String> {
+    let (mut app, ctx) = editor_app("symbol-editor");
+    tap_id(&ctx, &mut app, "button:Add pin")?;
+    let count = |app: &App, style: &str| -> Result<usize, String> {
+        Ok(symbol_draft(app)?
+            .pins
+            .iter()
+            .filter(|pin| pin.graphical_style == style)
+            .count())
+    };
+    let inverted = count(&app, "inverted")?;
+    let clock = count(&app, "clock")?;
+    tap_id(&ctx, &mut app, "button:Pin # · unit #")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "Pin graphical style")?,
+        "the open pin shows its drawing style row"
+    );
+    pick_pin_style(&ctx, &mut app, "inverted")?;
+    assert_eq!(
+        count(&app, "inverted")?,
+        inverted + 1,
+        "choosing Inverted marks the pin as drawn with an inversion circle"
+    );
+    pick_pin_style(&ctx, &mut app, "clock")?;
+    assert_eq!(
+        count(&app, "clock")?,
+        clock + 1,
+        "choosing Clock changes the same pin to a clock triangle"
+    );
+    assert_eq!(
+        count(&app, "inverted")?,
+        inverted,
+        "the pin no longer carries the earlier style"
+    );
+    Ok(())
+}
+
 #[test]
 fn a_newcomer_picks_a_drawing_tool_in_the_symbol_editor() -> Result<(), String> {
     use crate::authoring::LibraryTool;
