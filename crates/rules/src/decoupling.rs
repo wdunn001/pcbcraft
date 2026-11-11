@@ -176,22 +176,23 @@ struct CapPath<'a> {
 /// - Fall back to a pad centre to pad centre straight line when nothing touches.
 fn nearest_cap_by_copper<'a>(
     project: &Project,
+    items: &[Copper],
+    neighbours: &[Vec<usize>],
     part: &'a Component,
     pin: &Pin,
     caps: &[Cap<'a>],
 ) -> Option<CapPath<'a>> {
     let net = pin.net?;
-    let items = super::copper(project);
     let power_footprint = footprint_of(project, part.id)?;
     let power_pad = board_pad_number(project, part, &pin.number, net)?;
-    let from = copper_index(project, &items, power_footprint, &power_pad)?;
+    let from = copper_index(project, items, power_footprint, &power_pad)?;
     let mut targets: BTreeMap<usize, CapPath<'a>> = BTreeMap::new();
     for cap in caps {
         let Some(footprint) = footprint_of(project, cap.part.id) else {
             continue;
         };
         for pad in &cap.pads {
-            let Some(index) = copper_index(project, &items, footprint, pad) else {
+            let Some(index) = copper_index(project, items, footprint, pad) else {
                 continue;
             };
             targets.insert(
@@ -205,7 +206,7 @@ fn nearest_cap_by_copper<'a>(
         }
     }
     let wanted: BTreeSet<usize> = targets.keys().copied().collect();
-    let (index, mm) = copper_path(&items, from, &wanted, project.board.thickness)?;
+    let (index, mm) = copper_path(items, neighbours, from, &wanted, project.board.thickness)?;
     let mut best = targets.remove(&index)?;
     best.mm = mm;
     Some(best)
@@ -289,6 +290,7 @@ fn copper_index(project: &Project, items: &[Copper], footprint: Id, number: &str
 /// `targets`, over the touching graph `airwires` builds.
 fn copper_path(
     items: &[Copper],
+    neighbours: &[Vec<usize>],
     from: usize,
     targets: &BTreeSet<usize>,
     thickness: f64,
@@ -302,7 +304,6 @@ fn copper_path(
         }
     }
     let start = *slot.get(from)?;
-    let neighbours = adjacency(items);
     let mut dist = vec![f64::INFINITY; nodes.len()];
     let mut done = vec![false; nodes.len()];
     if let Some(first) = dist.get_mut(start) {
@@ -387,15 +388,14 @@ fn step_cost(item: &Copper, thickness: f64) -> f64 {
 
 /// Millimetres from a capacitor ground pad to the nearest return copper, or
 /// `None` when the pad is off the board or its net is not a return path.
-fn ground_return_gap(project: &Project, cap: &CapPath<'_>) -> Option<f64> {
+fn ground_return_gap(project: &Project, items: &[Copper], cap: &CapPath<'_>) -> Option<f64> {
     let pin = cap.part.pins.iter().find(|p| p.number == cap.ground_pad)?;
     let ground = pin.net?;
     if !is_return_net(project, ground) {
         return None;
     }
-    let items = super::copper(project);
     let footprint = footprint_of(project, cap.part.id)?;
-    let index = copper_index(project, &items, footprint, &cap.ground_pad)?;
+    let index = copper_index(project, items, footprint, &cap.ground_pad)?;
     let pad = items.get(index)?;
     let mut best: Option<f64> = None;
     for item in items
@@ -494,6 +494,9 @@ pub(crate) fn decoupling_path_findings(project: &Project) -> Vec<Finding> {
         return vec![];
     }
     let mut result = vec![];
+    // The copper list and its touching graph cost a pass over the whole board,
+    // so they are built once, and only when a power pin has a capacitor.
+    let mut graph: Option<(Vec<Copper>, Vec<Vec<usize>>)> = None;
     for c in &project.components {
         let ic_like = pcbcraft_doc::is_ic_like_kind(&c.kind) || c.reference.starts_with('U');
         if is_capacitor(c) || !ic_like {
@@ -519,7 +522,13 @@ pub(crate) fn decoupling_path_findings(project: &Project) -> Vec<Finding> {
             } else {
                 format!("{} pin {} ({})", c.reference, pin.number, pin.name)
             };
-            let Some(cap) = nearest_cap_by_copper(project, c, pin, &caps) else {
+            let (items, neighbours) = graph.get_or_insert_with(|| {
+                let items = super::copper(project);
+                let neighbours = adjacency(&items);
+                (items, neighbours)
+            });
+            let (items, neighbours) = (items.as_slice(), neighbours.as_slice());
+            let Some(cap) = nearest_cap_by_copper(project, items, neighbours, c, pin, &caps) else {
                 // No copper path at all, which `unrouted` already reports.
                 continue;
             };
@@ -540,7 +549,7 @@ pub(crate) fn decoupling_path_findings(project: &Project) -> Vec<Finding> {
                     vec![c.id, cap.part.id],
                 ));
             }
-            if let Some(gap_mm) = ground_return_gap(project, &cap)
+            if let Some(gap_mm) = ground_return_gap(project, items, &cap)
                 && gap_mm > GROUND_RETURN_MM
             {
                 result.push(path_finding(
