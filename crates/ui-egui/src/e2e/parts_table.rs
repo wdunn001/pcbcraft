@@ -347,7 +347,10 @@ fn header_band(ctx: &egui::Context, app: &mut App) -> String {
     for shape in &output.shapes {
         if let egui::Shape::Text(text) = &shape.shape {
             let word = text.galley.text().to_string();
-            if matches!(word.as_str(), "Reference" | "Part number" | "Side" | "Rotation") {
+            if matches!(
+                word.as_str(),
+                "Reference" | "Part number" | "Side" | "Rotation"
+            ) {
                 found.push((text.pos.x, text.pos.y, word));
             }
         }
