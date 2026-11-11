@@ -1,8 +1,8 @@
 ---
-type: feature
+type: test
 area: library
 issues: [406]
-user_visible: true
-docs: n/a: the publication scan crate documents itself in module headers, no website page changed
-summary: Publishing now blocks bundles that carry secrets, personal data, licence conflicts or copied datasheets.
+user_visible: false
+docs: n/a: tightens tests of the licence matrix that already exists, nothing a person sees changes
+summary: The licence matrix tests now check every design and part pair against the table and cover unknown, proprietary and share-alike cases.
 ---
