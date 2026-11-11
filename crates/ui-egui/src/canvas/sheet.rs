@@ -923,16 +923,6 @@ pub(super) fn paint_selection(painter: &egui::Painter, bounds: Rect, sc: &SheetC
         6.0,
         4.0,
     ));
-    for corner in [
-        bounds.left_top(),
-        bounds.right_top(),
-        bounds.right_bottom(),
-        bounds.left_bottom(),
-    ] {
-        let handle = Rect::from_center_size(corner, Vec2::splat(9.0));
-        painter.rect_filled(handle, 0.0, sc.sheet);
-        painter.rect_stroke(handle, 0.0, stroke, egui::StrokeKind::Inside);
-    }
 }
 
 /// What a hit outline belongs to.

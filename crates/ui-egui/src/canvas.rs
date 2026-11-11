@@ -2526,8 +2526,8 @@ impl App {
         }
         if selected && !ghost {
             let mut bounds = Rect::from_center_size(center, Vec2::ZERO);
-            for pin in &c.pins {
-                bounds.extend_with(at(pin.offset));
+            for p in c.drawing_points() {
+                bounds.extend_with(at(p));
             }
             bounds.extend_with(center - Vec2::new(0.0, label_offset + 22.0));
             bounds.extend_with(center + Vec2::new(0.0, label_offset + 20.0));
