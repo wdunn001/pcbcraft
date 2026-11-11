@@ -1210,8 +1210,10 @@ mod tests {
         Some((x?, y?))
     }
 
+    type SlotMoves = ((f64, f64), (f64, f64));
+
     /// The slot start (last rapid before the cut) and end (the cut move) of a one-slot drill file.
-    fn slot_moves(gcode: &str) -> Result<((f64, f64), (f64, f64)), String> {
+    fn slot_moves(gcode: &str) -> Result<SlotMoves, String> {
         let lines: Vec<&str> = gcode.lines().collect();
         let cut_at = lines
             .iter()
