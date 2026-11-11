@@ -70,6 +70,7 @@ mod page_scope;
 mod pages;
 mod palette;
 mod parts_table;
+mod parts_table_layout;
 mod parts_table_variant;
 mod path_chooser;
 mod placement_machine_ui;

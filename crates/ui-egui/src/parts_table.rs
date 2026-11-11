@@ -3,6 +3,8 @@
 //! Context: issue #169, first slice. One row per part with its reference, value,
 //! footprint, maker and maker part number. The Reference, Value, Manufacturer and Part
 //! number cells are text boxes that commit on Enter or when they lose focus.
+//! Layout columns (issue #704) is a checkbox, off by default, that adds the read-only
+//! Side, Rotation, Locked, X and Y columns of each placed footprint.
 //! Second slice: the grid works as a bill of materials. A row can be picked (click, or
 //! shift-click for a range) and one typed value filled into a chosen column in one
 //! step; the grid can be saved as a spreadsheet, and Group identical merges rows that
@@ -16,6 +18,7 @@
 //! # Dependencies
 //! - crates/ui-egui/src/bottom_sheet.rs (hosts the tab)
 //! - crates/ui-egui/src/ui_kit/button.rs (header buttons)
+//! - crates/ui-egui/src/parts_table_layout.rs (`layout_cells` for the Layout columns)
 //! - crates/engine/src/lib.rs (`components.update`, `component.set_sourcing`, `components.table.export`)
 //! - crates/io/src/bom_sheet.rs (`bom_sheet_rows` gives the grouping the bill uses)
 //!
@@ -24,6 +27,7 @@
 //! - Keep the edited text on `App`.
 use super::*;
 use crate::a11y::Named;
+use crate::parts_table_layout::{LayoutCells, layout_cells};
 use crate::parts_table_variant;
 use crate::ui_kit::{
     button::{Size, ghost_button, secondary_button},
@@ -104,7 +108,8 @@ impl FillColumn {
 }
 
 /// What the grid shows: the sorted column, one filter text per column, the picked
-/// rows, the fill box, the save path and whether identical parts are merged.
+/// rows, the fill box, the save path, whether identical parts are merged and whether
+/// the Layout columns are on.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct PartsTableState {
     sort: Option<(PartColumn, bool)>,
@@ -115,6 +120,7 @@ pub(crate) struct PartsTableState {
     fill_text: String,
     export_path: String,
     grouped: bool,
+    layout: bool,
     variant: Option<String>,
 }
 
@@ -125,6 +131,45 @@ struct PartRow {
     id: Id,
     cells: [String; 5],
     quantity: usize,
+}
+
+/// How many Layout columns there are: Side, Rotation, Locked, X and Y.
+const LAYOUT_COLUMNS: usize = 5;
+
+/// The headings of the Layout columns, left to right.
+fn layout_labels() -> [String; 5] {
+    [
+        t!("parts_table.col_side"),
+        t!("parts_table.col_rotation"),
+        t!("parts_table.col_locked"),
+        t!("parts_table.col_x"),
+        t!("parts_table.col_y"),
+    ]
+}
+
+/// The five Layout cells of one row, or a note and blanks when the part has no
+/// placed footprint.
+fn layout_texts(cells: Option<LayoutCells>) -> [String; 5] {
+    match cells {
+        Some(c) => [
+            c.side,
+            c.rotation,
+            if c.locked {
+                t!("parts_table.locked_yes")
+            } else {
+                t!("parts_table.locked_no")
+            },
+            c.x,
+            c.y,
+        ],
+        None => [
+            t!("parts_table.not_placed"),
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+        ],
+    }
 }
 
 /// Compare two references so that R2 comes before R10.
@@ -171,6 +216,12 @@ fn visible_rows(rows: Vec<PartRow>, state: &PartsTableState) -> Vec<PartRow> {
 }
 
 impl PartsTableState {
+    /// True when the Layout columns are on. Stories read it.
+    #[cfg(test)]
+    pub(crate) fn layout_columns_on(&self) -> bool {
+        self.layout
+    }
+
     /// True when the grid is sorted by Value, largest first. Stories read it.
     #[cfg(test)]
     pub(crate) fn is_sorted_descending_by_value(&self) -> bool {
@@ -430,6 +481,9 @@ impl App {
             ui.checkbox(&mut state.grouped, t!("parts_table.group"))
                 .on_hover_text(t!("parts_table.group.tip"));
             ui.add_space(12.0);
+            ui.checkbox(&mut state.layout, t!("parts_table.layout"))
+                .on_hover_text(t!("parts_table.layout.tip"));
+            ui.add_space(12.0);
             ui.add_enabled_ui(!state.grouped, |ui| {
                 ui.label(t!("parts_table.fill_label"));
                 for choice in FillColumn::ALL {
@@ -477,6 +531,7 @@ impl App {
             .clicked();
         });
         let grouped = state.grouped;
+        let layout = state.layout && !grouped;
         let mut picked: Option<(Id, bool)> = None;
         egui::ScrollArea::horizontal()
             .id_salt("parts-table-scroll")
@@ -484,7 +539,10 @@ impl App {
             .show(ui, |ui| {
                 egui::Grid::new("parts-table-grid")
                     .num_columns(
-                        PartColumn::ALL.len() + 1 + if state.variant.is_some() { 1 } else { 0 },
+                        PartColumn::ALL.len()
+                            + 1
+                            + if layout { LAYOUT_COLUMNS } else { 0 }
+                            + if state.variant.is_some() { 1 } else { 0 },
                     )
                     .spacing([12.0, 6.0])
                     .striped(true)
@@ -517,6 +575,12 @@ impl App {
                                 };
                             }
                         }
+                        if layout {
+                            for label in layout_labels() {
+                                ui.label(label)
+                                    .on_hover_text(t!("parts_table.layout_header.tip"));
+                            }
+                        }
                         if state.variant.is_some() {
                             ui.label(t!("parts_table.col_dnp"));
                         }
@@ -530,6 +594,11 @@ impl App {
                             )
                             .named(&name)
                             .on_hover_text(t!("parts_table.filter.tip"));
+                        }
+                        if layout {
+                            for _ in 0..LAYOUT_COLUMNS {
+                                ui.label("");
+                            }
                         }
                         if state.variant.is_some() {
                             ui.label("");
@@ -585,6 +654,12 @@ impl App {
                                             json!({"id": row.id, "mpn": text}),
                                         ),
                                     });
+                                }
+                            }
+                            if layout {
+                                for text in layout_texts(layout_cells(&self.project, row.id)) {
+                                    ui.label(text)
+                                        .on_hover_text(t!("parts_table.layout_cell.tip"));
                                 }
                             }
                             if let Some(ref vn) = state.variant {

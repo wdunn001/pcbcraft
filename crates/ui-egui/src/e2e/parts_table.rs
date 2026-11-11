@@ -1,6 +1,6 @@
 //! Stories for the Parts tab: every part in one grid.
 //!
-//! Context: issue #169. A newcomer opens the Parts tab under the canvas, sorts and
+//! Context: issue #169 and, for the Layout columns, issue #704. A newcomer opens the Parts tab under the canvas, sorts and
 //! filters the rows, types a part number and a maker into a cell, and undoes once.
 use super::super::*;
 use super::support::*;
@@ -336,5 +336,71 @@ fn a_newcomer_groups_identical_parts() -> Result<(), String> {
         "a different value stays on its own line: {text}"
     );
     assert!(lines.len() < total, "fewer lines than parts: {text}");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_turns_on_layout_columns_in_the_parts_grid_and_finds_side_rotation_locked_x_and_y()
+-> Result<(), String> {
+    let (ctx, mut app) = parts_tab()?;
+    assert!(
+        !app.parts_table.layout_columns_on(),
+        "the Layout columns are off until the person asks for them"
+    );
+    let (id, reference) = references_in_grid_order(&app)
+        .first()
+        .cloned()
+        .ok_or("the sample board has no part")?;
+    let footprint = app
+        .project
+        .board
+        .footprints
+        .iter()
+        .find(|f| f.component == id)
+        .ok_or_else(|| format!("{reference} has no placed footprint on the sample board"))?;
+    let (x, y) = (
+        format!("{:.2}", footprint.position.x),
+        format!("{:.2}", footprint.position.y),
+    );
+    tap_id(&ctx, &mut app, "checkbox:Layout columns")?;
+    assert!(
+        app.parts_table.layout_columns_on(),
+        "ticking Layout columns turns the columns on"
+    );
+    // The five part columns with their sort buttons fill the width of the sheet, so the
+    // Layout columns sit to the right: a newcomer scrolls the grid sideways to read them.
+    let grip = painted_text_at(&ctx, &mut app, "Sort by Value")?
+        .ok_or("the Value sort button is not on screen")?
+        + egui::vec2(4.0, 4.0);
+    let wheel = egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(-1200.0, 0.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    };
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::PointerMoved(grip), wheel],
+        egui::Modifiers::NONE,
+    );
+    for _ in 0..12 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    for heading in ["Side", "Rotation", "Locked", "X", "Y"] {
+        assert!(
+            paints_text(&ctx, &mut app, heading)?,
+            "the grid shows a {heading} column once Layout columns is on"
+        );
+    }
+    assert!(
+        paints_text(&ctx, &mut app, &x)? && paints_text(&ctx, &mut app, &y)?,
+        "the first part's position {x}, {y} is shown in the X and Y columns"
+    );
+    tap_id(&ctx, &mut app, "checkbox:Layout columns")?;
+    assert!(
+        !app.parts_table.layout_columns_on(),
+        "ticking it again turns the columns back off"
+    );
     Ok(())
 }
