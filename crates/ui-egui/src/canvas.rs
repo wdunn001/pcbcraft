@@ -20,6 +20,14 @@ use egui::{Pos2, Sense};
 use pcbcraft_doc::{Component, Id, Layer, PinRef, Project};
 use pcbcraft_geom::point_segment;
 use text_style::{TextRole, font_mm, role_font};
+
+#[cfg(test)]
+thread_local! {
+    /// Test-only: the selection outline of the last selected part painted on this
+    /// thread, and the screen box of its drawn points, so a story can compare them.
+    pub(crate) static LAST_OUTLINE: std::cell::Cell<Option<(Rect, Rect)>> =
+        const { std::cell::Cell::new(None) };
+}
 mod board_art;
 mod context;
 pub(crate) mod gestures;
@@ -2539,12 +2547,15 @@ impl App {
             );
         }
         if selected && !ghost {
-            let mut bounds = Rect::from_center_size(center, Vec2::ZERO);
-            for pin in &c.pins {
-                bounds.extend_with(at(pin.offset));
+            let mut drawn = Rect::from_center_size(center, Vec2::ZERO);
+            for p in c.drawing_points() {
+                drawn.extend_with(at(p));
             }
+            let mut bounds = drawn;
             bounds.extend_with(center - Vec2::new(0.0, label_offset + 22.0));
             bounds.extend_with(center + Vec2::new(0.0, label_offset + 20.0));
+            #[cfg(test)]
+            LAST_OUTLINE.with(|cell| cell.set(Some((bounds.expand(9.0), drawn))));
             sheet::paint_selection(painter, bounds.expand(9.0), &sc);
         }
     }
