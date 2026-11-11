@@ -49,3 +49,15 @@ Cons: requires the user to have the device and a programmer, not offline for use
 
 | Route | Size | Determinism | Offline use | Licence risk | First deliverable |
 | --- | --- | --- | --- | --- | --- |
+| A (built-in RV32IMC) | Small (40 base + M + C instructions) | High (same inputs always produce same outputs) | Yes | Low (written from scratch) | RV32IMC interpreter that loads a C3 class ELF and blinks one GPIO (SIM-6-12) |
+| B (external emulator) | Depends on emulator | Depends on emulator | Yes (if emulator installed) | Low (user provides) | External emulator process running Xtensa over WebSocket |
+| C (wasm) | Large (full emulator) | Depends on emulator | Yes | Medium (emulator licence) | Emulator compiled to wasm running in a Web Worker |
+| D (hardware) | None (no emulation) | High (real hardware) | No (requires device) | None | Hardware with firmware flashed |
+
+## 4. Unknowns
+
+The following items are not yet resolved and may affect the first deliverable:
+
+- ROM images: the boot ROM for the C3 and C6 class parts is not included with the emulator and must be obtained separately.
+- Peripheral coverage: the first deliverable only needs GPIO; UART and other peripherals are not required for SIM-6-12 but will be needed for later stories.
+- Flash cache behavior: the C3 and C6 class parts use a flash cache that may affect timing; this is not modeled in the first deliverable.
