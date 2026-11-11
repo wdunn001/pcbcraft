@@ -28,6 +28,8 @@ toml.workspace = true
 web-time.workspace = true
 
 [dev-dependencies]
+hayro = "0.8"
+pcbcraft-datasheet = { workspace = true, features = ["fixtures"] }
 tempfile.workspace = true
 
 [lints]
