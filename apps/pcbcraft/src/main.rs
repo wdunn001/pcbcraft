@@ -184,12 +184,15 @@ fn main() -> eframe::Result {
                 );
             // Distributor sources need a place to keep the person's key; with none, the dock shows no card.
             let app = match distributor_http::key_store(keys_file.clone()) {
-                Some(store) => app.with_distributors(
-                    std::sync::Arc::new(distributor_http::DistributorHttp::new(
-                        distributors_offline.clone(),
-                    )),
-                    store,
-                ),
+                Some(store) => app
+                    .with_distributors(
+                        std::sync::Arc::new(distributor_http::DistributorHttp::new(
+                            distributors_offline.clone(),
+                        )),
+                        store,
+                    )
+                    // Answers are kept, dated, in the app's own cache folder between runs.
+                    .with_default_distributor_cache(),
                 None => app,
             };
             Ok(Box::new(app.with_host(host::host())))
