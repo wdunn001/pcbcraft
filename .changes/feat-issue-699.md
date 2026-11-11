@@ -1,8 +1,8 @@
 ---
-type: fix
-area: io
+type: feature
+area: text
 issues: [699]
 user_visible: true
-docs: [crates/io/src/model_load.rs, crates/io/src/model_cache.rs, crates/io/src/import_cache.rs, crates/io/src/solidcraft_model.rs]
-summary: A footprint that names one part inside a model file now shows that part in the 3D view, and parts of one file load and cache apart.
+docs: n/a: written by the worker harness, the issue text records the behaviour
+summary: Library tab: part data, prices, compare and editing.
 ---
