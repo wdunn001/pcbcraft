@@ -2576,9 +2576,9 @@ impl App {
             );
         }
         if selected && !ghost {
-            let (drawn, outline) = symbol_outline(c, camera, rect);
+            let outline = symbol_outline(c, camera, rect).1;
             #[cfg(test)]
-            LAST_OUTLINE.with(|cell| cell.set(Some((outline, drawn))));
+            LAST_OUTLINE.with(|cell| cell.set(Some((outline, symbol_outline(c, camera, rect).0))));
             sheet::paint_selection(painter, outline, &sc);
         }
     }
