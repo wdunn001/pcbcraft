@@ -33,6 +33,9 @@ mod digikey;
 mod drill_table;
 mod editing;
 mod export;
+
+mod export_packages;
+
 mod files_home;
 mod files_shape;
 mod findings_counts;
