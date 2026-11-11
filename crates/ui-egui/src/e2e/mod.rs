@@ -86,6 +86,7 @@ mod schematic_pages;
 mod schematic_power_port_move;
 mod schematic_selection_outline;
 mod schematic_symbols;
+mod schematic_wire_reconnect;
 mod selection;
 mod settings;
 mod settings_freeze;
