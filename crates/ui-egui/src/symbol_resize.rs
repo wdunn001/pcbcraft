@@ -216,8 +216,7 @@ impl App {
         let Some(grab) = self.symbol_resize.take() else {
             return;
         };
-        let moved =
-            Point::new(at.x - grab.press.x, at.y - grab.press.y).rotate(grab.rotation);
+        let moved = Point::new(at.x - grab.press.x, at.y - grab.press.y).rotate(grab.rotation);
         let width = (grab.size.x + 2.0 * grab.sign.x * moved.x).max(FLOOR_MM);
         let height = (grab.size.y + 2.0 * grab.sign.y * moved.y).max(FLOOR_MM);
         if (width - grab.size.x).abs() < 1e-9 && (height - grab.size.y).abs() < 1e-9 {

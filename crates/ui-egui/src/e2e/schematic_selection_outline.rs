@@ -107,7 +107,10 @@ fn a_newcomer_sees_the_outline_wrap_each_part_and_show_corner_handles() -> Resul
                 }
                 _ => false,
             });
-            assert!(handle, "the {kind} outline has no handle on corner {corner:?}");
+            assert!(
+                handle,
+                "the {kind} outline has no handle on corner {corner:?}"
+            );
         }
     }
     Ok(())
@@ -169,7 +172,9 @@ fn a_newcomer_drags_a_corner_to_resize_a_part() -> Result<(), String> {
     let to = from + egui::vec2(24.0, 24.0);
     super::modifiers::drag(&ctx, &mut app, from, to, egui::Modifiers::NONE);
 
-    let grown = app.symbol_body_half(id).ok_or("the part still draws a body")?;
+    let grown = app
+        .symbol_body_half(id)
+        .ok_or("the part still draws a body")?;
     assert!(
         grown.x > before.x + 0.5 && grown.y > before.y + 0.5,
         "the body grew, got {grown:?} from {before:?}"
@@ -181,7 +186,9 @@ fn a_newcomer_drags_a_corner_to_resize_a_part() -> Result<(), String> {
     );
 
     app.tool_call("undo", json!({}));
-    let back = app.symbol_body_half(id).ok_or("the part still draws a body")?;
+    let back = app
+        .symbol_body_half(id)
+        .ok_or("the part still draws a body")?;
     assert!(
         (back.x - before.x).abs() < 1e-6 && (back.y - before.y).abs() < 1e-6,
         "undo restored the size, got {back:?} from {before:?}"
