@@ -645,7 +645,7 @@ fn make_j1_a_marked_ic(app: &mut App, j1: Id) -> Result<(), String> {
     Ok(())
 }
 
-const PART_MARKING: &str = "button:Show or hide the part number or value printed on the top of chip bodies in the #D view. Small parts show no text.";
+const PART_MARKING: &str = "button:Show or hide the part number or value printed on the top of ";
 
 #[test]
 fn a_newcomer_sees_the_chip_marking_in_3d_and_switches_it_off() -> Result<(), String> {
