@@ -309,8 +309,11 @@ fn min_shape_distance(a: &LayerShape, b: &LayerShape) -> f64 {
     let edges_a: Vec<(Point, Point)> = pcbcraft_geom::polygon_edges(&a.outline).collect();
     let edges_b: Vec<(Point, Point)> = pcbcraft_geom::polygon_edges(&b.outline).collect();
     let mut best = f64::INFINITY;
-    for v in a.outline.iter().copied().chain(b.outline.iter().copied()) {
+    // A vertex lies on its own outline, so each vertex is measured only against the other shape.
+    for v in a.outline.iter().copied() {
         best = best.min(polygon_boundary_distance(v, &b.outline));
+    }
+    for v in b.outline.iter().copied() {
         best = best.min(polygon_boundary_distance(v, &a.outline));
     }
     for (a0, a1) in &edges_a {
@@ -933,4 +936,59 @@ pub fn isolation_toolpaths(
         out.push(path);
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Axis aligned rectangle ring from `x0..x1` and `y0..y1`, open and counterclockwise.
+    fn rect(net: u64, id: u64, x0: f64, y0: f64, x1: f64, y1: f64) -> LayerShape {
+        LayerShape {
+            id,
+            net,
+            outline: vec![
+                Point::new(x0, y0),
+                Point::new(x1, y0),
+                Point::new(x1, y1),
+                Point::new(x0, y1),
+            ],
+        }
+    }
+
+    #[test]
+    fn two_nets_one_millimetre_apart_pass_a_small_tool() {
+        // Facing edges at x = 1 and x = 2: the gap is exactly 1 mm.
+        let shapes = [rect(1, 10, 0.0, 0.0, 1.0, 3.0), rect(2, 11, 2.0, 0.0, 3.0, 3.0)];
+        let d = min_shape_distance(&shapes[0], &shapes[1]);
+        assert!((d - 1.0).abs() < 1e-9, "distance {d}");
+        assert!(check_net_clearance(&shapes, 0.1).is_ok());
+    }
+
+    #[test]
+    fn two_nets_closer_than_the_tool_refuse_with_the_true_distance() {
+        // Facing edges at x = 1 and x = 1.05: the gap is 0.05 mm.
+        let shapes = [rect(1, 10, 0.0, 0.0, 1.0, 3.0), rect(2, 11, 1.05, 0.0, 2.05, 3.0)];
+        let d = min_shape_distance(&shapes[0], &shapes[1]);
+        assert!((d - 0.05).abs() < 1e-9, "distance {d}");
+        let message = check_net_clearance(&shapes, 0.1).err().unwrap_or_default();
+        assert!(message.contains("0.050 mm apart"), "{message}");
+        assert!(!message.contains("0.000"), "{message}");
+    }
+
+    #[test]
+    fn corner_to_corner_gap_is_the_diagonal() {
+        // Corners (1, 1) and (1.3, 1.4): 3-4-5 triangle scaled by 0.1, so 0.5 mm.
+        let a = rect(1, 10, 0.0, 0.0, 1.0, 1.0);
+        let b = rect(2, 11, 1.3, 1.4, 2.0, 2.0);
+        let d = min_shape_distance(&a, &b);
+        assert!((d - 0.5).abs() < 1e-9, "distance {d}");
+    }
+
+    #[test]
+    fn shapes_of_one_net_are_never_a_gap() {
+        let shapes = [rect(1, 10, 0.0, 0.0, 1.0, 3.0), rect(1, 11, 1.05, 0.0, 2.05, 3.0)];
+        assert!(min_shape_distance(&shapes[0], &shapes[1]).is_infinite());
+        assert!(check_net_clearance(&shapes, 0.1).is_ok());
+    }
 }
