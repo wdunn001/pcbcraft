@@ -76,6 +76,51 @@ fn a_newcomer_searches_for_a_part_and_it_is_ready_to_place() -> Result<(), Strin
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_searches_a_chip_and_its_body_fits_the_footprint() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.region().left_tab = "library".to_owned();
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.change_tab(Tab::Schematic);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    tap_id(&ctx, &mut app, "textinput:Keyword or part number")?;
+    for letter in "resistor".chars() {
+        frame(
+            &ctx,
+            &mut app,
+            vec![egui::Event::Text(letter.into())],
+            egui::Modifiers::NONE,
+        );
+    }
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "Resistor")?,
+        "the matching part stays in the list"
+    );
+    let body = pcbcraft_library::ParamBody::from_footprint_name("0603", "resistor")
+        .map_err(|e| format!("the 0603 chip body must build from its package name, got {e}"))?;
+    let mesh = body.mesh();
+    let (min, max) = mesh
+        .bounds()
+        .ok_or_else(|| "the 0603 body has no geometry to measure".to_owned())?;
+    assert!(
+        min[2].abs() < 0.001,
+        "the chip body sits flat on the board at z=0, got {}",
+        min[2]
+    );
+    assert!(
+        max[2] <= 1.0,
+        "the 0603 body must not be taller than its package height, got {}",
+        max[2]
+    );
+    Ok(())
+}
+
 #[test]
 fn a_newcomer_sees_what_each_part_is_and_hides_a_whole_set() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());

@@ -41,9 +41,9 @@ pub fn part_from_library_bundle(
             rotate: m.rotate,
         })
         .or_else(|| {
-            Some(Model3dRef::Parametric {
-                body: ParamBody::from_key(&package_key, &symbol.description),
-            })
+            let body = ParamBody::from_footprint_name(&footprint.name, &symbol.description)
+                .unwrap_or_else(|_| ParamBody::from_key(&package_key, &symbol.description));
+            Some(Model3dRef::Parametric { body })
         });
     let part = Part {
         id,
