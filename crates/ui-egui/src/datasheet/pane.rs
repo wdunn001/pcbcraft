@@ -60,6 +60,11 @@ impl Pane {
         self.open
     }
 
+    /// True while a PDF is loaded in the reader window.
+    pub(crate) fn has_document(&self) -> bool {
+        self.doc.is_some()
+    }
+
     /// Open a PDF from bytes (tests and local files).
     pub(crate) fn open_bytes(&mut self, title: String, bytes: Vec<u8>, ctx: &Context) -> String {
         match Document::open(bytes) {
@@ -104,7 +109,6 @@ impl Pane {
     ///
     /// # Do not
     /// - Call with a negative page or a rectangle outside the page bounds.
-    #[allow(dead_code)]
     pub(crate) fn show_source(&mut self, page_index: usize, rect: [f32; 4], now: f64) {
         let pages = self.doc.as_ref().map(|d| d.page_count()).unwrap_or(1);
         let page = if page_index >= pages {

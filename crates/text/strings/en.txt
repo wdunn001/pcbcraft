@@ -2913,6 +2913,14 @@ libws.ds.page_area.tip = Drag across the words to select them.
 libws.ds.open_failed = That file could not be opened as a PDF: {reason}
 libws.ds.problem = The reader hit a problem: {reason}
 libws.ds.details = Details for this part
+libws.ds.values = Values read from the datasheet
+libws.ds.values.rated = Absolute maximum ratings
+libws.ds.values.operating = Recommended operating conditions
+libws.ds.values.package = Package dimensions
+libws.ds.value_button = {parameter}: {value} {unit}
+libws.ds.value_button.tip = Open the datasheet on the page this value was read from and flash the spot where it sits.
+libws.ds.value_nosource.tip = No place in the datasheet is recorded for this value, so there is nothing to jump to.
+libws.ds.source_unavailable = The datasheet could not be opened here. Only a PDF saved on this computer opens in the reader.
 
 # files_home.rs: the Files workspace
 files.recent.heading = Recent projects

@@ -22,7 +22,7 @@ of the Schematic and Layout tabs for finding and placing parts. Issues #695, #69
 | Page | Shows |
 | --- | --- |
 | Overview | Symbol, footprint and 3D previews, key parameters, lifecycle and compliance, description. A value no source gave reads "Not listed". |
-| Datasheet | The datasheet link (opens in your browser) and the details known for the part. Reading the PDF inside the app is separate work. |
+| Datasheet | The datasheet link (opens in your browser), the details known for the part, and the ratings and dimensions read from the datasheet when the project holds an extraction for it. Pressing one opens the datasheet window on its page and flashes the spot it came from; the window opens only a PDF saved on this computer. A value with no recorded place has its button off and says so in its tooltip. |
 | Vendors | Supplier, SKU, stock and price breaks from cached answers, each with the date it was taken, and the Sources card. |
 | 3D model | The part on a small board in the board renderer, the model file, offset, rotation and scale, and the pads drawn over the model's outline. |
 | Edit | The symbol and footprint editor of the Libraries page, and a pin map that shows which footprint pad each symbol pin reaches. |
