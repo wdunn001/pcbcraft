@@ -410,9 +410,11 @@ impl View3d {
                 self.error = None;
                 self.model_gen = generation;
                 let models = self.models.clone();
-                self.notes = pcbcraft_io::with_models(&mut mesh, |p| models.lookup(&p.path))
-                    .into_iter()
-                    .collect();
+                self.notes = pcbcraft_io::with_models(&mut mesh, |p| {
+                    models.lookup(&p.path, p.cad_part.as_deref())
+                })
+                .into_iter()
+                .collect();
                 if let Some(message) = env.message.as_deref_mut() {
                     for line in self.models.drain_failure_messages() {
                         *message = line;

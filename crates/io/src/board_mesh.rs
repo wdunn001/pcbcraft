@@ -1176,7 +1176,7 @@ pub fn with_models(
 ) -> Vec<(Id, ModelStatus)> {
     let mut notes = vec![];
     let mut loaded_ids: Vec<Id> = vec![];
-    let mut file_prototypes: HashMap<String, Arc<BodyPrototype>> = HashMap::new();
+    let mut file_prototypes: HashMap<(String, Option<String>), Arc<BodyPrototype>> = HashMap::new();
     for part in &mut mesh.parts {
         let (Some(id), Some(model)) = (part.component, part.model.as_mut()) else {
             continue;
@@ -1193,7 +1193,10 @@ pub fn with_models(
             ModelLookup::Failed(reason) => notes.push((id, ModelStatus::Failed(reason))),
             ModelLookup::Ready(m) => {
                 let proto = file_prototypes
-                    .entry(model.path.clone())
+                    .entry((
+                        model.path.clone(),
+                        model.cad_part.clone().filter(|p| !p.is_empty()),
+                    ))
                     .or_insert_with(|| {
                         Arc::new(BodyPrototype {
                             positions: m.positions.clone(),
@@ -1734,7 +1737,7 @@ pub fn board_mesh_with_dir(
                             .map(|l| l.library.as_str()),
                         design_dir,
                     ),
-                    cad_part: None,
+                    cad_part: model.cad_part.clone().filter(|p| !p.is_empty()),
                     matrix: model_matrix(model, fp.position, fp.rotation, bottom, thickness),
                     loaded: false,
                     preloaded,

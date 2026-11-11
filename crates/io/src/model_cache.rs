@@ -3,12 +3,14 @@
 
 use crate::board_mesh::ModelLookup;
 use crate::import_cache::ImportCache;
-use crate::model_load::{ModelCacheKey, load_model, model_cache_key, model_extension_supported};
+use crate::model_load::{
+    ModelCacheKey, load_model, model_cache_key_with_part, model_extension_supported,
+};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-type JobSender = std::sync::mpsc::Sender<(ModelCacheKey, String)>;
+type JobSender = std::sync::mpsc::Sender<(ModelCacheKey, String, Option<String>)>;
 
 enum Entry {
     Loading,
@@ -121,8 +123,21 @@ impl ModelCache {
         }
     }
 
+    /// Ask for one model file, or one named part inside it.
+    ///
+    /// # Rules
+    /// - Two part names of one file are two cache entries, in memory and on disk.
+    /// - An empty part name means the whole file.
+    /// - Never waits: a file that is not ready answers [`ModelLookup::Loading`].
+    ///
+    /// # Dependencies
+    /// `model_load::model_cache_key_with_part` for the key.
+    ///
+    /// # Do not
+    /// Do not drop the part name; callers pass `ModelPlacement::cad_part`.
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn lookup(&self, path: &str) -> ModelLookup {
+    pub fn lookup(&self, path: &str, cad_part: Option<&str>) -> ModelLookup {
+        let cad_part = cad_part.filter(|p| !p.is_empty());
         let name = std::path::Path::new(path)
             .file_name()
             .and_then(|n| n.to_str())
@@ -138,7 +153,7 @@ impl ModelCache {
             self.note_failure(path, &reason);
             return ModelLookup::Failed(reason);
         };
-        let key = model_cache_key(path, meta.len(), meta.modified().ok());
+        let key = model_cache_key_with_part(path, meta.len(), meta.modified().ok(), cad_part);
         let Ok(mut entries) = self.shared.entries.lock() else {
             return ModelLookup::Failed("The model cache is unavailable.".into());
         };
@@ -153,10 +168,10 @@ impl ModelCache {
             Some(Entry::Loading) => return ModelLookup::Loading,
             None => {}
         }
-        entries.retain(|k, _| k.path != key.path);
+        entries.retain(|k, _| k.path != key.path || k.content_digest != key.content_digest);
         entries.insert(key.clone(), Entry::Loading);
         drop(entries);
-        if self.send(key.clone(), path.to_string()) {
+        if self.send(key.clone(), path.to_string(), cad_part.map(str::to_owned)) {
             ModelLookup::Loading
         } else {
             let reason = "Model loading could not start.";
@@ -167,8 +182,8 @@ impl ModelCache {
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub fn lookup(&self, path: &str) -> ModelLookup {
-        let _ = path;
+    pub fn lookup(&self, path: &str, cad_part: Option<&str>) -> ModelLookup {
+        let _ = (path, cad_part);
         ModelLookup::Failed("Model files load in the desktop app.".into())
     }
 
@@ -181,20 +196,24 @@ impl ModelCache {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn send(&self, key: ModelCacheKey, path: String) -> bool {
+    fn send(&self, key: ModelCacheKey, path: String, cad_part: Option<String>) -> bool {
         let Ok(mut slot) = self.jobs.lock() else {
             return false;
         };
         if slot.is_none() {
-            let (tx, rx) = std::sync::mpsc::channel::<(ModelCacheKey, String)>();
+            let (tx, rx) = std::sync::mpsc::channel::<(ModelCacheKey, String, Option<String>)>();
             let cache = self.clone();
             let spawned = std::thread::Builder::new()
                 .name("model-loader".into())
                 .spawn(move || {
-                    while let Ok((key, path)) = rx.recv() {
+                    while let Ok((key, path, part)) = rx.recv() {
                         let entry = match std::fs::read(&path) {
                             Err(_) => Entry::Failed("The model file could not be read.".into()),
-                            Ok(bytes) => match cache.import_cache.load_or_convert(&path, &bytes) {
+                            Ok(bytes) => match cache.import_cache.load_or_convert_part(
+                                &path,
+                                &bytes,
+                                part.as_deref(),
+                            ) {
                                 Ok(m) => Entry::Ready(Arc::new(m)),
                                 Err(e) => Entry::Failed(e.0),
                             },
@@ -207,6 +226,7 @@ impl ModelCache {
             }
             *slot = Some(tx);
         }
-        slot.as_ref().is_some_and(|tx| tx.send((key, path)).is_ok())
+        slot.as_ref()
+            .is_some_and(|tx| tx.send((key, path, cad_part)).is_ok())
     }
 }
