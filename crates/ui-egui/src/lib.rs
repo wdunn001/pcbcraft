@@ -4447,6 +4447,20 @@ impl App {
         self.datasheet.open_source(ctx, url);
     }
 
+    /// Open the in-app datasheet reader from bytes (web build file pick/drop).
+    #[expect(dead_code)]
+    pub(crate) fn open_datasheet_bytes(
+        &mut self,
+        title: String,
+        bytes: Vec<u8>,
+        ctx: &egui::Context,
+    ) {
+        let err = self.datasheet_pane.open_bytes(title, bytes, ctx);
+        if !err.is_empty() {
+            self.message = t!("datasheet.pane.open_failed");
+        }
+    }
+
     /// The datasheet address when the field holds a plain web link or a local PDF.
     fn datasheet_url(field: Option<&str>) -> Option<String> {
         let url = field?.trim();
