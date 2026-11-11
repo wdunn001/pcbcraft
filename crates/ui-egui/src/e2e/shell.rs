@@ -1425,6 +1425,101 @@ fn the_exemption_file_has_no_entry_for_a_control_that_is_now_named() -> Result<(
     Ok(())
 }
 
+/// The accessible names every reachable screen gives its controls, sorted and
+/// deduplicated.
+///
+/// Why: the same walk the accessible-name budget already makes, read the other
+/// way round, so the wording of the names can be checked as well as their count.
+///
+/// # Rules
+/// - A screen that exposes no nodes at all is an error, not an empty list.
+///
+/// # Dependencies
+/// - crates/ui-egui/src/a11y.rs supplies the audited node list.
+/// - crates/ui-egui/src/e2e/support.rs drives the two frames per screen.
+///
+/// # Do not
+/// - Add a screen that only appears after typing.
+fn reachable_names() -> Result<Vec<String>, String> {
+    let mut found = Vec::new();
+    for lower in [0u8, 1u8] {
+        for tab in [
+            Tab::Files,
+            Tab::Schematic,
+            Tab::Pcb,
+            Tab::Board3d,
+            Tab::Rules,
+            Tab::Checks,
+            Tab::Settings,
+        ] {
+            let (ctx, mut app) = practice_app();
+            app.preferences.aside_lower_tab = lower;
+            app.change_tab(tab);
+            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+            let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+            let nodes = a11y::audit::nodes(&out);
+            if nodes.is_empty() {
+                return Err(format!("{tab:?} exposes no controls to a screen reader"));
+            }
+            for (_, _, name) in nodes {
+                if !name.is_empty() {
+                    found.push(name);
+                }
+            }
+        }
+    }
+    let (ctx, mut app) = practice_app();
+    app.home_open = true;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    for (_, _, name) in a11y::audit::nodes(&out) {
+        if !name.is_empty() {
+            found.push(name);
+        }
+    }
+    found.sort();
+    found.dedup();
+    Ok(found)
+}
+
+/// The acceptance story for the accessibility gates: a newcomer hears a plain,
+/// spoken name for every control they can reach, and never hears debug output.
+///
+/// Why: an unlabelled icon button or a label carrying a revision counter is a
+/// cost paid by the person using a screen reader, so CI goes red on the first one.
+///
+/// # Rules
+/// - Zero unnamed interactive nodes; accessible-name-exemptions.txt stays empty.
+/// - Every name is plain language, judged by the detector the catalog gate uses.
+///
+/// # Dependencies
+/// - crates/ui-egui/src/e2e/accessible-name-exemptions.txt is the list kept empty.
+/// - crates/ui-egui/src/ui_kit/gates.rs supplies `developer_wording`.
+///
+/// # Do not
+/// - Exempt a name to make the story pass; rename the control.
+#[test]
+fn a_newcomer_hears_a_plain_name_for_every_control() -> Result<(), String> {
+    let unnamed = unnamed_controls()?;
+    assert!(
+        unnamed.is_empty(),
+        "a control has no accessible name; name it with a11y::name_control or label it, \
+         and only as a last resort give it a line in accessible-name-exemptions.txt: {unnamed:?}"
+    );
+    let mut developer = Vec::new();
+    for name in reachable_names()? {
+        if let Some(why) = crate::ui_kit::gates::developer_wording(&name) {
+            developer.push(format!("{name} ({why})"));
+        }
+    }
+    assert!(
+        developer.is_empty(),
+        "control labels that read like debug output:\n{}",
+        developer.join("\n")
+    );
+    Ok(())
+}
+
 #[test]
 fn each_exemption_names_an_issue_number() -> Result<(), String> {
     for (_, _, line) in budget() {
