@@ -5,12 +5,15 @@
 //! board renderer (`board3d::viewport`) over a one-part project built from the footprint, so
 //! the picture is what the board will show. The model's offset, rotation and scale are edited
 //! through `library.footprint.set_model`, one undo step each. A top view with the pads drawn
-//! over the model's outline shows whether the two line up.
+//! over the model's outline shows whether the two line up. The file card also imports a
+//! SolidCraft part as the component 3D model, and Reimport re-reads the file while keeping
+//! the offset, rotation and scale already set.
 //!
 //! Local rules: a footprint that is in this project's library can be edited here. A footprint
 //! from a read-only library shows read-only, but the project can override that with a toggle
 //! to allow editing model transforms for library footprints. A part with no model file shows
-//! the generated body. Nothing is read from the network.
+//! the generated body. Nothing is read from the network. Replacing a file keeps the current
+//! transform, and a Reimport never changes the transform.
 //!
 //! # Dependencies
 //! - crates/ui-egui/src/board3d.rs (`viewport`, `View3d`)
@@ -19,6 +22,7 @@
 //!
 //! # Do not
 //! - Write a model transform into a library file; only the project library is edited.
+//! - Re-align the model on reimport; alignment is a separate tool.
 use super::*;
 use crate::ui_kit::button::ghost_button;
 use crate::ui_kit::card::card;
@@ -387,17 +391,38 @@ impl App {
                     )
                     .clicked()
                     {
+                        let trimmed = path.trim().to_owned();
+                        let same_path = model.as_ref().is_some_and(|m| m.path == trimmed);
                         let next = Model3D {
-                            path: path.trim().to_owned(),
+                            path: trimmed,
                             offset: model.as_ref().map_or([0.0; 3], |m| m.offset),
                             scale: model.as_ref().map_or([1.0; 3], |m| m.scale),
                             rotate: model.as_ref().map_or([0.0; 3], |m| m.rotate),
                             raw_source: String::new(),
                             body_id: Default::default(),
-                            cad_part: Default::default(),
+                            cad_part: if same_path {
+                                model.as_ref().and_then(|m| m.cad_part.clone())
+                            } else {
+                                Default::default()
+                            },
                             embedded: Default::default(),
                         };
                         self.library_set_model(&def.name, &next);
+                        self.libws.model_rev += 1;
+                    }
+                    if let Some(m) = model.as_ref().cloned()
+                        && ghost_button(
+                            ui,
+                            None,
+                            &t!("libws.model.reimport"),
+                            &t!("libws.model.reimport.tip"),
+                            Size::Small,
+                            editable,
+                        )
+                        .clicked()
+                    {
+                        self.library_set_model(&def.name, &m);
+                        self.libws.model_rev += 1;
                     }
                     if model.is_some()
                         && ghost_button(
