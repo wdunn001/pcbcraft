@@ -6405,12 +6405,13 @@ struct WidthRulesParams {
     #[serde(default)]
     max_width: Option<f64>,
 }
-/// Parameters of `netclass.length_rules`: set target routed length and tolerance for a class.
+/// Parameters of `netclass.length_rules`: set target routed length, tolerance and maximum for a class.
 ///
 /// # Rules
 /// - Target length must be above 0 and at most 10000 mm when set.
 /// - Tolerance must be between 0 and 1000 mm when set; a tolerance without a target is refused.
-/// - At least one of target_length or length_tolerance must be sent.
+/// - Maximum length must be above 0 and at most 10000 mm when set, and not below the target.
+/// - At least one of target_length, length_tolerance or max_length must be sent.
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs
@@ -6423,7 +6424,6 @@ struct LengthRulesParams {
     #[serde(default)]
     length_tolerance: Option<f64>,
     #[serde(default)]
-    #[allow(dead_code)]
     max_length: Option<f64>,
 }
 #[derive(Deserialize)]
@@ -13287,8 +13287,18 @@ fn run_command_part_4(
                     "length tolerance must be between 0 and 1000 mm".into(),
                 ));
             }
-            if a.target_length.is_none() && a.length_tolerance.is_none() {
-                return Err(Error::Invalid("give a target length or a tolerance".into()));
+            if a.max_length
+                .is_some_and(|m| !m.is_finite() || m <= 0.0 || m > 10_000.0)
+            {
+                return Err(Error::Invalid(
+                    "max length must be above 0 and at most 10000 mm".into(),
+                ));
+            }
+            if a.target_length.is_none() && a.length_tolerance.is_none() && a.max_length.is_none()
+            {
+                return Err(Error::Invalid(
+                    "give a target length, a tolerance or a max length".into(),
+                ));
             }
             let class = p
                 .net_classes
@@ -13302,12 +13312,23 @@ fn run_command_part_4(
                     "a length tolerance needs a target length".into(),
                 ));
             }
+            let max_length = a.max_length.or(class.max_length);
+            if max_length
+                .zip(target_length)
+                .is_some_and(|(max, target)| max < target)
+            {
+                return Err(Error::Invalid(
+                    "max length must not be below the target length".into(),
+                ));
+            }
             class.target_length = target_length;
             class.length_tolerance = length_tolerance;
+            class.max_length = max_length;
             Ok(json!({
                 "class": a.class,
                 "target_length": class.target_length,
                 "length_tolerance": class.length_tolerance,
+                "max_length": class.max_length,
             }))
         }
         "netclass.stub_rules" => {
@@ -32936,6 +32957,105 @@ mod tests {
         ] {
             assert!(s.execute("net.set_impedance", bad, None).is_err());
         }
+        Ok(())
+    }
+    #[test]
+    fn netclass_max_length_is_stored_and_flags_longer_member_nets() -> Result<(), Error> {
+        let mut s = Session::default();
+        let sig = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let class = s.execute(
+            "netclass.add",
+            json!({"name":"FAST","clearance":0.2,"width":0.3,"nets":[sig]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":sig,"start":{"x":10.0,"y":10.0},"end":{"x":20.0,"y":10.0},"width":0.3}),
+            None,
+        )?;
+        fn too_long(s: &Session) -> Vec<String> {
+            s.checks()["drc"].as_array().map_or_else(Vec::new, |a| {
+                a.iter()
+                    .filter(|f| f["code"] == "net_too_long")
+                    .map(|f| f["message"].as_str().unwrap_or("").to_string())
+                    .collect()
+            })
+        }
+        let sent = s.execute(
+            "netclass.length_rules",
+            json!({"class":class,"max_length":12.0}),
+            None,
+        )?;
+        assert_eq!(sent["result"]["max_length"], 12.0);
+        assert!(
+            s.project
+                .net_classes
+                .iter()
+                .any(|c| c.id == class && c.max_length == Some(12.0)),
+            "the maximum is read back from the class"
+        );
+        assert!(too_long(&s).is_empty(), "10 mm is inside a 12 mm maximum");
+        s.execute(
+            "netclass.length_rules",
+            json!({"class":class,"max_length":8.0}),
+            None,
+        )?;
+        let messages = too_long(&s);
+        assert_eq!(messages.len(), 1, "10 mm is over an 8 mm maximum");
+        assert!(
+            messages[0].contains("10.000 mm") && messages[0].contains("at most 8.000 mm"),
+            "the message names the routed length and the maximum"
+        );
+        let finding = s.checks()["drc"]
+            .as_array()
+            .and_then(|a| a.iter().find(|f| f["code"] == "net_too_long").cloned())
+            .ok_or_else(missing)?;
+        assert_eq!(finding["severity"], "warning");
+        s.execute(
+            "rules.severity",
+            json!({"code":"net_too_long","severity":"off"}),
+            None,
+        )?;
+        assert!(too_long(&s).is_empty(), "an off check reports nothing");
+        s.execute(
+            "rules.severity",
+            json!({"code":"net_too_long","severity":"error"}),
+            None,
+        )?;
+        let finding = s.checks()["drc"]
+            .as_array()
+            .and_then(|a| a.iter().find(|f| f["code"] == "net_too_long").cloned())
+            .ok_or_else(missing)?;
+        assert_eq!(finding["severity"], "error");
+        s.execute(
+            "netclass.length_rules",
+            json!({"class":class,"target_length":6.0}),
+            None,
+        )?;
+        for params in [
+            json!({"class":class,"max_length":0.0}),
+            json!({"class":class,"max_length":-1.0}),
+            json!({"class":class,"max_length":10001.0}),
+            json!({"class":class,"max_length":5.0}),
+            json!({"class":class,"target_length":9.0}),
+        ] {
+            assert!(
+                s.execute("netclass.length_rules", params, None).is_err(),
+                "an out of range or below-target maximum is refused"
+            );
+        }
+        assert!(
+            s.project
+                .net_classes
+                .iter()
+                .any(|c| c.id == class && c.max_length == Some(8.0)),
+            "refusals leave the stored maximum alone"
+        );
+        assert!(s.project.validate().is_ok());
         Ok(())
     }
     #[test]

@@ -37,7 +37,8 @@ or polygonal outline, circular cutouts, Edge.Cuts export. Copper move, width
 and layer edits update clearance findings. Step-and-repeat arrays, placement
 locks, edge docking, castellated pad flags.
 
-Net classes set default width and clearance. Per-net length targets, width
+Net classes set default width, clearance, length targets and a maximum routed
+length that the design rule check enforces. Per-net length targets, width
 bounds, net-pair gaps, rectangular rule areas. Assembly variants with
 do-not-populate sets and footprint swaps.
 
