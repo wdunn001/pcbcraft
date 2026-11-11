@@ -3467,6 +3467,7 @@ impl Session {
                 mask: false,
                 silk: false,
                 bodies: false,
+                marking: false,
             };
             for n in names {
                 match n.as_str() {
@@ -3478,6 +3479,8 @@ impl Session {
                     _ => return Err(Error::Invalid(format!("unknown mesh layer {n:?}"))),
                 }
             }
+            // Part marking rides on the bodies it is printed on.
+            want.marking = want.bodies;
         }
         let mesh = pcbcraft_io::board_mesh(&self.project, want)?;
         let mut out = mesh.to_json(geometry);

@@ -684,6 +684,12 @@ impl App {
                     if icon(ui, "fit", &t!("board.board3d.reset_view.tip"), false).clicked() {
                         v.fit();
                     }
+                    // Part marking is a view option: flipping it makes the next refresh
+                    // rebuild the mesh with or without the text on chip bodies.
+                    let marking_tip = t!("board.board3d.part_marking.tip");
+                    if icon(ui, "text", &marking_tip, v.show_marking).clicked() {
+                        v.show_marking = !v.show_marking;
+                    }
                 });
             });
     }

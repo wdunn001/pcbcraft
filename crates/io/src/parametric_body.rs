@@ -1421,6 +1421,7 @@ mod tests {
             mask: false,
             silk: false,
             bodies: true,
+            marking: true,
         };
         let mesh = board_mesh(&project, layers)?;
         let generic: Vec<String> = mesh

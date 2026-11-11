@@ -548,3 +548,139 @@ fn a_newcomer_shows_an_enclosure_around_the_board() -> Result<(), String> {
     assert!(enclosure_parts(&app) > 0, "the bodies are back");
     Ok(())
 }
+
+/// Turns J1 into an eight-pin dual in-line chip marked LM358, the way a library
+/// part would arrive, so its body is large enough to carry printed text.
+fn make_j1_a_marked_ic(app: &mut App, j1: Id) -> Result<(), String> {
+    {
+        let mut s = app.session.lock().map_err(|_| "session lock")?;
+        let mut geometry = vec![];
+        for i in 0..4 {
+            let x = -3.81 + 2.54 * f64::from(i);
+            for (number, y) in [(i + 1, -3.81), (i + 5, 3.81)] {
+                let mut g = authoring::new_pad(&number.to_string(), 0.0);
+                g.pad_type = "thru_hole".into();
+                g.layers = vec!["*.Cu".into()];
+                g.position = pcbcraft_geom::Point::new(x, y);
+                g.size = pcbcraft_geom::Point::new(1.6, 1.6);
+                g.drill = Some(pcbcraft_library::Drill {
+                    size: pcbcraft_geom::Point::new(0.8, 0.8),
+                    offset: pcbcraft_geom::Point::new(0.0, 0.0),
+                });
+                geometry.push(g);
+            }
+        }
+        let c = s
+            .project
+            .components
+            .iter_mut()
+            .find(|c| c.id == j1)
+            .ok_or("J1 vanished")?;
+        // Pins the connector already had keep their nets, so its wires stay valid.
+        let old_pins = c.pins.clone();
+        let pins: Vec<pcbcraft_doc::Pin> = geometry
+            .iter()
+            .map(|g| {
+                old_pins
+                    .iter()
+                    .find(|p| p.number == g.number)
+                    .cloned()
+                    .unwrap_or_else(|| pcbcraft_doc::Pin {
+                        number: g.number.clone(),
+                        name: g.number.clone(),
+                        offset: pcbcraft_geom::Point::new(0.0, 0.0),
+                        net: None,
+                        electrical_type: "passive".into(),
+                        direction: None,
+                        unit: 1,
+                        appearances: Default::default(),
+                    })
+            })
+            .collect();
+        let pads: Vec<pcbcraft_doc::Pad> = geometry
+            .iter()
+            .map(|g| pcbcraft_doc::Pad {
+                number: g.number.clone(),
+                offset: g.position,
+                diameter: 1.6,
+                net: pins
+                    .iter()
+                    .find(|p| p.number == g.number)
+                    .and_then(|p| p.net),
+                castellated: None,
+                geometry: Some(g.clone()),
+            })
+            .collect();
+        c.kind = "ic".into();
+        c.value = "LM358".into();
+        c.pins = pins;
+        c.library_footprint = Some(pcbcraft_doc::LibraryFootprint {
+            library: "test".into(),
+            definition: pcbcraft_library::FootprintDefinition {
+                name: "T".into(),
+                description: String::new(),
+                keywords: String::new(),
+                pads: geometry,
+                graphics: vec![],
+                model: None,
+                rules: None,
+                box_body: None,
+                raw_source: String::new(),
+                unsupported: vec![],
+                retained: vec![],
+            },
+        });
+        for f in s
+            .project
+            .board
+            .footprints
+            .iter_mut()
+            .filter(|f| f.component == j1)
+        {
+            f.pads = pads.clone();
+        }
+        s.revision += 1;
+    }
+    app.refresh();
+    Ok(())
+}
+
+const PART_MARKING: &str = "button:Show or hide the part number or value printed on the top of ";
+
+#[test]
+fn a_newcomer_sees_the_chip_marking_in_3d_and_switches_it_off() -> Result<(), String> {
+    let (ctx, mut app, j1) = open_3d()?;
+    make_j1_a_marked_ic(&mut app, j1)?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    if let Some(e) = app.view3d.build_error() {
+        return Err(format!("the 3D view could not be built: {e}"));
+    }
+    let shown = app
+        .view3d
+        .marking_triangles(j1)
+        .ok_or("the chip should have a body in the 3D output")?;
+    tap_id(&ctx, &mut app, PART_MARKING)?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let hidden = app
+        .view3d
+        .marking_triangles(j1)
+        .ok_or("the chip should keep its body with marking off")?;
+    assert!(
+        shown > hidden,
+        "the printed text adds triangles to the body ({shown} with it, {hidden} without)"
+    );
+    tap_id(&ctx, &mut app, PART_MARKING)?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    assert_eq!(
+        app.view3d.marking_triangles(j1),
+        Some(shown),
+        "switching the option back on prints the text again"
+    );
+    Ok(())
+}
