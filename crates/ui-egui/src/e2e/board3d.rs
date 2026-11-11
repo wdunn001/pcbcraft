@@ -581,6 +581,35 @@ fn a_newcomer_shows_an_enclosure_around_the_board() -> Result<(), String> {
     Ok(())
 }
 
+// Issue 627: a mounting hole drilled through the board shows as a cutout in the 3D view.
+#[test]
+fn a_newcomer_drills_a_mounting_hole_and_sees_it_cut_in_the_3d_view() -> Result<(), String> {
+    let (ctx, mut app, _) = open_3d()?;
+    let before = app.view3d.board_slab_vertex_count();
+    assert!(before > 0, "the 3D view builds a board slab");
+    let (x, y) = (
+        app.project.board.width / 2.0,
+        app.project.board.height / 2.0,
+    );
+    let placed = app.tool_call(
+        "board.hole_place",
+        json!({ "position": { "x": x, "y": y }, "diameter": 3.2 }),
+    );
+    assert!(placed, "the mounting hole is drilled");
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    assert!(
+        !app.project.board.holes.is_empty(),
+        "the board now carries a hole"
+    );
+    assert!(
+        app.view3d.board_slab_vertex_count() > before,
+        "the 3D board shows the hole as a cutout wall"
+    );
+    Ok(())
+}
+
 /// Turns J1 into an eight-pin dual in-line chip marked LM358, the way a library
 /// part would arrive, so its body is large enough to carry printed text.
 fn make_j1_a_marked_ic(app: &mut App, j1: Id) -> Result<(), String> {

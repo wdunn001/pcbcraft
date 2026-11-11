@@ -887,17 +887,19 @@ fn capsule_ring(a: Point, b: Point, radius: f64) -> Vec<Point> {
     }
     let n = circle_segments(radius).max(8);
     let axis = (b.y - a.y).atan2(b.x - a.x);
-    // Half circle around the far centre, then half circle around the near
-    // one, so the ring runs along one side and back along the other.
+    let half = std::f64::consts::PI;
+    // Counter-clockwise: the cap around `b` sweeps from its right side to its
+    // left side, then the cap around `a` sweeps from the left side back to the
+    // right, so the straight edges join the caps without a gap.
     for i in 0..=n {
-        let angle = axis + std::f64::consts::PI * (i as f64) / (n as f64);
+        let angle = axis - half / 2.0 + half * (i as f64) / (n as f64);
         points.push(Point::new(
             b.x + radius * angle.cos(),
             b.y + radius * angle.sin(),
         ));
     }
     for i in 0..=n {
-        let angle = axis - std::f64::consts::PI * (i as f64) / (n as f64);
+        let angle = axis + half / 2.0 + half * (i as f64) / (n as f64);
         points.push(Point::new(
             a.x + radius * angle.cos(),
             a.y + radius * angle.sin(),
@@ -2600,6 +2602,125 @@ mod tests {
             warnings: vec![],
         };
         assert_eq!(mesh.vertex_count(), 8);
+        Ok(())
+    }
+
+    // Issue #627: mounting holes in 3D view
+    #[test]
+    fn a_round_hole_shows_no_board_top_face_triangle_over_its_centre() -> Check {
+        let mut p = base();
+        p.board.holes.push(Hole {
+            id: 100,
+            position: Point::new(10.0, 10.0),
+            diameter: 3.0,
+            end: None,
+        });
+        let mesh = board_mesh(&p, slab_only())?;
+        let slab = part(&mesh, PartKind::Board)?;
+        // 1200 mm^2 board minus pi * 1.5^2 = ~7.07 mm^2
+        let expected = 1200.0 * 1.6 - std::f64::consts::PI * 1.5 * 1.5;
+        assert!(
+            volume(slab) < expected + 5.0,
+            "slab not cut: {}",
+            volume(slab)
+        );
+        assert!(
+            volume(slab) > expected - 5.0,
+            "slab over-cut: {}",
+            volume(slab)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_slot_shows_the_capsule_cut() -> Check {
+        let mut p = base();
+        // Slot from (8,10) to (12,10) with diameter 2.0
+        p.board.holes.push(Hole {
+            id: 101,
+            position: Point::new(8.0, 10.0),
+            diameter: 2.0,
+            end: Some(Point::new(12.0, 10.0)),
+        });
+        let mesh = board_mesh(&p, slab_only())?;
+        let slab = part(&mesh, PartKind::Board)?;
+        // Capsule area = diameter * length + pi * (diameter/2)^2
+        // = 2.0 * 4.0 + pi * 1.0^2 = ~8.0 + 3.14 = ~11.14 mm^2
+        let capsule_area = 2.0 * 4.0 + std::f64::consts::PI * 1.0 * 1.0;
+        let expected = 1200.0 * 1.6 - capsule_area;
+        assert!(
+            volume(slab) < expected + 8.0,
+            "slot not cut: {}",
+            volume(slab)
+        );
+        assert!(
+            volume(slab) > expected - 8.0,
+            "slot over-cut: {}",
+            volume(slab)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_hole_zero_point_two_mm_inside_the_outline_is_cut() -> Check {
+        let mut p = base();
+        // Board is 30x40, so edge is at x=30. Place hole at x=29.8 (0.2mm inside).
+        p.board.holes.push(Hole {
+            id: 102,
+            position: Point::new(29.8, 20.0),
+            diameter: 0.2,
+            end: None,
+        });
+        let mesh = board_mesh(&p, slab_only())?;
+        let slab = part(&mesh, PartKind::Board)?;
+        let expected = 1200.0 * 1.6 - std::f64::consts::PI * 0.1 * 0.1;
+        assert!(
+            volume(slab) < expected + 0.01,
+            "edge hole not cut: {}",
+            volume(slab)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_hole_that_cannot_be_cut_adds_a_warning_line_naming_the_count() -> Check {
+        let mut p = base();
+        p.board.holes.push(Hole {
+            id: 103,
+            position: Point::new(100.0, 100.0),
+            diameter: 2.0,
+            end: None,
+        });
+        p.board.holes.push(Hole {
+            id: 104,
+            position: Point::new(200.0, 200.0),
+            diameter: 2.0,
+            end: None,
+        });
+        let mesh = board_mesh(&p, slab_only())?;
+        assert!(
+            mesh.warnings.iter().any(|w| w.contains("2 holes")),
+            "missing warning for 2 uncut holes: {:?}",
+            mesh.warnings
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn showcase_example_holes_show_in_3d_and_the_test_counts_the_cut_rings() -> Check {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../examples/showcase.pcbcraft");
+        let p = crate::load(&path)?;
+        assert!(!p.board.holes.is_empty(), "the showcase has mounting holes");
+        let with_holes = board_mesh(&p, slab_only())?;
+        let mut bare = p.clone();
+        bare.board.holes.clear();
+        let without = board_mesh(&bare, slab_only())?;
+        assert!(
+            part(&with_holes, PartKind::Board)?.positions.len()
+                > part(&without, PartKind::Board)?.positions.len(),
+            "the showcase mounting holes are cut into the 3D slab"
+        );
         Ok(())
     }
 }
