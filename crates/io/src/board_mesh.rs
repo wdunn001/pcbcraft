@@ -44,9 +44,7 @@ const MAX_RING: usize = 256;
 const MAX_MERGED_VERTICES: usize = 12_000;
 const MAX_HOLES_PER_POLYGON: usize = 2_000;
 const EPS: f64 = 1e-9;
-#[allow(dead_code)]
-const DECAL_MIN_AREA: f64 = 14.0;
-#[allow(dead_code)]
+/// How far part marking text stands above the top of its body, in millimetres.
 const DECAL_RAISE: f64 = 0.06;
 
 /// Labels each top-level part of a [`BoardMesh`] so a viewer can group and
@@ -99,6 +97,8 @@ pub struct MeshLayers {
     pub mask: bool,
     pub silk: bool,
     pub bodies: bool,
+    /// Part marking text raised on the top of bodies; only drawn with `bodies`.
+    pub marking: bool,
 }
 impl Default for MeshLayers {
     fn default() -> Self {
@@ -108,6 +108,7 @@ impl Default for MeshLayers {
             mask: true,
             silk: true,
             bodies: true,
+            marking: true,
         }
     }
 }
@@ -976,8 +977,9 @@ fn hash_solid(solid: &crate::parametric_body::Solid, state: &mut impl Hasher) {
 
 /// Key of a parametric body prototype: two bodies with the same shape and side
 /// share one prototype and differ only by their placement matrix.
-fn parametric_body_key(body: &ParametricBody, bottom: bool) -> u64 {
+fn parametric_body_key(body: &ParametricBody, bottom: bool, marking: bool) -> u64 {
     let mut state = std::collections::hash_map::DefaultHasher::new();
+    marking_text(body, marking).hash(&mut state);
     body.family.hash(&mut state);
     body.height.to_bits().hash(&mut state);
     body.standoff.to_bits().hash(&mut state);
@@ -996,6 +998,17 @@ fn parametric_body_key(body: &ParametricBody, bottom: bool) -> u64 {
         hash_solid(solid, &mut state);
     }
     state.finish()
+}
+
+/// The marking text a body shows, when marking is on and the top face is flat.
+///
+/// Why: bodies with solids stacked on top (domes, cans, keys) have no flat
+/// face to print on, so they show no text.
+fn marking_text(body: &ParametricBody, marking: bool) -> Option<&str> {
+    if !marking || !body.extras.is_empty() {
+        return None;
+    }
+    body.decal.as_deref().filter(|t| !t.is_empty())
 }
 
 /// A ring in the footprint frame, flipped for a part on the bottom side.
@@ -1022,6 +1035,7 @@ pub fn footprint_body_matrix(fp: &Footprint, bottom: bool, thickness: f64) -> [f
 fn build_parametric_prototype(
     body: &ParametricBody,
     bottom: bool,
+    marking: bool,
     budget: &mut Budget,
     warnings: &mut Warnings,
 ) -> Result<BodyPrototype, String> {
@@ -1086,6 +1100,26 @@ fn build_parametric_prototype(
             MaterialClass::Marking,
             warnings,
         )?;
+    }
+    if let Some(text) = marking_text(body, marking) {
+        let (lo, hi) = ring_bounds(&body.ring);
+        let dots = decal_rings(
+            text,
+            (lo.x + hi.x) / 2.0,
+            (lo.y + hi.y) / 2.0,
+            hi.x - lo.x,
+            hi.y - lo.y,
+        );
+        for dot in &dots {
+            extrude(
+                &mut b,
+                dot,
+                body.height,
+                body.height + DECAL_RAISE,
+                MaterialClass::Marking,
+                warnings,
+            )?;
+        }
     }
     Ok(BodyPrototype {
         positions: b.part.positions,
@@ -1256,7 +1290,6 @@ fn parse_height(text: &str) -> Option<f64> {
     (v.is_finite() && (0.05..=100.0).contains(&v)).then_some(v)
 }
 
-#[allow(dead_code)]
 fn glyph_rows(ch: char) -> [u8; 3] {
     match ch {
         '0' => [0b111, 0b101, 0b111],
@@ -1299,7 +1332,6 @@ fn glyph_rows(ch: char) -> [u8; 3] {
     }
 }
 
-#[allow(dead_code)]
 fn decal_rings(text: &str, cx: f64, cy: f64, span_w: f64, span_h: f64) -> Vec<Vec<Point>> {
     let chars: Vec<char> = text.chars().collect();
     if chars.is_empty() {
@@ -1628,6 +1660,7 @@ pub fn board_mesh_with_dir(
 
     if layers.bodies {
         let mut parametric_prototypes: HashMap<u64, Arc<BodyPrototype>> = HashMap::new();
+        let mut marking_skipped = false;
         for fp in &p.board.footprints {
             let component = p.component(fp.component);
             let Some(mut body) = crate::parametric_body::resolve(fp, component) else {
@@ -1654,12 +1687,23 @@ pub fn board_mesh_with_dir(
                 .map(|c| c.reference.clone())
                 .unwrap_or_else(|| format!("footprint {}", fp.id));
             let bottom = fp.board_side() == Layer::Back;
-            let key = parametric_body_key(&body, bottom);
+            let marking = layers.marking && budget.triangles < MAX_TRIANGLES / 2;
+            if layers.marking && !marking && !marking_skipped {
+                marking_skipped = true;
+                warnings.note("part marking was left off to keep the 3D view fast");
+            }
+            let key = parametric_body_key(&body, bottom, marking);
             let proto = match parametric_prototypes.get(&key) {
                 Some(p) => p.clone(),
                 None => {
                     let built =
-                        build_parametric_prototype(&body, bottom, &mut budget, &mut warnings)?;
+                        build_parametric_prototype(
+                        &body,
+                        bottom,
+                        marking,
+                        &mut budget,
+                        &mut warnings,
+                    )?;
                     let arc = Arc::new(built);
                     parametric_prototypes.insert(key, Arc::clone(&arc));
                     arc
@@ -2051,6 +2095,80 @@ mod tests {
             pad_at("1", -0.9, 0.0, 1.025, 1.4, "roundrect"),
             pad_at("2", 0.9, 0.0, 1.025, 1.4, "roundrect"),
         ])
+    }
+
+    /// A dual in-line chip marked LM358, large enough to carry printed text.
+    fn marked_chip_project() -> Project {
+        let mut pads = vec![];
+        for i in 0..4 {
+            let x = -3.81 + 2.54 * f64::from(i);
+            pads.push(through_pad(&format!("{}", i + 1), x, -3.81, 1.6, 0.8));
+            pads.push(through_pad(&format!("{}", i + 5), x, 3.81, 1.6, 0.8));
+        }
+        let mut p = placed(pads);
+        for c in &mut p.components {
+            c.reference = "U1".into();
+            c.value = "LM358".into();
+            c.kind = "ic".into();
+        }
+        p
+    }
+
+    /// Highest vertex used by a marking triangle of the first body, with the
+    /// number of marking triangles.
+    fn marking_top(mesh: &BoardMesh) -> Result<(usize, f64), String> {
+        let body = part(mesh, PartKind::Body)?;
+        let proto = body.prototype.as_ref().ok_or("body has no prototype")?;
+        let mut count = 0;
+        let mut top = f64::MIN;
+        for (tri, material) in proto.materials.iter().enumerate() {
+            if *material != MaterialClass::Marking {
+                continue;
+            }
+            count += 1;
+            for corner in 0..3 {
+                let vertex = proto.indices[tri * 3 + corner] as usize;
+                top = top.max(proto.positions[vertex][2]);
+            }
+        }
+        Ok((count, top))
+    }
+
+    #[test]
+    fn chip_marking_text_stands_on_the_body_top_and_switches_off() -> Check {
+        let project = marked_chip_project();
+        let on = board_mesh(&project, MeshLayers::default())?;
+        let off = board_mesh(
+            &project,
+            MeshLayers {
+                marking: false,
+                ..MeshLayers::default()
+            },
+        )?;
+        let (on_count, on_top) = marking_top(&on)?;
+        let (off_count, off_top) = marking_top(&off)?;
+        assert!(
+            on_count > off_count,
+            "text adds marking triangles ({on_count} against {off_count})"
+        );
+        assert!(
+            close(on_top - off_top, DECAL_RAISE),
+            "text stands {DECAL_RAISE} mm above the body top, got {}",
+            on_top - off_top
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn marking_follows_the_value_of_the_part() -> Check {
+        let mut project = marked_chip_project();
+        let (short, _) = marking_top(&board_mesh(&project, MeshLayers::default())?)?;
+        for c in &mut project.components {
+            c.value = "LM358-LONG".into();
+        }
+        let (long, _) = marking_top(&board_mesh(&project, MeshLayers::default())?)?;
+        assert!(long > short, "more characters print more marking triangles");
+        Ok(())
     }
 
     #[test]

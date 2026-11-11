@@ -1,8 +1,8 @@
 ---
 type: feature
-area: rules
+area: 3d
 issues: [700]
 user_visible: true
-docs: [docs/capabilities.md, crates/rules/src/compliance/responsible_sourcing.rs]
-summary: The responsible sourcing rule set checks minerals reporting, PFAS status and Proposition 65 listed substances.
+docs: [crates/io/src/board_mesh.rs]
+summary: Print the part number or value on the top of chip bodies in the 3D view, with a Part marking toggle.
 ---
