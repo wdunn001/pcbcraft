@@ -959,7 +959,10 @@ mod tests {
     #[test]
     fn two_nets_one_millimetre_apart_pass_a_small_tool() {
         // Facing edges at x = 1 and x = 2: the gap is exactly 1 mm.
-        let shapes = [rect(1, 10, 0.0, 0.0, 1.0, 3.0), rect(2, 11, 2.0, 0.0, 3.0, 3.0)];
+        let shapes = [
+            rect(1, 10, 0.0, 0.0, 1.0, 3.0),
+            rect(2, 11, 2.0, 0.0, 3.0, 3.0),
+        ];
         let d = min_shape_distance(&shapes[0], &shapes[1]);
         assert!((d - 1.0).abs() < 1e-9, "distance {d}");
         assert!(check_net_clearance(&shapes, 0.1).is_ok());
@@ -968,7 +971,10 @@ mod tests {
     #[test]
     fn two_nets_closer_than_the_tool_refuse_with_the_true_distance() {
         // Facing edges at x = 1 and x = 1.05: the gap is 0.05 mm.
-        let shapes = [rect(1, 10, 0.0, 0.0, 1.0, 3.0), rect(2, 11, 1.05, 0.0, 2.05, 3.0)];
+        let shapes = [
+            rect(1, 10, 0.0, 0.0, 1.0, 3.0),
+            rect(2, 11, 1.05, 0.0, 2.05, 3.0),
+        ];
         let d = min_shape_distance(&shapes[0], &shapes[1]);
         assert!((d - 0.05).abs() < 1e-9, "distance {d}");
         let message = check_net_clearance(&shapes, 0.1).err().unwrap_or_default();
@@ -987,7 +993,10 @@ mod tests {
 
     #[test]
     fn shapes_of_one_net_are_never_a_gap() {
-        let shapes = [rect(1, 10, 0.0, 0.0, 1.0, 3.0), rect(1, 11, 1.05, 0.0, 2.05, 3.0)];
+        let shapes = [
+            rect(1, 10, 0.0, 0.0, 1.0, 3.0),
+            rect(1, 11, 1.05, 0.0, 2.05, 3.0),
+        ];
         assert!(min_shape_distance(&shapes[0], &shapes[1]).is_infinite());
         assert!(check_net_clearance(&shapes, 0.1).is_ok());
     }
