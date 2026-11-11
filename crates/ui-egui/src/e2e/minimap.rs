@@ -390,6 +390,83 @@ fn a_newcomer_pins_the_minimap() -> Result<(), String> {
     Ok(())
 }
 
+/// Pin the map and rest the pointer on it so its frame and handles show.
+fn pinned_with_handles(ctx: &egui::Context, app: &mut App) -> Result<(), String> {
+    authoring::tests::tap_icon(ctx, app, "canvas-map")?;
+    authoring::tests::tap_icon(ctx, app, "minimap-pin")?;
+    let over = rect_of(app, "minimap-surface")?.center();
+    frame(
+        ctx,
+        app,
+        vec![egui::Event::PointerMoved(over)],
+        egui::Modifiers::NONE,
+    );
+    settle(ctx, app, 2);
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_stretches_the_minimap_from_its_bottom_and_right_edges() -> Result<(), String> {
+    let (mut app, ctx) = open(Tab::Pcb);
+    app.preferences.reduced_motion = true;
+    pinned_with_handles(&ctx, &mut app)?;
+
+    // The bottom edge makes the map taller, and it widens to keep the shape.
+    let before = rect_of(&app, "minimap-surface")?;
+    let bottom = rect_of(&app, "minimap-resize-bottom")?.center();
+    drag(&ctx, &mut app, bottom, bottom + Vec2::new(0.0, 30.0));
+    settle(&ctx, &mut app, 2);
+    let taller = rect_of(&app, "minimap-surface")?;
+    assert!(
+        taller.height() > before.height() + 10.0,
+        "the bottom edge grew the map: {} then {}",
+        before.height(),
+        taller.height()
+    );
+
+    // The right edge makes it wider.
+    let over = taller.center();
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::PointerMoved(over)],
+        egui::Modifiers::NONE,
+    );
+    settle(&ctx, &mut app, 2);
+    let right = rect_of(&app, "minimap-resize-right")?.center();
+    drag(&ctx, &mut app, right, right + Vec2::new(30.0, 0.0));
+    settle(&ctx, &mut app, 2);
+    let wider = rect_of(&app, "minimap-surface")?;
+    assert!(
+        wider.width() > taller.width() + 10.0,
+        "the right edge grew the map: {} then {}",
+        taller.width(),
+        wider.width()
+    );
+
+    // A very long drag stops at 60 percent of the canvas.
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::PointerMoved(wider.center())],
+        egui::Modifiers::NONE,
+    );
+    settle(&ctx, &mut app, 2);
+    let right = rect_of(&app, "minimap-resize-right")?.center();
+    drag(&ctx, &mut app, right, right + Vec2::new(3000.0, 0.0));
+    settle(&ctx, &mut app, 2);
+    let capped = rect_of(&app, "minimap-surface")?;
+    let canvas = app.canvas_rect.size();
+    assert!(
+        capped.width() <= canvas.x * 0.6 + 1.0 && capped.height() <= canvas.y * 0.6 + 1.0,
+        "the map stays within 60 percent of the canvas: {:?} in {:?}",
+        capped.size(),
+        canvas
+    );
+    assert!(app.map_prefs().width <= 2000.0, "and the width is capped");
+    Ok(())
+}
+
 #[test]
 fn a_newcomer_moves_the_pinned_minimap() -> Result<(), String> {
     let (mut app, ctx) = open(Tab::Pcb);
