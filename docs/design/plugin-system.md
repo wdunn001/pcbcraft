@@ -11,7 +11,7 @@ templates, loaded at runtime without arbitrary code execution.
 ```
 crates/plugin/          # Core plugin infrastructure
 crates/plugin-sdk/      # Shared types and traits for plugin developers
-crates/plugin-firmware-target/  # Concrete firmware target plugin
+crates/plugin-firmware-target/  # Firmware target plugin; the generator itself is a follow-up (see docs/plugins.md)
 ```
 
 ## Plugin Manifest Schema (v1)
