@@ -115,7 +115,7 @@ fn a_newcomer_in_the_browser_is_not_offered_a_plot_folder_that_cannot_open() -> 
 /// edit is back. The reload is a new app whose session is filled from the stored copy, the
 /// same read the web entry point makes at start (`opening_session` in `apps/pcbcraft-web`).
 #[test]
-fn a_newcomer_in_the_browser_reloads_the_page_and_finds_the_edit_still_there() -> Result<(), String> {
+fn a_newcomer_reloads_the_browser_page_and_finds_the_edit() -> Result<(), String> {
     let mut before = app_in(true);
     before.tool_call("sample_design", json!({}));
     before.tool_call(
@@ -129,8 +129,8 @@ fn a_newcomer_in_the_browser_reloads_the_page_and_finds_the_edit_still_there() -
     let text = storage
         .get_string("recovery")
         .ok_or("the first visit saved a copy of the project")?;
-    let project = pcbcraft_io::read_project(&text)
-        .map_err(|e| format!("the saved copy reads back: {e}"))?;
+    let project =
+        pcbcraft_io::read_project(&text).map_err(|e| format!("the saved copy reads back: {e}"))?;
     let mut session = pcbcraft_engine::Session::default();
     session
         .replace(project)
