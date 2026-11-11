@@ -120,3 +120,4 @@ lto = false
 # publishes a release that does.
 [patch.crates-io]
 ipc2581 = { path = "vendor/ipc2581" }
+pcbcraft-platform = { path = "crates/platform" }
