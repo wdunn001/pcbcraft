@@ -2397,6 +2397,9 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             });
         }
     }
+    if testpoint::probe_check_requested(project) {
+        result.extend(testpoint::coverage_findings(project));
+    }
     if !project.rule_disabled("net_too_long") {
         for class in &project.net_classes {
             let Some(max) = class.max_length else {

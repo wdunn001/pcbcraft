@@ -227,8 +227,19 @@ pub fn coverage_report(project: &Project) -> Result<CoverageReport, String> {
     })
 }
 
+/// True when the design names a probe minimum, which is how a designer asks for the
+/// probe coverage check; a design that names none is not probe tested and gets no findings.
+pub fn probe_check_requested(project: &Project) -> bool {
+    project.parameters.contains_key("probe_min_pad_mm")
+        || project.parameters.contains_key("probe_min_spacing_mm")
+}
+
 /// Design-rule findings for nets that cannot be probed at the recorded minimums.
+/// Empty when the `testpoint_coverage` code is switched off for the design.
 pub fn coverage_findings(project: &Project) -> Vec<Finding> {
+    if project.rule_disabled("testpoint_coverage") {
+        return vec![];
+    }
     let Ok(report) = coverage_report(project) else {
         return vec![];
     };
@@ -461,6 +472,135 @@ mod tests {
         p.validate()?;
         let report = coverage_report(&p)?;
         assert!(report.covered.contains(&3));
+        Ok(())
+    }
+
+    fn uncovered_project() -> Result<Project, String> {
+        let mut p = board();
+        net(&mut p, 2, "I2C_SDA");
+        p.components.push(Component {
+            id: 11,
+            reference: "U1".into(),
+            value: "U".into(),
+            kind: "library".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            pins: vec![],
+            units: vec![],
+            library_symbol: None,
+            library_footprint: None,
+            fields: vec![],
+            sheet: 0,
+            compliance: Default::default(),
+            part: None,
+            sourcing: Default::default(),
+            instance: Default::default(),
+            prototype: Default::default(),
+            include_in_bom: true,
+            include_in_placement: true,
+        });
+        let geometry = pcbcraft_library::FootprintPad {
+            number: "1".into(),
+            pad_type: "smd".into(),
+            shape: "circle".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            size: Point::new(0.6, 0.6),
+            layers: vec!["F.Cu".into()],
+            drill: None,
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        p.board.footprints.push(Footprint {
+            id: 21,
+            component: 11,
+            position: Point::new(5.0, 5.0),
+            rotation: 0.0,
+            locked: None,
+            side: None,
+            pads: vec![Pad {
+                number: "1".into(),
+                offset: Point::default(),
+                diameter: 0.6,
+                net: Some(2),
+                castellated: None,
+                geometry: Some(geometry.clone()),
+            }],
+            preserved: Default::default(),
+        });
+        embed_footprint(&mut p, 11, 2, &geometry);
+        p.validate()?;
+        Ok(p)
+    }
+
+    fn ask_for_probe_check(p: &mut Project) {
+        p.parameters.insert(
+            "probe_min_pad_mm".into(),
+            pcbcraft_doc::Parameter {
+                value: 0.8,
+                note: String::new(),
+            },
+        );
+    }
+
+    fn listed(p: &Project) -> Vec<crate::Finding> {
+        crate::drc(p)
+            .into_iter()
+            .filter(|f| f.code == "testpoint_coverage")
+            .collect()
+    }
+
+    #[test]
+    fn the_drc_list_names_an_uncovered_net_once_probing_is_asked_for() -> Result<(), String> {
+        let mut p = uncovered_project()?;
+        assert!(listed(&p).is_empty(), "no probe setting, no findings");
+        ask_for_probe_check(&mut p);
+        let found = listed(&p);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].severity, "warning");
+        assert_eq!(found[0].objects, vec![2]);
+        assert!(found[0].message.contains("I2C_SDA"), "{}", found[0].message);
+        Ok(())
+    }
+
+    #[test]
+    fn a_covered_net_is_not_listed() -> Result<(), String> {
+        let mut p = board();
+        net(&mut p, 3, "GND");
+        p.board.vias.push(Via {
+            id: 30,
+            net: 3,
+            position: Point::new(12.0, 12.0),
+            diameter: 0.9,
+            drill: 0.3,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+            backdrill: Default::default(),
+            covering_bottom: Default::default(),
+            preserved: Default::default(),
+        });
+        ask_for_probe_check(&mut p);
+        p.validate()?;
+        assert!(listed(&p).is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn the_coverage_severity_can_be_raised_or_switched_off() -> Result<(), String> {
+        let mut p = uncovered_project()?;
+        ask_for_probe_check(&mut p);
+        p.rule_severity
+            .insert("testpoint_coverage".into(), "error".into());
+        let found = listed(&p);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].severity, "error");
+        p.rule_severity
+            .insert("testpoint_coverage".into(), "off".into());
+        assert!(listed(&p).is_empty());
+        assert!(coverage_findings(&p).is_empty());
         Ok(())
     }
 }
