@@ -1263,15 +1263,21 @@ impl App {
                             {
                                 self.needs_fit = true;
                             }
-                            if self
-                                .canvas_icon(
-                                    ui,
-                                    "canvas-map",
-                                    CanvasIcon::Map,
-                                    &t!("board.canvas.map.tip"),
-                                )
-                                .clicked()
-                            {
+                            let map_resp = self.canvas_icon(
+                                ui,
+                                "canvas-map",
+                                CanvasIcon::Map,
+                                &t!("board.canvas.map.tip"),
+                            );
+                            // A dot on the Map button while the map is out of its window.
+                            if self.minimap.ejected {
+                                ui.painter().circle_filled(
+                                    map_resp.rect.right_bottom() - Vec2::splat(3.0),
+                                    2.5,
+                                    self.colours().accent,
+                                );
+                            }
+                            if map_resp.clicked() {
                                 self.minimap_toggle();
                             }
                         });
