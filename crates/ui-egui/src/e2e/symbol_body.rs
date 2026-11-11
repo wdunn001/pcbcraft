@@ -2,9 +2,9 @@
 //!
 //! A 40-pin header draws names like GPIO4_C3/SPI3_MOSI on both sides of a
 //! body too narrow to hold them, and the two columns overrun each other. The
-//! canvas paints a handle on each corner of a selected symbol, which reads as
-//! an invitation to drag, and nothing reads those handles. Properties is
-//! where the size can actually be changed.
+//! canvas paints a handle on each corner of a selected symbol, and dragging
+//! one resizes it (see schematic_selection_outline). Properties is the other
+//! place the size can be changed, by typing it.
 use super::super::*;
 use super::support::*;
 

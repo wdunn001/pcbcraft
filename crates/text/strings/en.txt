@@ -3746,6 +3746,14 @@ minimap.chip.selection = Selection
 minimap.chip.selection.tip = Show or hide a box around the selected object.
 minimap.chip.net = Net
 minimap.chip.net.tip = Show or hide the highlighted net.
+
+minimap.eject = Keep the map open
+minimap.eject.tip = Keep the map open on the canvas without pinning it. It stays on screen until you dock it back. Press E while the map is open.
+minimap.eject.announced = The map stays open until you dock it back.
+minimap.dock = Dock the map back
+minimap.dock.tip = Dock back: bring the map back next to the navigation card.
+minimap.dock.announced = The map is back with the navigation card.
+
 board.board3d.reset_view = Reset view
 board.board3d.top_view = Top view
 menu.help.tours.browser_note = Tour progress is kept in this browser.
@@ -4338,6 +4346,7 @@ schematic.page_part.close = Hide items of {page}
 schematic.page_part.close.tip = Close this page again so it shows as one part with its outward pins.
 schematic.main.open_all = Open all pages
 schematic.main.open_all.tip = Show the items of every page on Main. Turn it off to show each page as one part with its outward pins.
+schematic.resize_corner.tip = Drag this corner to resize the part. The body grows or shrinks around its centre and its pins move with the edges.
 
 # art layer properties (issue #98)
 tree.art_layer.missing = Layer not found

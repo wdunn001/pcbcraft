@@ -33,6 +33,9 @@ mod digikey;
 mod drill_table;
 mod editing;
 mod export;
+
+mod export_packages;
+
 mod files_home;
 mod files_shape;
 mod findings_counts;
@@ -86,6 +89,7 @@ mod schematic_pages;
 mod schematic_power_port_move;
 mod schematic_selection_outline;
 mod schematic_symbols;
+mod schematic_wire_reconnect;
 mod selection;
 mod settings;
 mod settings_freeze;

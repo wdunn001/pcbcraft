@@ -28,6 +28,53 @@ thread_local! {
     pub(crate) static LAST_OUTLINE: std::cell::Cell<Option<(Rect, Rect)>> =
         const { std::cell::Cell::new(None) };
 }
+/// Gap between a part's drawn box (with its labels) and its selection outline, in points.
+const OUTLINE_MARGIN: f32 = 9.0;
+
+/// Distance from a part's centre to its reference and value text, in points.
+fn symbol_label_offset(c: &Component, zoom: f32) -> f32 {
+    if c.library_symbol.is_some() {
+        c.drawing_points()
+            .iter()
+            .map(|p| p.rotate(-c.rotation).y.abs())
+            .fold(0.0, f64::max) as f32
+            * zoom
+            + 14.0
+    } else {
+        // Half extent of the built-in body across the pin axis, in millimetres.
+        let half_height = match c.kind.as_str() {
+            "connector" => 2.5,
+            "capacitor" => 2.0,
+            "led" => 4.0,
+            _ => 1.0,
+        };
+        let (sine, cosine) = c.rotation.to_radians().sin_cos();
+        (5.0 * sine.abs() + half_height * cosine.abs() + 1.5) as f32 * zoom
+    }
+}
+
+/// The screen box of a drawn schematic part and the selection outline around it.
+///
+/// Returns `(drawn, outline)`: `drawn` holds the symbol body and pins, `outline`
+/// holds that plus the reference and value text and the small margin. `c` is the
+/// part as drawn, at the position the sheet shows it.
+///
+/// # Rules
+/// - The one place the outline is worked out. The painter draws its box and its
+///   corner handles from it, and the resize drag hit-tests the same corners, so a
+///   press on a visible handle always grabs it.
+pub(crate) fn symbol_outline(c: &Component, camera: Camera, rect: Rect) -> (Rect, Rect) {
+    let center = camera.screen(c.position, rect);
+    let label_offset = symbol_label_offset(c, camera.zoom);
+    let mut drawn = Rect::from_center_size(center, Vec2::ZERO);
+    for p in c.drawing_points() {
+        drawn.extend_with(camera.screen(c.position.offset(p.rotate(-c.rotation)), rect));
+    }
+    let mut bounds = drawn;
+    bounds.extend_with(center - Vec2::new(0.0, label_offset + 22.0));
+    bounds.extend_with(center + Vec2::new(0.0, label_offset + 20.0));
+    (drawn, bounds.expand(OUTLINE_MARGIN))
+}
 mod board_art;
 mod context;
 pub(crate) mod gestures;
@@ -1073,7 +1120,8 @@ impl App {
         // A corner handle on a selected symbol resizes its body. This runs
         // before the move press below, so grabbing a corner resizes rather
         // than dragging the whole part somewhere else.
-        self.symbol_resize_drag(&response, cursor, pressed_at, camera.zoom);
+        self.symbol_resize_drag(&response, cursor, pressed_at, camera, rect);
+        self.symbol_resize_hint(&response, camera, rect);
         if response.drag_started_by(egui::PointerButton::Primary)
             && matches!(self.tool, Tool::Select)
             && !self.route_drag.active()
@@ -1106,6 +1154,9 @@ impl App {
                 (crate::draw_target::Target::User(_), None) => {}
                 _ => self.draw_finish(),
             }
+        }
+        if ui.input(|i| i.key_pressed(egui::Key::Escape)) && self.edit.press.is_some() {
+            self.press_cancel();
         }
         if response.clicked() {
             self.canvas_menu = None;
@@ -1212,15 +1263,21 @@ impl App {
                             {
                                 self.needs_fit = true;
                             }
-                            if self
-                                .canvas_icon(
-                                    ui,
-                                    "canvas-map",
-                                    CanvasIcon::Map,
-                                    &t!("board.canvas.map.tip"),
-                                )
-                                .clicked()
-                            {
+                            let map_resp = self.canvas_icon(
+                                ui,
+                                "canvas-map",
+                                CanvasIcon::Map,
+                                &t!("board.canvas.map.tip"),
+                            );
+                            // A dot on the Map button while the map is out of its window.
+                            if self.minimap.ejected {
+                                ui.painter().circle_filled(
+                                    map_resp.rect.right_bottom() - Vec2::splat(3.0),
+                                    2.5,
+                                    self.colours().accent,
+                                );
+                            }
+                            if map_resp.clicked() {
                                 self.minimap_toggle();
                             }
                         });
@@ -2301,12 +2358,6 @@ impl App {
         let stroke = Stroke::new(2.2, color);
         let is_connector = c.library_symbol.is_none() && c.kind == "connector";
         // Half extent of the body across the pin axis, in millimetres.
-        let half_height = match c.kind.as_str() {
-            "connector" => 2.5,
-            "capacitor" => 2.0,
-            "led" => 4.0,
-            _ => 1.0,
-        };
         if let Some(library) = &c.library_symbol {
             for g in library
                 .definition
@@ -2513,17 +2564,7 @@ impl App {
                 );
             }
         }
-        let (sine, cosine) = c.rotation.to_radians().sin_cos();
-        let label_offset = if c.library_symbol.is_some() {
-            c.drawing_points()
-                .iter()
-                .map(|p| p.rotate(-c.rotation).y.abs())
-                .fold(0.0, f64::max) as f32
-                * camera.zoom
-                + 14.0
-        } else {
-            (5.0 * sine.abs() + half_height * cosine.abs() + 1.5) as f32 * camera.zoom
-        };
+        let label_offset = symbol_label_offset(c, camera.zoom);
         painter.text(
             center - Vec2::new(0.0, label_offset),
             Align2::CENTER_BOTTOM,
@@ -2541,16 +2582,10 @@ impl App {
             );
         }
         if selected && !ghost {
-            let mut drawn = Rect::from_center_size(center, Vec2::ZERO);
-            for p in c.drawing_points() {
-                drawn.extend_with(at(p));
-            }
-            let mut bounds = drawn;
-            bounds.extend_with(center - Vec2::new(0.0, label_offset + 22.0));
-            bounds.extend_with(center + Vec2::new(0.0, label_offset + 20.0));
+            let outline = symbol_outline(c, camera, rect).1;
             #[cfg(test)]
-            LAST_OUTLINE.with(|cell| cell.set(Some((bounds.expand(9.0), drawn))));
-            sheet::paint_selection(painter, bounds.expand(9.0), &sc);
+            LAST_OUTLINE.with(|cell| cell.set(Some((outline, symbol_outline(c, camera, rect).0))));
+            sheet::paint_selection(painter, outline, &sc);
         }
     }
     fn paint_board(&self, painter: &egui::Painter, rect: Rect, camera: Camera, p: &Project) {

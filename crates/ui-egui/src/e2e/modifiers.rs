@@ -38,7 +38,7 @@ pub(crate) fn screen_of(app: &App, world: Point) -> Pos2 {
     camera.screen(world, app.canvas_rect)
 }
 
-fn press(ctx: &egui::Context, app: &mut App, at: Pos2, down: bool, m: Modifiers) {
+pub(crate) fn press(ctx: &egui::Context, app: &mut App, at: Pos2, down: bool, m: Modifiers) {
     frame(
         ctx,
         app,
@@ -52,7 +52,7 @@ fn press(ctx: &egui::Context, app: &mut App, at: Pos2, down: bool, m: Modifiers)
     );
 }
 
-fn hover(ctx: &egui::Context, app: &mut App, at: Pos2, m: Modifiers) {
+pub(crate) fn hover(ctx: &egui::Context, app: &mut App, at: Pos2, m: Modifiers) {
     frame(ctx, app, vec![Event::PointerMoved(at)], m);
 }
 
