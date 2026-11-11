@@ -527,6 +527,7 @@ board.board3d.3d_board_drag_to_turn.tip = 3D board. Drag to turn it, right-drag 
 board.board3d.part_bodies_are_default_boxes = Part bodies are default boxes sized from the pads. A part with a glTF, VRML or STEP model file shows that model instead.
 board.board3d.enclosure_layer = Enclosure
 board.board3d.enclosure_layer.tip = Show or hide the imported enclosure around the board in the 3D view. The enclosure never enters the files you send to a manufacturer.
+board.board3d.part_marking.tip = Show or hide the part number or value printed on the top of chip bodies in the 3D view. Small parts show no text.
 board.board3d.enclosure_failed = The enclosure could not be shown in 3D: {e}
 board.board3d.loading_models_note = Loading models. Parts show default boxes until their files are read.
 
