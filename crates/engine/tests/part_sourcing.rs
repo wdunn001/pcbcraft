@@ -342,7 +342,10 @@ fn attaching_a_source_refuses_bad_stock_and_dates() -> Result<(), Error> {
             s.execute("part.attach_source", params, None).is_err(),
             "{bad}"
         );
-        assert!(sourcing_of(&s, id)?.is_empty(), "{bad} left the record alone");
+        assert!(
+            sourcing_of(&s, id)?.is_empty(),
+            "{bad} left the record alone"
+        );
     }
     Ok(())
 }
