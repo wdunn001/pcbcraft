@@ -11,3 +11,9 @@
 //! - Block the UI thread on the browser fetch API inside `Fetcher::get`.
 
 pub mod transport;
+
+#[cfg(feature = "cloud")]
+pub mod cloud_signin;
+
+#[cfg(feature = "cloud")]
+pub mod cloud_transport;
