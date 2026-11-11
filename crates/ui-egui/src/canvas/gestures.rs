@@ -714,8 +714,23 @@ impl App {
     /// pre-drag state. No command is issued, so the design and history are
     /// unchanged.
     pub(crate) fn press_cancel(&mut self) {
+        let Some(press) = self.edit.press.take() else {
+            return;
+        };
         self.drag = None;
-        self.edit.press = None;
+        match press.action {
+            ClickAction::BoxSelect => {
+                self.edit.box_from = None;
+                self.edit.box_to = None;
+            }
+            ClickAction::StartWire | ClickAction::StartRoute => {
+                if matches!(press.hit, Hit::Pin(_) | Hit::Pad(..)) {
+                    self.clear_wire_draft();
+                    self.tool = Tool::Select;
+                }
+            }
+            _ => {}
+        }
     }
 
     /// Move the preview of an in-flight segment or track-end drag onto a copy

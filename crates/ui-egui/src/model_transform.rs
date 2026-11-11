@@ -78,7 +78,7 @@ fn drag_plane(
     );
     painter.circle_filled(marker, 5.0, Color32::from_rgb(120, 180, 255));
     painter.line_segment([mid, marker], Stroke::new(1.0, Color32::from_gray(140)));
-    if response.drag_stopped() {
+    if response.dragged() {
         let delta = response.drag_delta();
         on_drag(
             horizontal + (delta.x as f64) / (scale as f64),
