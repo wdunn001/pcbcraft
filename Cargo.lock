@@ -3421,9 +3421,11 @@ dependencies = [
 name = "pcbcraft-library"
 version = "0.1.0"
 dependencies = [
+ "hayro",
  "hmac",
  "keyring",
  "pcbcraft-clock",
+ "pcbcraft-datasheet",
  "pcbcraft-geom",
  "serde",
  "serde_json",
