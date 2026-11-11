@@ -238,6 +238,13 @@ matching other Craft suite nightlies). Assets include every nightly archive plus
 `SHA256SUMS.txt`. Pre-releases are published with `--latest=false`; they never
 replace the latest stable download links from tagged releases.
 
+A published nightly tag is never moved or replaced, so a guide or a launcher can
+link straight to one asset of one nightly. A manually dispatched run builds the
+packages as workflow artifacts only and does not publish, so running the workflow
+by hand adds no entries to the Releases page. Tagged releases stay draft until a
+maintainer publishes them by hand; nightly publication never touches a tagged
+release.
+
 ## Continuous deployment (`cd.yml`)
 
 When the **CI** workflow finishes green on a push to `main`, `cd.yml` runs. It only
