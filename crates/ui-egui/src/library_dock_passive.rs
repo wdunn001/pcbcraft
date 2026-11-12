@@ -437,8 +437,7 @@ mod tests {
         state.set_series(ESeries::E96);
         let list = decade_values(ESeries::E96, 3);
         assert!(
-            list.iter()
-                .any(|v| (state.value / v - 1.0).abs() < 1e-9),
+            list.iter().any(|v| (state.value / v - 1.0).abs() < 1e-9),
             "the value {} is in the E96 decade",
             state.value
         );
