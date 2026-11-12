@@ -74,6 +74,8 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.footprint.graphic_scale","Resize one graphic on a project-library footprint about the origin by one factor, as one undoable step, scaling its vertices, stroke and text size together, so a single drawing element made at the wrong scale is rescued without touching the rest of the package",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the footprint's artwork list"},"factor":{"type":"number","description":"uniform resize factor about the footprint origin, above 0 and up to 1000"}}),&["name","index","factor"])),
         ("library.symbol.graphic_scale","Resize one graphic on a project-library symbol about the origin by one factor, as one undoable step, scaling its vertices, stroke and text size together, so a single drawing element made at the wrong scale is rescued without touching the rest of the symbol",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the symbol's artwork list"},"factor":{"type":"number","description":"uniform resize factor about the symbol origin, above 0 and up to 1000"}}),&["name","index","factor"])),
         ("library.symbol.set_properties","Retype a project-library symbol's reference prefix, value, description, keywords, linked footprint or set name one field at a time as one undoable step, so imported vendor symbols get cleaned up without rewriting the definition; placed instances keep their embedded copy until symbol.refresh brings the change across",schema(json!({"name":{"type":"string"},"reference":{"type":"string","description":"reference prefix pattern the symbol suggests, e.g. U*"},"value":{"type":"string"},"description":{"type":"string"},"keywords":{"type":"string","description":"space separated search words"},"footprint":{"type":"string","description":"default footprint name the symbol suggests"},"set":{"type":"string","description":"name of the collection this part belongs to; empty clears it, and the parts list groups parts by set"}}),&["name"])),
+        ("library.pin_pad_assign","Choose the footprint pad a symbol pin drives on a project-library part, as one undoable step. By default the pad moves to that pin from any other pin; with only true the pin drives just that pad and other pins keep theirs, so a pad given to two pins shows up in the findings. Refuses an unknown part, pin or pad and changes nothing; returns the validation findings after the change",schema(json!({"name":{"type":"string","minLength":1,"maxLength":128,"description":"project-library symbol name of the part"},"pin":{"type":"string","minLength":1,"maxLength":32,"description":"symbol pin number"},"pad":{"type":"string","minLength":1,"maxLength":32,"description":"footprint pad number, with #index when the number repeats"},"only":{"type":"boolean","description":"make this the only pad the pin drives and leave other pins alone"}}),&["name","pin","pad"])),
+        ("library.pin_pad_role","Set what a footprint pad is for on a project-library part (electrical, mechanical, thermal or no_connect), as one undoable step; only an electrical pad must be driven by a pin. Refuses an unknown part, pad or role and changes nothing; returns the validation findings after the change",schema(json!({"name":{"type":"string","minLength":1,"maxLength":128,"description":"project-library symbol name of the part"},"pad":{"type":"string","minLength":1,"maxLength":32,"description":"footprint pad number, with #index when the number repeats"},"role":{"type":"string","enum":["electrical","mechanical","thermal","no_connect"]}}),&["name","pad","role"])),
         ("library.part.set_substitute","Add, replace or remove one second source (maker and part number) or one alternate (another project-library symbol) on a project-library part as one undoable step; pass null for mpn to remove a second source, or set clear true with symbol naming the alternate to remove",schema(json!({"name":{"type":"string","description":"project-library symbol name of the primary part"},"kind":{"type":"string","enum":["second_source","alternate"]},"manufacturer":{"type":"string","maxLength":256},"mpn":{"type":["string","null"],"maxLength":256},"symbol":{"type":"string","maxLength":256,"description":"project-library symbol name of the alternate part"},"footprint":{"type":"string","maxLength":256},"note":{"type":"string","maxLength":256},"clear":{"type":"boolean","description":"when true with kind alternate, remove the alternate named by symbol"}}),&["name","kind"])),
         ("library.part.compare","Read-only comparison of one baseline project-library part against up to two others: typed symbol fields with same flags, pin number diffs, and footprint pad diffs when both footprints exist",schema(json!({"baseline":{"type":"string","maxLength":128,"description":"project-library symbol name used as the reference row"},"others":{"type":"array","minItems":1,"maxItems":2,"items":{"type":"string","maxLength":128}},"footprint_overrides":{"type":"object","additionalProperties":{"type":"string","maxLength":256},"description":"optional footprint name per other symbol, e.g. from an alternate record"}}),&["baseline","others"])),
         ("library.footprint.set_properties","Retype a project-library footprint's description or keywords one field at a time as one undoable step, so imported packages get cleaned up for search and documentation without rewriting the definition; placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"description":{"type":"string"},"keywords":{"type":"string","description":"space separated search words"}}),&["name"])),
@@ -194,6 +196,69 @@ struct PinPadValidateParams {
     footprint_definition: Option<FootprintDefinition>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PinPadAssignParams {
+    name: String,
+    pin: String,
+    pad: String,
+    #[serde(default)]
+    only: bool,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PinPadRoleParams {
+    name: String,
+    pad: String,
+    role: String,
+}
+/// The symbol, footprint and current pin to pad map of a project-library part.
+///
+/// # Rules
+/// - A part with no stored map starts from the map made by matching pin and pad numbers.
+/// - Refuses a missing symbol, a symbol with no project-library footprint and oversized names.
+fn pin_pad_part(
+    p: &Project,
+    name: &str,
+) -> Result<
+    (
+        SymbolDefinition,
+        FootprintDefinition,
+        pcbcraft_library::PinPadMap,
+    ),
+    Error,
+> {
+    if name.is_empty() || name.len() > 128 {
+        return Err(Error::Invalid(
+            "library names must be 1 to 128 bytes".into(),
+        ));
+    }
+    let symbol = p
+        .library
+        .symbols
+        .iter()
+        .find(|s| s.name == name)
+        .cloned()
+        .ok_or_else(|| Error::Invalid(format!("no project-library symbol named {name}")))?;
+    let footprint = p
+        .library
+        .footprints
+        .iter()
+        .find(|f| f.name == symbol.footprint)
+        .cloned()
+        .ok_or_else(|| {
+            Error::Invalid(format!(
+                "the part {name} has no project-library footprint to map its pins to"
+            ))
+        })?;
+    let map = p
+        .library
+        .part_pin_maps
+        .get(name)
+        .cloned()
+        .unwrap_or_else(|| pcbcraft_library::auto_fill(&symbol, &footprint));
+    Ok((symbol, footprint, map))
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GenerateFootprintCommandParams {
@@ -872,6 +937,7 @@ pub(super) fn run(
                     return Err(missing());
                 }
                 p.library.part_substitutes.remove(&a.name);
+                p.library.part_pin_maps.remove(&a.name);
                 for subs in p.library.part_substitutes.values_mut() {
                     subs.alternates.retain(|alt| alt.symbol != a.name);
                 }
@@ -3110,6 +3176,65 @@ pub(super) fn run(
             }
             Ok(json!({"baseline": a.baseline, "compared": compared}))
         }
+        "library.pin_pad_assign" => {
+            let a: PinPadAssignParams = parse(params)?;
+            if a.pin.is_empty() || a.pin.len() > 32 || a.pad.is_empty() || a.pad.len() > 32 {
+                return Err(Error::Invalid(
+                    "pin and pad numbers must be 1 to 32 bytes".into(),
+                ));
+            }
+            let (symbol, footprint, mut map) = pin_pad_part(p, &a.name)?;
+            if !symbol.pins.iter().any(|pin| pin.number == a.pin) {
+                return Err(Error::Invalid(format!(
+                    "the symbol {} has no pin {}",
+                    symbol.name, a.pin
+                )));
+            }
+            if !pcbcraft_library::footprint_pad_labels(&footprint).contains(&a.pad) {
+                return Err(Error::Invalid(format!(
+                    "the footprint {} has no pad {}",
+                    footprint.name, a.pad
+                )));
+            }
+            if a.only {
+                map.set_pin_pad(&a.pin, &a.pad);
+            } else {
+                map.assign_pad_to_pin(&a.pin, &a.pad);
+            }
+            let findings = pcbcraft_library::validate_pin_pad_map(&symbol, &footprint, &map);
+            p.library.part_pin_maps.insert(a.name.clone(), map);
+            p.library.validate()?;
+            Ok(json!({"name": a.name, "pin": a.pin, "pad": a.pad, "findings": findings}))
+        }
+        "library.pin_pad_role" => {
+            let a: PinPadRoleParams = parse(params)?;
+            if a.pad.is_empty() || a.pad.len() > 32 {
+                return Err(Error::Invalid("pad numbers must be 1 to 32 bytes".into()));
+            }
+            let role = match a.role.as_str() {
+                "electrical" => pcbcraft_library::PadRole::Electrical,
+                "mechanical" => pcbcraft_library::PadRole::Mechanical,
+                "thermal" => pcbcraft_library::PadRole::Thermal,
+                "no_connect" => pcbcraft_library::PadRole::NoConnect,
+                _ => {
+                    return Err(Error::Invalid(
+                        "the role must be electrical, mechanical, thermal or no_connect".into(),
+                    ));
+                }
+            };
+            let (symbol, footprint, mut map) = pin_pad_part(p, &a.name)?;
+            if !pcbcraft_library::footprint_pad_labels(&footprint).contains(&a.pad) {
+                return Err(Error::Invalid(format!(
+                    "the footprint {} has no pad {}",
+                    footprint.name, a.pad
+                )));
+            }
+            map.set_pad_role(&a.pad, role);
+            let findings = pcbcraft_library::validate_pin_pad_map(&symbol, &footprint, &map);
+            p.library.part_pin_maps.insert(a.name.clone(), map);
+            p.library.validate()?;
+            Ok(json!({"name": a.name, "pad": a.pad, "role": a.role, "findings": findings}))
+        }
         "library.part.set_substitute" => {
             let a: SetPartSubstituteParams = parse(params)?;
             if a.name.is_empty() || a.name.len() > 128 {
@@ -3211,6 +3336,9 @@ pub(super) fn run(
                 p.library.symbols[found].name = a.new_name.clone();
                 if let Some(subs) = p.library.part_substitutes.remove(&a.name) {
                     p.library.part_substitutes.insert(a.new_name.clone(), subs);
+                }
+                if let Some(map) = p.library.part_pin_maps.remove(&a.name) {
+                    p.library.part_pin_maps.insert(a.new_name.clone(), map);
                 }
                 for subs in p.library.part_substitutes.values_mut() {
                     for alt in &mut subs.alternates {

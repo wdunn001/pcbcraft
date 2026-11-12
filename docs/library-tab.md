@@ -25,7 +25,7 @@ of the Schematic and Layout tabs for finding and placing parts. Issues #695, #69
 | Datasheet | The datasheet link (opens in your browser), the details known for the part, and the ratings and dimensions read from the datasheet when the project holds an extraction for it. Pressing one opens the datasheet window on its page and flashes the spot it came from; the window opens only a PDF saved on this computer. A value with no recorded place has its button off and says so in its tooltip. |
 | Vendors | Supplier, SKU, stock and price breaks from cached answers, each with the date it was taken, and the Sources card. |
 | 3D model | The part on a small board in the board renderer, the model file, offset, rotation and scale, and the pads drawn over the model's outline. |
-| Edit | The symbol and footprint editor of the Libraries page, and a pin map that shows which footprint pad each symbol pin reaches. |
+| Edit | The symbol and footprint editor of the Libraries page, a pin map that shows which footprint pad each symbol pin reaches, and a Pad assignments card with a pad picker for every pin and a role picker for every pad. |
 
 ## Prices come from cached answers
 
@@ -122,6 +122,19 @@ on board on the Layout tab, adds the part with its symbol and footprint to the p
 step. Only values of the chosen series can be picked, and the tolerance follows the series (E6 20,
 E12 10, E24 5, E96 1 percent). Resistors run from 1 ohm to just under 10 Mohm and capacitors from
 1 pF to just under 100 uF. The CLI and MCP do not have a command for this yet.
+
+## Pad assignments
+
+The Edit page of a part in the project library ends with a Pad assignments card (issue #759). Each
+symbol pin has a picker for the footprint pad it drives, and each footprint pad has a picker for its
+role: electrical, mechanical, thermal or no connect. A pad chosen for a pin stays with any other pin
+that already drives it, so a pad given to two pins is listed under the card title as a problem until
+one pin is moved; a pad that no pin drives while its role is electrical is listed the same way. The
+problems update after every pick, and each pick is one undo step. The card needs a project library
+part whose symbol names a project library footprint; any other part says to copy it into the project
+library first. The CLI and MCP reach the same edits through `library.pin_pad_assign` (name, pin, pad,
+and `only` to keep other pins' pads) and `library.pin_pad_role` (name, pad, role). A refused call,
+for an unknown part, pin, pad or role, changes nothing.
 
 ## Not built yet
 

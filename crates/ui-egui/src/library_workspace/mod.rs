@@ -44,6 +44,7 @@ pub(crate) mod machines;
 mod machines_view;
 mod model;
 mod overview;
+mod pad_map;
 mod part3d;
 pub(crate) mod sources;
 mod vendors;

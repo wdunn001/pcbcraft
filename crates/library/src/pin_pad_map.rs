@@ -183,6 +183,22 @@ impl PinPadMap {
         }
     }
 
+    /// Make `pad` the only pad `pin` drives, leaving every other pin's pads alone.
+    ///
+    /// A pad another pin already drives stays on that pin too, so the map then reports the pad
+    /// as given to two pins until one of them is moved.
+    pub fn set_pin_pad(&mut self, pin: &str, pad: &str) {
+        if let Some(row) = self.rows.iter_mut().find(|r| r.pin == pin) {
+            row.pads = vec![pad.to_owned()];
+        } else {
+            self.rows.push(PinPadRow {
+                pin: pin.to_owned(),
+                pads: vec![pad.to_owned()],
+            });
+            self.rows.sort_by(|a, b| a.pin.cmp(&b.pin));
+        }
+    }
+
     /// Record how an unmapped or auxiliary pad should be treated in validation.
     pub fn set_pad_role(&mut self, pad: &str, role: PadRole) {
         self.pad_roles.insert(pad.to_owned(), role);
