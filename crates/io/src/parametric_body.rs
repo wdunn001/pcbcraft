@@ -1160,58 +1160,56 @@ fn through_body(
     None
 }
 
-/// Axis-aligned bounds of all solids in footprint-local space.
-#[allow(dead_code)]
-pub(crate) fn local_bounds(body: &ParametricBody) -> (Point, Point, f64, f64) {
-    let mut lo = Point::new(f64::MAX, f64::MAX);
-    let mut hi = Point::new(f64::MIN, f64::MIN);
-    let mut z_lo = f64::MAX;
-    let mut z_hi = f64::MIN;
-    let mut eat = |ring: &[Point], z0: f64, z1: f64| {
-        let (a, b) = ring_bounds(ring);
-        lo.x = lo.x.min(a.x);
-        lo.y = lo.y.min(a.y);
-        hi.x = hi.x.max(b.x);
-        hi.y = hi.y.max(b.y);
-        z_lo = z_lo.min(z0);
-        z_hi = z_hi.max(z1);
-    };
-    eat(&body.ring, body.standoff, body.standoff + body.height);
-    for s in body
-        .leads
-        .iter()
-        .chain(&body.pins)
-        .chain(&body.pin1_chamfer)
-        .chain(&body.polarity)
-        .chain(&body.extras)
-    {
-        eat(&s.ring, s.z0, s.z1);
-    }
-    (lo, hi, z_lo, z_hi)
-}
-
-#[allow(dead_code)]
-fn pad_covered(pad: &PadBox, all: &[PadBox], body: &ParametricBody) -> bool {
-    if thermal_pad(pad, all) {
-        let (blo, bhi) = ring_bounds(&body.ring);
-        return pad.lo.x >= blo.x - EPS
-            && pad.hi.x <= bhi.x + EPS
-            && pad.lo.y >= blo.y - EPS
-            && pad.hi.y <= bhi.y + EPS;
-    }
-    let centre = pad.centre;
-    body.leads.iter().any(|lead| {
-        let (lo, hi) = ring_bounds(&lead.ring);
-        centre.x >= lo.x - EPS
-            && centre.x <= hi.x + EPS
-            && centre.y >= lo.y - EPS
-            && centre.y <= hi.y + EPS
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Axis-aligned bounds of all solids in footprint-local space.
+    fn local_bounds(body: &ParametricBody) -> (Point, Point, f64, f64) {
+        let mut lo = Point::new(f64::MAX, f64::MAX);
+        let mut hi = Point::new(f64::MIN, f64::MIN);
+        let mut z_lo = f64::MAX;
+        let mut z_hi = f64::MIN;
+        let mut eat = |ring: &[Point], z0: f64, z1: f64| {
+            let (a, b) = ring_bounds(ring);
+            lo.x = lo.x.min(a.x);
+            lo.y = lo.y.min(a.y);
+            hi.x = hi.x.max(b.x);
+            hi.y = hi.y.max(b.y);
+            z_lo = z_lo.min(z0);
+            z_hi = z_hi.max(z1);
+        };
+        eat(&body.ring, body.standoff, body.standoff + body.height);
+        for s in body
+            .leads
+            .iter()
+            .chain(&body.pins)
+            .chain(&body.pin1_chamfer)
+            .chain(&body.polarity)
+            .chain(&body.extras)
+        {
+            eat(&s.ring, s.z0, s.z1);
+        }
+        (lo, hi, z_lo, z_hi)
+    }
+
+    fn pad_covered(pad: &PadBox, all: &[PadBox], body: &ParametricBody) -> bool {
+        if thermal_pad(pad, all) {
+            let (blo, bhi) = ring_bounds(&body.ring);
+            return pad.lo.x >= blo.x - EPS
+                && pad.hi.x <= bhi.x + EPS
+                && pad.lo.y >= blo.y - EPS
+                && pad.hi.y <= bhi.y + EPS;
+        }
+        let centre = pad.centre;
+        body.leads.iter().any(|lead| {
+            let (lo, hi) = ring_bounds(&lead.ring);
+            centre.x >= lo.x - EPS
+                && centre.x <= hi.x + EPS
+                && centre.y >= lo.y - EPS
+                && centre.y <= hi.y + EPS
+        })
+    }
     use crate::board_mesh::{MeshLayers, PartKind, board_mesh};
     use pcbcraft_doc::{Component, Footprint, Pad, Project};
     use pcbcraft_library::{

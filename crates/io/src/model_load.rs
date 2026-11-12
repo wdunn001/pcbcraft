@@ -14,7 +14,7 @@ use crate::mesh_material::{MaterialClass, classify_model_color};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 /// Bumped whenever the reader changes what a file produces, so a cache of
 /// older results is never served.
@@ -172,12 +172,6 @@ fn extension(path: &str) -> String {
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_ascii_lowercase()
-}
-
-#[allow(dead_code)]
-fn default_import_cache() -> &'static crate::ImportCache {
-    static CACHE: OnceLock<crate::ImportCache> = OnceLock::new();
-    CACHE.get_or_init(crate::ImportCache::default)
 }
 
 /// Read one model file from its bytes, using the user disk cache when available.
