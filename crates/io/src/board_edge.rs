@@ -103,38 +103,6 @@ pub(crate) fn gerber_body(scale: f64, p: &Project) -> Result<(String, usize), St
     Ok((out, ops))
 }
 
-#[allow(dead_code)]
-pub(crate) fn svg_path_d(p: &Project) -> String {
-    let segs = segments(p);
-    let mut d = String::new();
-    for (i, seg) in segs.iter().enumerate() {
-        match seg {
-            EdgeSegment::Line { from, to } => {
-                if i == 0 {
-                    d.push_str(&format!("M {} {}", from.x, from.y));
-                }
-                d.push_str(&format!(" L {} {}", to.x, to.y));
-            }
-            EdgeSegment::Arc { from, to, arc } => {
-                if i == 0 {
-                    d.push_str(&format!("M {} {}", from.x, from.y));
-                }
-                d.push_str(&format!(
-                    " A {:.6} {:.6} 0 {} {} {} {}",
-                    arc.radius,
-                    arc.radius,
-                    usize::from(arc.sweep.abs() > PI),
-                    usize::from(arc.sweep < 0.0),
-                    to.x,
-                    to.y
-                ));
-            }
-        }
-    }
-    d.push_str(" Z");
-    d
-}
-
 pub(crate) fn write_dxf_edge(w: &mut super::DxfWriter, p: &Project) -> Result<(), String> {
     let segs = segments(p);
     if segs.is_empty() {

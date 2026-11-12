@@ -519,27 +519,6 @@ pub fn gerber_component_layers(
 mod tests {
     use super::*;
 
-    use pcbcraft_geom::Point;
-    use pcbcraft_library::FootprintPad;
-
-    #[allow(dead_code)]
-    fn smd_pad(layers: &[&str]) -> FootprintPad {
-        FootprintPad {
-            number: "1".into(),
-            pad_type: "smd".into(),
-            shape: "rect".into(),
-            position: Point::default(),
-            rotation: 0.0,
-            size: Point::new(1.0, 1.0),
-            layers: layers.iter().map(|s| (*s).into()).collect(),
-            drill: None,
-            roundrect_ratio: None,
-            raw_source: String::new(),
-            chamfer: None,
-            polygon: Vec::new(),
-        }
-    }
-
     #[test]
     fn export_rotation_negates_only_bottom_when_asked() {
         let profile = AssemblyPlacementProfile {
