@@ -91,7 +91,6 @@ pub(crate) fn smd_aperture_function(fp: &Footprint, pad: &Pad) -> &'static str {
     }
 }
 
-#[allow(dead_code)]
 pub(crate) fn pad_is_through(pad: &Pad) -> bool {
     pad.geometry.as_ref().is_some_and(|g| {
         g.pad_type == "thru_hole" || g.drill.is_some() || g.layers.iter().any(|l| l == "*.Cu")

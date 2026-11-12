@@ -20,7 +20,6 @@ use std::collections::BTreeSet;
 /// Name of the manifest entry, first in every package.
 pub const MANIFEST_NAME: &str = "manifest.json";
 /// Plain-text revision notes written into every fabrication package.
-#[allow(dead_code)]
 pub const REVISION_NOTES_NAME: &str = "REVISION-NOTES.txt";
 /// Most files one package may hold, the manifest included.
 pub const MAX_PACKAGE_FILES: usize = 256;
@@ -405,7 +404,6 @@ pub fn package_revision_notes(
 }
 
 /// Append revision notes to the entries about to be zipped.
-#[allow(dead_code)]
 pub fn attach_revision_notes_entry(
     p: &Project,
     job: &str,
