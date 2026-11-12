@@ -430,15 +430,6 @@ fn view_tab_bucket(tab: Tab) -> usize {
     }
 }
 
-#[allow(dead_code)]
-fn default_view_for_tab(tab: Tab) -> ViewKind {
-    match tab {
-        Tab::Schematic => ViewKind::Symbols,
-        Tab::Pcb => ViewKind::Footprints,
-        _ => ViewKind::Both,
-    }
-}
-
 fn card_has_footprint(card: &Card) -> bool {
     match card {
         Card::BuiltIn(..) | Card::Online(..) => true,

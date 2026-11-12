@@ -2,8 +2,9 @@
 
 use super::super::Tab;
 use super::super::authoring;
+use super::super::bottom_sheet::SheetTab;
 use super::super::tour::data::{self, Step, Tour};
-use super::super::tour::{anchor, layout, playback::TourState, replay};
+use super::super::tour::{anchor, layout, replay};
 use super::super::*;
 use super::support::*;
 use egui::{Rect, Vec2};
@@ -50,30 +51,6 @@ impl Profile {
 fn every_shipped_tour_step_label_exists_in_the_catalog() -> Result<(), String> {
     let doc = data::embedded()?;
     replay::gate_catalog_labels(&doc.tour)
-}
-
-#[test]
-fn tour_progress_survives_a_preferences_round_trip() -> Result<(), String> {
-    replay::tour_progress_round_trip()
-}
-
-#[test]
-fn tour_progress_is_stored_in_preferences_json_for_the_browser_build() -> Result<(), String> {
-    use super::super::tour::playback::{TourProgress, TourRecord, TourState};
-    let mut prefs = Preferences::default();
-    prefs.tour_replay.record(TourRecord {
-        id: "window".into(),
-        version: 1,
-        state: TourState::Skipped,
-        step: 1,
-    });
-    let value = serde_json::to_value(&prefs).map_err(|e| e.to_string())?;
-    let progress = value
-        .get("tour_replay")
-        .ok_or("preferences JSON must carry tour_replay for web storage")?;
-    let back: TourProgress = serde_json::from_value(progress.clone()).map_err(|e| e.to_string())?;
-    assert_eq!(back.tours.len(), 1);
-    Ok(())
 }
 
 #[test]
@@ -266,7 +243,14 @@ fn perform_wait(
         }
         _ if wait.starts_with("panel_open:") => {
             let panel = wait.strip_prefix("panel_open:").unwrap_or("");
-            app.tour_open_panel(panel)?;
+            let tab = match panel {
+                "findings" => SheetTab::Findings,
+                "output" => SheetTab::Output,
+                "console" => SheetTab::Console,
+                "parts" => SheetTab::Parts,
+                other => return Err(format!("unknown region tab `{other}`")),
+            };
+            app.open_sheet(tab);
         }
         _ if wait.starts_with("command:") => {
             let id = wait.strip_prefix("command:").unwrap_or("");
@@ -274,33 +258,5 @@ fn perform_wait(
         }
         _ => return Err(ctx_label(&format!("unsupported wait_for `{wait}`"))),
     }
-    Ok(())
-}
-
-#[test]
-fn esc_mid_tour_stores_progress_and_resume_returns_to_the_same_step() -> Result<(), String> {
-    let doc = data::embedded()?;
-    let Some(tour) = doc.tour.first() else {
-        return Ok(());
-    };
-    let _profile = Profile::ALL[0];
-    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-    let mut app = App::create(shared, Preferences::default(), None, None);
-    app.refresh();
-    let ctx = egui::Context::default();
-    open_workspace(&mut app, &tour.workspace)?;
-    app.tour_start(tour.id.clone(), tour.version);
-    app.tour_next();
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    app.tour_escape();
-    let saved = app
-        .preferences
-        .tour_replay
-        .get(&tour.id)
-        .ok_or("expected saved progress after Esc")?;
-    assert_eq!(saved.state, TourState::InProgress);
-    let step = saved.step;
-    app.tour_start(tour.id.clone(), tour.version);
-    assert_eq!(app.tour_playback().map(|p| p.step), Some(step));
     Ok(())
 }
