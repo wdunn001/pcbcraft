@@ -37,7 +37,7 @@ use crate::{ProjectDrillHit, fab_export, gerber_job, project_drill_hits};
 use pcbcraft_doc::Project;
 use pcbcraft_geom::Point;
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 /// Most digits a drill coordinate may carry in all.
 const MAX_DIGITS: u8 = 9;
@@ -846,26 +846,4 @@ fn decode_coordinate(s: &str, leading_omitted: bool, digits: (u8, u8)) -> Result
         .parse()
         .map_err(|_| "a coordinate is not a number".to_string())?;
     Ok(sign * n as f64 / 10f64.powi(i32::from(digits.1)))
-}
-
-/// Copper roles of a file set, in layer order, for tests and previews.
-///
-/// # Rules
-/// - Counts a copper file once, by its role.
-///
-/// # Dependencies
-/// - crates/io/src/gerber_preset.rs
-///
-/// # Do not
-/// - Parse the contents; the role comes from the project name.
-pub fn copper_roles(names: &BTreeSet<String>, copper: u8) -> Vec<u8> {
-    let mut found: Vec<u8> = names
-        .iter()
-        .filter_map(|n| match FileRole::from_project_name(n, copper) {
-            Some(FileRole::Copper(i)) => Some(i),
-            _ => None,
-        })
-        .collect();
-    found.sort_unstable();
-    found
 }

@@ -4,7 +4,7 @@
 //! # Rules
 //! - Pure text generation; the engine writes through `atomic_write`.
 //! - Every file is CRLF, no BOM, no comma inside a field.
-//! - Coordinates from `placed_rows` with the flavour record: positive millimetres
+//! - Coordinates from `placed_rows_unchecked` with the flavour record: positive millimetres
 //!   to two decimals from the lower-left corner (lower-right for bottom, X mirrored).
 //! - No nozzle column. The nozzle shows as `Head` and `NozzleChange` rows.
 //!
