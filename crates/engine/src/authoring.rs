@@ -3190,10 +3190,7 @@ pub(super) fn run(
                     symbol.name, a.pin
                 )));
             }
-            if !pcbcraft_library::footprint_pad_labels(&footprint)
-                .iter()
-                .any(|label| *label == a.pad)
-            {
+            if !pcbcraft_library::footprint_pad_labels(&footprint).contains(&a.pad) {
                 return Err(Error::Invalid(format!(
                     "the footprint {} has no pad {}",
                     footprint.name, a.pad
@@ -3226,10 +3223,7 @@ pub(super) fn run(
                 }
             };
             let (symbol, footprint, mut map) = pin_pad_part(p, &a.name)?;
-            if !pcbcraft_library::footprint_pad_labels(&footprint)
-                .iter()
-                .any(|label| *label == a.pad)
-            {
+            if !pcbcraft_library::footprint_pad_labels(&footprint).contains(&a.pad) {
                 return Err(Error::Invalid(format!(
                     "the footprint {} has no pad {}",
                     footprint.name, a.pad
