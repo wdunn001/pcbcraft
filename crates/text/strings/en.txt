@@ -415,6 +415,7 @@ board.tool_hint.lmb_click_a_pin_to = LMB: click a pin to mark it unused, or agai
 board.tool_hint.lmb_place_an_assembly_mark = LMB: place an assembly mark at the cursor{common}
 board.tool_hint.lmb_place_the_shape_on = LMB: place the shape on the active layer{common}
 board.tool_hint.lmb_click_two_points_to = LMB: click two points to read the distance between them{common}
+board.tool_hint.tip = Contextual instructions for the currently selected tool.
 
 # lib.rs board3d_tab
 

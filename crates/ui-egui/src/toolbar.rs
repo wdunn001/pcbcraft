@@ -32,6 +32,7 @@ enum Act {
     Bus,
     BusEntry,
     NoConnect,
+    Wire,
     Port,
     Route,
     Via,
@@ -179,7 +180,7 @@ impl App {
             Act::Select,
             false,
         );
-        if pcb {
+        {
             push(
                 "tool-move",
                 "move",
@@ -191,6 +192,34 @@ impl App {
                 ),
                 matches!(self.tool, Tool::Move),
                 Act::Move,
+                false,
+            );
+        }
+        if self.tab == Tab::Schematic {
+            push(
+                "tool-wire",
+                "wire",
+                t!("board.tool_strip.wire"),
+                self.tool_tip(
+                    t!("board.tool_strip.wire_tool_click_two_pins"),
+                    ToolKind::Wire,
+                    Some(Hotkey::Wire),
+                ),
+                matches!(self.tool, Tool::Wire(_)),
+                Act::Wire,
+                false,
+            );
+            push(
+                "tool-no-connect",
+                "no-connect",
+                t!("board.tool_strip.no_connect"),
+                self.tool_tip(
+                    t!("board.tool_strip.mark_a_pin_deliberately_unconnected"),
+                    ToolKind::NoConnect,
+                    None,
+                ),
+                matches!(self.tool, Tool::NoConnect),
+                Act::NoConnect,
                 false,
             );
         }
@@ -557,6 +586,10 @@ impl App {
                 self.tool = Tool::BusEntry;
             }
             Act::NoConnect => self.tool = Tool::NoConnect,
+            Act::Wire => {
+                self.clear_wire_draft();
+                self.tool = Tool::Wire(None);
+            }
             Act::Port => self.tool = Tool::Port,
             Act::Route => self.tool = Tool::Route(None),
             Act::Via => self.tool = Tool::Via,
@@ -739,6 +772,12 @@ impl App {
                     }
                 });
             }
+            // Tool hint on the right.
+            let hint = crate::tool_hint(&self.tool);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(fonts::caption(&hint).color(t.muted))
+                    .on_hover_text(t!("board.tool_hint.tip"));
+            });
             if pcb {
                 self.toolbar_options(ui, &t);
             } else if main_open_on {

@@ -379,3 +379,4 @@ via_tool.refuse_outside = Sin vía en {x}, {y}: está fuera del contorno de la p
 via_tool.refuse_edge = Sin vía aquí: necesita {gap} mm entre su centro y el borde de la placa.
 via_tool.refuse_ring = Sin vía de este tamaño: el anillo de cobre mide {have} mm y las reglas piden {need} mm. Agranda el pad o reduce el taladro.
 via_tool.refuse_clearance = Sin vía aquí: hay otro cobre más cerca de los {need} mm que piden las reglas.
+board.tool_hint.tip = Instrucciones contextuales para la herramienta seleccionada actualmente.

@@ -1584,3 +1584,4 @@ library.model_transform.open_in_cad_app = Ouvrir dans l'application CAO
 library.model_transform.open_in_cad_app.tip = Ouvrir le projet CAO compagnon de ce modèle dans l'application CAO du bureau.
 library.model_transform.reimport = Réimporter
 library.model_transform.reimport.tip = Recharger le modèle 3D à partir du fichier projet CAO compagnon ; les décalages, l'échelle et la rotation restent inchangés.
+board.tool_hint.tip = Instructions contextuelles pour l'outil actuellement sélectionné.
