@@ -62,14 +62,6 @@ pub(crate) fn flat_ring(p: &Project, max_chord_error: f64) -> Vec<Point> {
     }
 }
 
-#[allow(dead_code)]
-pub(crate) fn flat_tuples(p: &Project, max_chord_error: f64) -> Vec<(f64, f64)> {
-    flat_ring(p, max_chord_error)
-        .iter()
-        .map(|pt| (pt.x, pt.y))
-        .collect()
-}
-
 pub(crate) fn gerber_body(scale: f64, p: &Project) -> Result<(String, usize), String> {
     let segs = segments(p);
     if segs.is_empty() {

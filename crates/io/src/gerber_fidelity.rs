@@ -102,25 +102,6 @@ pub(crate) fn copper_layer_is_back(p: &Project, layer: Layer) -> bool {
     layer.index() + 1 == p.copper_layer_count()
 }
 
-#[allow(dead_code)]
-pub(crate) fn copper_file_function(p: &Project, layer: Layer) -> String {
-    let index = layer.index() + 1;
-    let side = if layer.index() == 0 {
-        "Top"
-    } else if copper_layer_is_back(p, layer) {
-        "Bot"
-    } else {
-        "Inr"
-    };
-    format!("Copper,L{index},{side}")
-}
-
-#[allow(dead_code)]
-pub(crate) fn copper_gerber_basename(p: &Project, layer: Layer) -> String {
-    let name = p.layer_name(layer);
-    format!("pcb-{name}.gbr")
-}
-
 pub(crate) fn pad_copper_aperture_function(
     p: &Project,
     layer: Layer,
