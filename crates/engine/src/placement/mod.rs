@@ -583,56 +583,57 @@ pub fn run_polish(
     if scope.layers.is_empty() && scope.nets.is_empty() && scope.components.is_empty() {
         return Err("scope is empty".into());
     }
+    settings.validate()?;
 
-    let model = build_model(project, scope, settings)?;
+    let mut model = build_model(project, scope, settings)?;
     if model.cells.iter().all(|c| c.fixed) {
         return Err("no movable parts in scope".into());
     }
-
-    let mut model = model;
     let outcome = anneal(&mut model, settings)?;
 
-    let errors_before = pcbcraft_rules::drc(project);
-    let errors_before_set: std::collections::BTreeSet<(&str, Vec<u64>)> = errors_before
-        .iter()
-        .filter(|f| f.severity == "error")
-        .map(|f| {
-            let mut o = f.objects.clone();
-            o.sort_unstable();
-            (f.code, o)
-        })
-        .collect();
-
-    for (i, c) in model.cells.iter().enumerate() {
-        let start = &model.cells[i];
-        if c.x != start.x || c.y != start.y || c.turns != start.turns {
-            let footprint = project
-                .board
-                .footprints
-                .iter_mut()
-                .find(|f| f.id == c.id)
-                .ok_or_else(|| format!("footprint {} not found", c.id))?;
-            footprint.position.x = c.x;
-            footprint.position.y = c.y;
-            footprint.rotation = -(c.turns as f64) * 90.0;
+    // Errors counted per code: moving a part changes which objects a finding
+    // names, so the gate compares how many of each code there are.
+    let blocking = |p: &Project| -> std::collections::BTreeMap<&'static str, usize> {
+        let mut counts = std::collections::BTreeMap::new();
+        for f in pcbcraft_rules::drc(p)
+            .iter()
+            .filter(|f| f.severity == "error")
+        {
+            *counts.entry(f.code).or_insert(0) += 1;
         }
-    }
+        counts
+    };
+    let before = blocking(project);
 
-    let errors_after = pcbcraft_rules::drc(project);
-    let errors_after_set: std::collections::BTreeSet<(&str, Vec<u64>)> = errors_after
+    // Work on a copy so a refused result leaves the project exactly as it was.
+    let mut trial = project.clone();
+    for m in &outcome.moved {
+        let footprint = trial
+            .board
+            .footprints
+            .iter_mut()
+            .find(|f| f.id == m.id)
+            .ok_or_else(|| format!("footprint {} not found", m.id))?;
+        if scope.respect_locked && footprint.locked == Some(true) {
+            return Err(format!("footprint {} is locked", m.id));
+        }
+        footprint.position.x = m.x;
+        footprint.position.y = m.y;
+        footprint.rotation = (footprint.rotation - f64::from(m.turns) * 90.0).rem_euclid(360.0);
+    }
+    let after = blocking(&trial);
+    let added: Vec<&str> = after
         .iter()
-        .filter(|f| f.severity == "error")
-        .map(|f| {
-            let mut o = f.objects.clone();
-            o.sort_unstable();
-            (f.code, o)
-        })
+        .filter(|(code, n)| **n > before.get(*code).copied().unwrap_or(0))
+        .map(|(code, _)| *code)
         .collect();
-
-    if !errors_after_set.is_subset(&errors_before_set) {
-        return Err("polish introduced a new error".into());
+    if !added.is_empty() {
+        return Err(format!(
+            "polish introduced a new error: {}",
+            added.join(", ")
+        ));
     }
-
+    *project = trial;
     Ok(outcome)
 }
 

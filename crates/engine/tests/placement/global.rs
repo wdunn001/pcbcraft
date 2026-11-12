@@ -136,7 +136,6 @@ fn project() -> Result<(Session, [u64; 4]), Error> {
 }
 
 #[test]
-#[ignore = "built in slice-1121-a"]
 fn the_model_marks_locked_and_edge_parts_fixed_and_down_weights_power_nets() -> Result<(), Error> {
     let (s, ids) = project()?;
     let scope = Scope::from_value(&s.project, &json!({"layers":["F.Cu"]}))?;
@@ -172,7 +171,6 @@ fn the_model_marks_locked_and_edge_parts_fixed_and_down_weights_power_nets() -> 
 }
 
 #[test]
-#[ignore = "built in slice-1121-a"]
 fn out_of_scope_parts_are_anchors_and_two_builds_are_equal() -> Result<(), Error> {
     let (s, ids) = project()?;
     let scope = Scope::from_value(

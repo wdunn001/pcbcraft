@@ -485,6 +485,7 @@ pub(crate) fn tap_strip(ctx: &egui::Context, app: &mut App, id: &str) -> Result<
             "tool-pad" => "Pad",
             "tool-text" => "Text",
             "tool-measure" => "Measure",
+            "tool-arrange" => "Arrange",
             other => return Err(format!("{other} has no known name")),
         }
         .to_owned(),
