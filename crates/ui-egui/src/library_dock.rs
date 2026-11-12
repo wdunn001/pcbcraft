@@ -141,6 +141,8 @@ pub(crate) struct Dock {
     pub(crate) tag: Option<String>,
     /// The connector series being configured, if any.
     pub(crate) series: crate::library_dock_series::SeriesState,
+    /// The resistor or capacitor generator being configured, if any.
+    pub(crate) passive: crate::library_dock_passive::PassiveState,
     /// Folders to read instead of the user's installed ones (tests).
     pub(crate) roots: Option<Vec<std::path::PathBuf>>,
     sent: String,
@@ -227,6 +229,7 @@ impl Default for Dock {
             kinds: BTreeSet::new(),
             tag: None,
             series: Default::default(),
+            passive: Default::default(),
             roots: None,
             sent: String::new(),
             wanted: String::new(),
@@ -596,6 +599,7 @@ impl App {
             );
         }
         self.dock_series_section(ui, &query);
+        self.dock_passive_section(ui, &query);
         let top = ui.cursor().min.y - ui.min_rect().min.y;
         let first =
             (((viewport.min.y - top) / ROW_HEIGHT).floor().max(0.0) as usize).min(cards.len());

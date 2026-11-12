@@ -69,6 +69,7 @@ mod pads;
 mod pairs;
 mod part_listing;
 mod parts_table;
+mod passive_cards;
 mod pin_map;
 mod pnp_machine;
 mod pours;
