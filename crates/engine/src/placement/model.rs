@@ -13,9 +13,10 @@
 //!   every step, so cell order is part of the contract (reference, then id).
 //!
 //! Dependencies: `crates/engine/src/placement/mod.rs` (settings and results).
-use super::{PlacementSettings, not_built};
+use super::PlacementSettings;
 use crate::scope::Scope;
 use pcbcraft_doc::Project;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// An axis aligned rectangle in millimetres.
 ///
@@ -255,11 +256,165 @@ pub fn boxes_overlap(
 /// # Do not
 /// - Mutate the project or read the clock.
 pub fn build_model(
-    _project: &Project,
-    _scope: &Scope,
-    _settings: &PlacementSettings,
+    project: &Project,
+    scope: &Scope,
+    settings: &PlacementSettings,
 ) -> Result<Model, String> {
-    Err(not_built("slice-1121-a"))
+    settings.validate()?;
+    let footprints = &project.board.footprints;
+    if footprints.len() > settings.max_cells {
+        return Err(format!(
+            "too many parts: {} placed, at most {} at once",
+            footprints.len(),
+            settings.max_cells
+        ));
+    }
+    let board = board_rect(project);
+    let mut order: Vec<usize> = (0..footprints.len()).collect();
+    let reference_of = |i: usize| {
+        project
+            .component(footprints[i].component)
+            .map(|c| c.reference.clone())
+            .unwrap_or_default()
+    };
+    order.sort_by(|&a, &b| {
+        reference_of(a)
+            .cmp(&reference_of(b))
+            .then(footprints[a].id.cmp(&footprints[b].id))
+    });
+
+    let mut cells = Vec::with_capacity(order.len());
+    let mut slot_of: BTreeMap<u64, usize> = BTreeMap::new();
+    for (slot, &i) in order.iter().enumerate() {
+        let f = &footprints[i];
+        let (mut half_x, mut half_y) = (0.0_f64, 0.0_f64);
+        for q in f.drawing_points(project) {
+            let w = q.rotate(-f.rotation);
+            half_x = half_x.max(w.x.abs());
+            half_y = half_y.max(w.y.abs());
+        }
+        let quarter = (f.rotation / 90.0 - (f.rotation / 90.0).round()).abs() < 1e-9;
+        let (hx, hy) = (half_x, half_y);
+        let near_edge = f.position.x - hx < board.x0 + settings.edge_anchor_mm
+            || f.position.x + hx > board.x1 - settings.edge_anchor_mm
+            || f.position.y - hy < board.y0 + settings.edge_anchor_mm
+            || f.position.y + hy > board.y1 - settings.edge_anchor_mm;
+        cells.push(Cell {
+            id: f.id,
+            x: f.position.x,
+            y: f.position.y,
+            half_x,
+            half_y,
+            turns: 0,
+            fixed: !scope.may_move(project, f) || near_edge || !quarter,
+        });
+        slot_of.insert(f.id, slot);
+    }
+
+    let mut by_net: BTreeMap<u64, Vec<Pin>> = BTreeMap::new();
+    let mut power: BTreeSet<u64> = BTreeSet::new();
+    for f in footprints {
+        let Some(&cell) = slot_of.get(&f.id) else {
+            continue;
+        };
+        let component = project.component(f.component);
+        for pad in &f.pads {
+            let Some(net) = pad.net else { continue };
+            let o = pad.offset.rotate(-f.rotation);
+            by_net.entry(net).or_default().push(Pin {
+                cell,
+                dx: o.x,
+                dy: o.y,
+            });
+            let typed = component
+                .and_then(|c| c.pins.iter().find(|p| p.number == pad.number))
+                .is_some_and(|p| {
+                    p.electrical_type == "power_in" || p.electrical_type == "power_out"
+                });
+            if typed {
+                power.insert(net);
+            }
+        }
+    }
+    let mut nets = Vec::new();
+    for (net, pins) in by_net {
+        let distinct: BTreeSet<usize> = pins.iter().map(|p| p.cell).collect();
+        if distinct.len() < 2 {
+            continue;
+        }
+        let named = project
+            .nets
+            .iter()
+            .find(|n| n.id == net)
+            .is_some_and(|n| is_rail_name(&n.name));
+        let weight = if named || power.contains(&net) {
+            settings.power_net_weight
+        } else {
+            settings.signal_net_weight
+        };
+        nets.push(NetSpring { net, weight, pins });
+    }
+
+    let keepouts = project
+        .board
+        .rule_areas
+        .iter()
+        .filter(|a| a.active_keepout().is_some() && a.footprint_ref.is_none())
+        .map(|a| {
+            let r = a.keepout_rect();
+            Rect {
+                x0: r.x,
+                y0: r.y,
+                x1: r.x + r.width,
+                y1: r.y + r.height,
+            }
+        })
+        .collect();
+    Ok(Model {
+        cells,
+        nets,
+        board,
+        keepouts,
+    })
+}
+
+/// The rectangle around the board: the outline's extent, or 0 to width and 0
+/// to height when the board is a plain rectangle.
+fn board_rect(project: &Project) -> Rect {
+    let ring = project.board.edge_ring(0.05);
+    if ring.is_empty() {
+        return Rect {
+            x0: 0.0,
+            y0: 0.0,
+            x1: project.board.width,
+            y1: project.board.height,
+        };
+    }
+    let mut r = Rect {
+        x0: f64::INFINITY,
+        y0: f64::INFINITY,
+        x1: f64::NEG_INFINITY,
+        y1: f64::NEG_INFINITY,
+    };
+    for p in &ring {
+        r.x0 = r.x0.min(p.x);
+        r.y0 = r.y0.min(p.y);
+        r.x1 = r.x1.max(p.x);
+        r.y1 = r.y1.max(p.y);
+    }
+    r
+}
+
+/// True for GND, VCC, VDD, VSS, VBUS, a name starting with + and a name with a
+/// digit, a V and a digit in a row such as 3V3.
+fn is_rail_name(name: &str) -> bool {
+    let up = name.trim().to_uppercase();
+    if matches!(up.as_str(), "GND" | "VCC" | "VDD" | "VSS" | "VBUS") || up.starts_with('+') {
+        return true;
+    }
+    let b: Vec<char> = up.chars().collect();
+    b.windows(3)
+        .any(|w| w[0].is_ascii_digit() && w[1] == 'V' && w[2].is_ascii_digit())
 }
 
 #[cfg(test)]

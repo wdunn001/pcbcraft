@@ -45,6 +45,7 @@ enum Act {
     SheetText,
     SheetShape(sheet_shape_tool::SheetShapeKind),
     Measure,
+    Arrange,
 }
 
 /// One entry of the bar.
@@ -353,6 +354,17 @@ impl App {
             Act::Measure,
             true,
         );
+        if pcb {
+            push(
+                "tool-arrange",
+                "grid",
+                t!("toolbar.arrange"),
+                t!("toolbar.arrange.tip"),
+                false,
+                Act::Arrange,
+                false,
+            );
+        }
         if self.tab == Tab::Schematic {
             let menu = self.add_menu();
             if let Some(item) = out.iter_mut().find(|i| i.act == Act::Add) {
@@ -579,7 +591,24 @@ impl App {
                 self.sheet_shape_points.clear();
             }
             Act::Measure => self.arm_measure(),
+            Act::Arrange => self.arrange_parts(),
         }
+    }
+
+    /// Run the annealing polish over the unlocked parts and say what happened.
+    ///
+    /// # Rules
+    /// - One engine command, one undo step; a refusal is shown as the engine's
+    ///   plain sentence and changes nothing.
+    ///
+    /// # Dependencies
+    /// - crates/engine/src/layout.rs (`layout.place_polish`)
+    fn arrange_parts(&mut self) {
+        let result = self.run_and_keep("layout.place_polish", json!({}));
+        if let Some(text) = result.get("message").and_then(Value::as_str) {
+            self.message = text.to_owned();
+        }
+        self.refresh();
     }
 
     /// The tool bar: tools that fit, then "More" for the rest, then the options.

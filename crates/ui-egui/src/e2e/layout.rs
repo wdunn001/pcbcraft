@@ -417,3 +417,150 @@ fn a_newcomer_reads_every_start_tile_on_one_line_at_any_window_size() -> Result<
     }
     Ok(())
 }
+
+/// R1 and R2 placed far left of a locked connector J1 they are wired to.
+/// Returns the session and the footprint ids (r1, r2, j1).
+fn arrange_session() -> Result<(pcbcraft_engine::Session, [u64; 3]), String> {
+    let mut s = pcbcraft_engine::Session::default();
+    s.project.auto_sync = false;
+    let id = |v: Value| -> Result<u64, String> {
+        v["result"]["id"].as_u64().ok_or_else(|| "no id".to_owned())
+    };
+    let mut add = |kind: &str, reference: &str| -> Result<u64, String> {
+        let v = s
+            .execute(
+                "component.add",
+                json!({"kind":kind,"reference":reference,"value":"v","position":{"x":10,"y":10}}),
+                None,
+            )
+            .map_err(|e| e.to_string())?;
+        id(v)
+    };
+    let (r1, r2, j1) = (
+        add("resistor", "R1")?,
+        add("resistor", "R2")?,
+        add("connector", "J1")?,
+    );
+    for (name, a, ap, b, bp) in [
+        ("N1", r1, "1", j1, "1"),
+        ("N2", r2, "1", j1, "2"),
+        ("N3", r1, "2", r2, "2"),
+    ] {
+        let net = s
+            .execute("net.create", json!({"name":name}), None)
+            .map_err(|e| e.to_string())
+            .and_then(id)?;
+        s.execute(
+            "wire.connect",
+            json!({"net":net,"from":{"component":a,"pin":ap},"to":{"component":b,"pin":bp}}),
+            None,
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    s.execute("board.sync", json!({}), None)
+        .map_err(|e| e.to_string())?;
+    let mut ids = [0_u64; 3];
+    for (slot, component) in [r1, r2, j1].into_iter().enumerate() {
+        ids[slot] = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == component)
+            .map(|f| f.id)
+            .ok_or("a part has no footprint")?;
+    }
+    for (fp, x, y) in [
+        (ids[0], 14.0, 14.0),
+        (ids[1], 14.0, 28.0),
+        (ids[2], 44.0, 21.0),
+    ] {
+        s.execute(
+            "footprint.move",
+            json!({"id":fp,"position":{"x":x,"y":y}}),
+            None,
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    s.execute(
+        "footprint.set_locked",
+        json!({"id":ids[2],"locked":true}),
+        None,
+    )
+    .map_err(|e| e.to_string())?;
+    Ok((s, ids))
+}
+
+#[test]
+fn a_newcomer_lets_the_app_arrange_the_unlocked_parts() -> Result<(), String> {
+    let (session, ids) = arrange_session()?;
+    let shared = pcbcraft_mcp::shared(session);
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.change_tab(Tab::Pcb);
+    let ctx = egui::Context::default();
+    let places = |app: &App| -> Vec<(u64, f64, f64, f64)> {
+        app.project
+            .board
+            .footprints
+            .iter()
+            .map(|f| (f.id, f.position.x, f.position.y, f.rotation))
+            .collect()
+    };
+    let errors = |app: &App| -> usize {
+        pcbcraft_rules::drc(&app.project)
+            .iter()
+            .filter(|f| f.severity == "error")
+            .count()
+    };
+    let at = |list: &[(u64, f64, f64, f64)], id: u64| list.iter().copied().find(|p| p.0 == id);
+    let before = places(&app);
+    let errors_before = errors(&app);
+    tap_strip(&ctx, &mut app, "icon:tool-arrange")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.refresh();
+    let after = places(&app);
+    assert_eq!(
+        at(&before, ids[2]),
+        at(&after, ids[2]),
+        "the locked connector did not move: {}",
+        app.message
+    );
+    let moved =
+        at(&before, ids[0]) != at(&after, ids[0]) || at(&before, ids[1]) != at(&after, ids[1]);
+    if moved {
+        assert!(
+            app.message.starts_with("Arranged"),
+            "the status line says how many parts moved: {}",
+            app.message
+        );
+    } else {
+        assert!(
+            app.message.contains("nothing moved") || app.message.contains("no unlocked"),
+            "when nothing moves the status line says why: {}",
+            app.message
+        );
+    }
+    assert!(
+        moved,
+        "the resistors are far from their connector: {}",
+        app.message
+    );
+    assert!(
+        errors(&app) <= errors_before,
+        "arranging added no new error: {} -> {}",
+        errors_before,
+        errors(&app)
+    );
+    assert!(
+        app.tool_call("undo", json!({})),
+        "one undo is available: {}",
+        app.message
+    );
+    assert_eq!(
+        places(&app),
+        before,
+        "undo puts every part back where it was"
+    );
+    Ok(())
+}

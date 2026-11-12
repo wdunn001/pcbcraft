@@ -27,6 +27,18 @@ Output keys:
 
 The wirelength functions live in `crates/engine/src/wirelength.rs` (`hpwl`, `ratsnest_length`, `net_pad_points`) so placers can reuse them.
 
+## layout.place_polish (Arrange)
+
+Input (all optional): `{"scope": {...}, "seed": 0, "moves": 500}`. Without a scope it covers every copper layer, that is the whole board. This command changes the design, so it is one undo step. The Arrange button at the end of the Layout tool bar sends it.
+
+It runs the bounded annealing polish over the unlocked parts. The polish tries small moves, quarter turns and swaps of same-sized parts, keeps the arrangement with the shortest wire, and never trades the hard rules for wire: a part never overlaps another part, enters a keepout or leaves the board edge margin (0.5 mm) because of it.
+
+- Locked parts never move. Parts whose box comes within 1 mm of the board edge and parts turned to an angle that is not a multiple of 90 degrees are treated as fixed too.
+- The work is bounded by a move count, never by time: `moves` is 1 to 20000 (default 50 per unlocked part, at least 500), at most 500 unlocked parts, and no clock is read. The random generator is seeded (`seed`, default 0), so the same board and seed give the same result.
+- The result lists the parts that moved (`moved`: `footprint`, `reference`, `x`, `y`, `turns`), their `count`, how many parts were `unlocked`, the wire length before and after in millimetres, and a plain `message`.
+- It refuses with a plain sentence, and writes nothing and adds no undo step, when no part can move, when nothing would improve, or when the result would add a rule error (the checks are run before and after).
+- Wire already routed is not moved with the parts. Arrange is meant for a board before routing, and a routed board may refuse with the new-error sentence.
+
 ## rules.decoupling_set and missing_decoupling
 
 `rules.decoupling_set {"max_distance_mm": 3.0, "suggested_value": "100 nF"}` (at least one field; distance 0.1 to 50 mm) stores the settings on the project. The `missing_decoupling` check then reports, for each power input pin of a part that is not a capacitor, either no capacitor on the net, or the nearest placed capacitor being farther than the distance (pad centre to pad centre). Ground-named nets are skipped. The finding names the part, pin, net and the value to add. Severity follows `rules.severity` like every code (default warning).

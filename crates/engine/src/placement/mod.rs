@@ -583,56 +583,47 @@ pub fn run_polish(
     if scope.layers.is_empty() && scope.nets.is_empty() && scope.components.is_empty() {
         return Err("scope is empty".into());
     }
+    settings.validate()?;
 
-    let model = build_model(project, scope, settings)?;
+    let mut model = build_model(project, scope, settings)?;
     if model.cells.iter().all(|c| c.fixed) {
         return Err("no movable parts in scope".into());
     }
-
-    let mut model = model;
     let outcome = anneal(&mut model, settings)?;
 
-    let errors_before = pcbcraft_rules::drc(project);
-    let errors_before_set: std::collections::BTreeSet<(&str, Vec<u64>)> = errors_before
-        .iter()
-        .filter(|f| f.severity == "error")
-        .map(|f| {
-            let mut o = f.objects.clone();
-            o.sort_unstable();
-            (f.code, o)
-        })
-        .collect();
+    let blocking = |p: &Project| -> std::collections::BTreeSet<(&'static str, Vec<u64>)> {
+        pcbcraft_rules::drc(p)
+            .iter()
+            .filter(|f| f.severity == "error")
+            .map(|f| {
+                let mut o = f.objects.clone();
+                o.sort_unstable();
+                (f.code, o)
+            })
+            .collect()
+    };
+    let before = blocking(project);
 
-    for (i, c) in model.cells.iter().enumerate() {
-        let start = &model.cells[i];
-        if c.x != start.x || c.y != start.y || c.turns != start.turns {
-            let footprint = project
-                .board
-                .footprints
-                .iter_mut()
-                .find(|f| f.id == c.id)
-                .ok_or_else(|| format!("footprint {} not found", c.id))?;
-            footprint.position.x = c.x;
-            footprint.position.y = c.y;
-            footprint.rotation = -(c.turns as f64) * 90.0;
+    // Work on a copy so a refused result leaves the project exactly as it was.
+    let mut trial = project.clone();
+    for m in &outcome.moved {
+        let footprint = trial
+            .board
+            .footprints
+            .iter_mut()
+            .find(|f| f.id == m.id)
+            .ok_or_else(|| format!("footprint {} not found", m.id))?;
+        if scope.respect_locked && footprint.locked == Some(true) {
+            return Err(format!("footprint {} is locked", m.id));
         }
+        footprint.position.x = m.x;
+        footprint.position.y = m.y;
+        footprint.rotation = (footprint.rotation - f64::from(m.turns) * 90.0).rem_euclid(360.0);
     }
-
-    let errors_after = pcbcraft_rules::drc(project);
-    let errors_after_set: std::collections::BTreeSet<(&str, Vec<u64>)> = errors_after
-        .iter()
-        .filter(|f| f.severity == "error")
-        .map(|f| {
-            let mut o = f.objects.clone();
-            o.sort_unstable();
-            (f.code, o)
-        })
-        .collect();
-
-    if !errors_after_set.is_subset(&errors_before_set) {
+    if !blocking(&trial).is_subset(&before) {
         return Err("polish introduced a new error".into());
     }
-
+    *project = trial;
     Ok(outcome)
 }
 

@@ -21,6 +21,8 @@
 //!   near an anchor part, scored by proximity. It changes nothing.
 //! - `layout.place_apply` applies a placement in one undo step and refuses if
 //!   the project revision has changed.
+//! - `layout.place_polish` runs the bounded annealing polish over the unlocked
+//!   parts and moves them in one undo step; see `polish`.
 //!
 //! Dependencies: `crates/engine/src/scope.rs`, `crates/engine/src/wirelength.rs`,
 //! `crates/rules/src/lib.rs` (`airwires`), `crates/doc/src/lib.rs`.
@@ -47,7 +49,7 @@ pub(super) fn handles(command: &str) -> bool {
 
 /// True for layout commands that mutate the design.
 pub(super) fn handles_mutating(command: &str) -> bool {
-    command == "layout.place_apply"
+    command == "layout.place_apply" || command == "layout.place_polish"
 }
 
 pub(super) fn commands() -> Vec<CommandSpec> {
@@ -81,8 +83,23 @@ pub(super) fn commands() -> Vec<CommandSpec> {
                 &["component", "position"],
             ),
         },
+        CommandSpec {
+            id: "layout.place_polish",
+            description: "Arrange the unlocked parts: runs the bounded annealing polish that shortens wire while keeping every part clear of the others, the keepouts and the board edge. Locked parts and parts flush to the board edge never move. One undo step; refuses with a plain sentence, and changes nothing, when no part can move or the result would add an error. The same board and seed always give the same result",
+            input_schema: schema(
+                json!({
+                    "scope": scope::schema(),
+                    "seed": {"type": "integer", "minimum": 0, "description": "random seed of the polish; defaults to 0, same seed and board give the same result"},
+                    "moves": {"type": "integer", "minimum": 1, "maximum": POLISH_MAX_MOVES, "description": "most trial moves; defaults to 50 per movable part, at least 500"}
+                }),
+                &[],
+            ),
+        },
     ]
 }
+
+/// Most trial moves one polish may use.
+pub const POLISH_MAX_MOVES: usize = 20_000;
 
 /// Run a layout read command.
 pub(super) fn run(p: &Project, command: &str, params: &Value) -> Result<Value, Error> {
@@ -105,6 +122,7 @@ pub(super) fn run_mutating(
 ) -> Result<Value, Error> {
     match command {
         "layout.place_apply" => place_apply(p, params, expected_revision),
+        "layout.place_polish" => polish(p, params),
         _ => Err(Error::Invalid(format!(
             "unknown layout mutating command: {command}"
         ))),
@@ -565,5 +583,90 @@ fn place_apply(
         "component": a.component,
         "reference": reference,
         "position": {"x": r(x), "y": r(y)},
+    }))
+}
+
+/// Arrange the unlocked parts with the annealing polish.
+///
+/// # Rules
+/// - Scope defaults to every copper layer; locked parts are never moved.
+/// - The work is bounded by a move count (`moves`, at most `POLISH_MAX_MOVES`),
+///   never by time, and the generator is seeded, so one board and seed give one
+///   result.
+/// - Refusals are plain sentences and leave the project as it was: no free
+///   part, nothing worth moving, or a result that would add an error.
+///
+/// # Dependencies
+/// - crates/engine/src/placement/mod.rs (`run_polish`, `PlacementSettings`)
+///
+/// # Do not
+/// - Move a locked part, or read the clock.
+fn polish(p: &mut Project, params: &Value) -> Result<Value, Error> {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Params {
+        scope: Option<Value>,
+        seed: Option<u64>,
+        moves: Option<usize>,
+    }
+    let a: Params = super::parse(params)?;
+    let mut scope = match &a.scope {
+        Some(v) => Scope::from_value(p, v)?,
+        None => Scope {
+            layers: p
+                .copper_layers()
+                .into_iter()
+                .map(|l| p.layer_name(l))
+                .collect(),
+            ..Scope::default()
+        },
+    };
+    scope.respect_locked = true;
+    let settings = crate::placement::PlacementSettings {
+        seed: a.seed.unwrap_or(0),
+        moves: a.moves,
+        ..crate::placement::PlacementSettings::default()
+    };
+    settings.validate().map_err(Error::Invalid)?;
+    let model = crate::placement::build_model(p, &scope, &settings).map_err(Error::Invalid)?;
+    let free = model.cells.iter().filter(|c| !c.fixed).count();
+    if free == 0 {
+        return Err(Error::Invalid(
+            "There are no unlocked parts to arrange: every part in scope is locked or sits on the board edge.".into(),
+        ));
+    }
+    let outcome = crate::placement::run_polish(p, &scope, &settings).map_err(|e| {
+        if e == "polish introduced a new error" {
+            Error::Invalid("Arranging would add a new rule error, so nothing was moved.".into())
+        } else {
+            Error::Invalid(e)
+        }
+    })?;
+    if outcome.moved.is_empty() {
+        return Err(Error::Invalid(
+            "The unlocked parts are already as well placed as the arrange can get them, so nothing moved.".into(),
+        ));
+    }
+    let moved: Vec<Value> = outcome
+        .moved
+        .iter()
+        .map(|m| {
+            let reference = p
+                .footprint(m.id)
+                .and_then(|f| p.component(f.component))
+                .map(|c| c.reference.clone())
+                .unwrap_or_default();
+            json!({"footprint": m.id, "reference": reference, "x": r(m.x), "y": r(m.y), "turns": m.turns})
+        })
+        .collect();
+    let count = moved.len();
+    Ok(json!({
+        "moved": moved,
+        "count": count,
+        "unlocked": free,
+        "wire_before_mm": r(outcome.hpwl_before),
+        "wire_after_mm": r(outcome.hpwl_after),
+        "seed": settings.seed,
+        "message": format!("Arranged: {count} of {free} unlocked parts moved."),
     }))
 }
