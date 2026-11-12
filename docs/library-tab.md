@@ -112,6 +112,17 @@ name Digi-Key as their source, with stock and the first price break.
 - The sources are built by `configured_sources` in `crates/ui-egui/src/distributors.rs`, which is
   where the other distributors join the list.
 
+## Make a resistor or capacitor from a value
+
+The Library panel in the left aside shows a Resistor generator card and a Capacitor generator card
+under the connector series (issue #757). Opening a card gives a form: the series (E6, E12, E24 or
+E96), the chip size (0402, 0603, 0805 or 1206), a range of values (one decade) and a value from that
+series. A line reads "Makes" followed by the part number and the value. Place on schematic, or Place
+on board on the Layout tab, adds the part with its symbol and footprint to the project in one undo
+step. Only values of the chosen series can be picked, and the tolerance follows the series (E6 20,
+E12 10, E24 5, E96 1 percent). Resistors run from 1 ohm to just under 10 Mohm and capacitors from
+1 pF to just under 100 uF. The CLI and MCP do not have a command for this yet.
+
 ## Not built yet
 
 - Rendering the datasheet PDF in the app (page navigation, zoom, search, selectable text).
