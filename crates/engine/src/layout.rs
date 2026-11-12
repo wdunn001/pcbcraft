@@ -636,8 +636,10 @@ fn polish(p: &mut Project, params: &Value) -> Result<Value, Error> {
         ));
     }
     let outcome = crate::placement::run_polish(p, &scope, &settings).map_err(|e| {
-        if e == "polish introduced a new error" {
-            Error::Invalid("Arranging would add a new rule error, so nothing was moved.".into())
+        if let Some(codes) = e.strip_prefix("polish introduced a new error: ") {
+            Error::Invalid(format!(
+                "Arranging would add a new rule error ({codes}), so nothing was moved."
+            ))
         } else {
             Error::Invalid(e)
         }

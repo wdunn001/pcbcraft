@@ -591,16 +591,17 @@ pub fn run_polish(
     }
     let outcome = anneal(&mut model, settings)?;
 
-    let blocking = |p: &Project| -> std::collections::BTreeSet<(&'static str, Vec<u64>)> {
-        pcbcraft_rules::drc(p)
+    // Errors counted per code: moving a part changes which objects a finding
+    // names, so the gate compares how many of each code there are.
+    let blocking = |p: &Project| -> std::collections::BTreeMap<&'static str, usize> {
+        let mut counts = std::collections::BTreeMap::new();
+        for f in pcbcraft_rules::drc(p)
             .iter()
             .filter(|f| f.severity == "error")
-            .map(|f| {
-                let mut o = f.objects.clone();
-                o.sort_unstable();
-                (f.code, o)
-            })
-            .collect()
+        {
+            *counts.entry(f.code).or_insert(0) += 1;
+        }
+        counts
     };
     let before = blocking(project);
 
@@ -620,8 +621,17 @@ pub fn run_polish(
         footprint.position.y = m.y;
         footprint.rotation = (footprint.rotation - f64::from(m.turns) * 90.0).rem_euclid(360.0);
     }
-    if !blocking(&trial).is_subset(&before) {
-        return Err("polish introduced a new error".into());
+    let after = blocking(&trial);
+    let added: Vec<&str> = after
+        .iter()
+        .filter(|(code, n)| **n > before.get(*code).copied().unwrap_or(0))
+        .map(|(code, _)| *code)
+        .collect();
+    if !added.is_empty() {
+        return Err(format!(
+            "polish introduced a new error: {}",
+            added.join(", ")
+        ));
     }
     *project = trial;
     Ok(outcome)
