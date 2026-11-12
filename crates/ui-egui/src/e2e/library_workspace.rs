@@ -406,6 +406,92 @@ fn a_newcomer_checks_which_pad_each_symbol_pin_reaches() -> Result<(), String> {
     Ok(())
 }
 
+/// Open a picker by its spoken name and choose one of its entries.
+fn pick_entry(ctx: &egui::Context, app: &mut App, picker: &str, entry: &str) -> Result<(), String> {
+    tap_named_holding(ctx, app, picker, egui::Modifiers::NONE)?;
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(ctx, app, entry)?;
+    for _ in 0..3 {
+        frame(ctx, app, vec![], egui::Modifiers::NONE);
+    }
+    Ok(())
+}
+
+/// The role stored for pad `pad` of the part named `Test part`.
+fn stored_role(app: &App, pad: &str) -> Option<pcbcraft_library::PadRole> {
+    app.project
+        .library
+        .part_pin_maps
+        .get("Test part")
+        .map(|m| m.pad_role(pad))
+}
+
+#[test]
+fn a_newcomer_reassigns_a_pin_to_another_pad_and_the_finding_clears() -> Result<(), String> {
+    let (ctx, mut app) = library_open();
+    open_part_with_model(&ctx, &mut app);
+    tap_id(&ctx, &mut app, "tab:Edit")?;
+    assert!(
+        paints_text_tall(&ctx, &mut app, "Pad assignments")?,
+        "the Edit page shows the pad assignments: {}",
+        painted(&ctx, &mut app)
+    );
+    assert!(
+        !paints_text_tall(&ctx, &mut app, "is mapped to both pin")?,
+        "a part whose pins meet their pads by number has no shared pad"
+    );
+    // Give pad 1 to pin 2 as well: pad 1 now has two pins.
+    pick_entry(&ctx, &mut app, "ComboBox Pad driven by pin 2", "Pad 1")?;
+    assert!(
+        paints_text_tall(&ctx, &mut app, "1 is mapped to both pin 1 and pin 2")?,
+        "the shared pad is reported: {} / {}",
+        app.message,
+        painted(&ctx, &mut app)
+    );
+    assert!(
+        paints_text_tall(
+            &ctx,
+            &mut app,
+            "2 on footprint Test_FP is not mapped to a pin"
+        )?,
+        "pad 2 is left with no pin and that is reported: {}",
+        painted(&ctx, &mut app)
+    );
+    // Send pin 2 back to its own pad: both findings go away.
+    pick_entry(&ctx, &mut app, "ComboBox Pad driven by pin 2", "Pad 2")?;
+    assert!(
+        !paints_text_tall(&ctx, &mut app, "is mapped to both pin")?,
+        "the shared pad finding clears: {}",
+        painted(&ctx, &mut app)
+    );
+    assert!(
+        !paints_text_tall(&ctx, &mut app, "is not mapped to a pin")?,
+        "the unclaimed pad finding clears: {}",
+        painted(&ctx, &mut app)
+    );
+    assert!(
+        paints_text_tall(&ctx, &mut app, "No problems")?,
+        "the card says there are no problems: {}",
+        painted(&ctx, &mut app)
+    );
+    // Give pad 2 a role; the stored map follows and one undo puts it back.
+    pick_entry(&ctx, &mut app, "ComboBox Role of pad 2", "Thermal")?;
+    assert_eq!(
+        stored_role(&app, "2"),
+        Some(pcbcraft_library::PadRole::Thermal),
+        "the role picker stores the role: {}",
+        app.message
+    );
+    app.tool_call("undo", json!({}));
+    app.refresh();
+    assert_eq!(
+        stored_role(&app, "2"),
+        Some(pcbcraft_library::PadRole::Electrical),
+        "the role change is one undo step"
+    );
+    Ok(())
+}
+
 #[test]
 fn a_newcomer_manages_alternates_and_second_sources() -> Result<(), String> {
     let (ctx, mut app) = library_open();

@@ -120,6 +120,7 @@ impl App {
         }
         self.library_editor(ui);
         self.library_pin_map(ui);
+        self.library_pad_assignments(ui);
     }
 
     /// The pin map: each pin of the symbol being edited and the pad it reaches.

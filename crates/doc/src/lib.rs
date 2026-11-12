@@ -4626,6 +4626,10 @@ pub struct ProjectLibrary {
     /// Second sources and alternates keyed by project-library symbol name.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub part_substitutes: BTreeMap<String, pcbcraft_library::PartSubstitutes>,
+    /// Edited symbol pin to footprint pad maps, keyed by project-library symbol name. A part
+    /// with no entry uses the map made by matching pin numbers to pad numbers.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub part_pin_maps: BTreeMap<String, pcbcraft_library::PinPadMap>,
     /// When true, model transforms for library footprints are editable in the project
     /// even if the footprint is not in the project's own library.
     #[serde(default, skip_serializing_if = "is_false")]
@@ -4688,6 +4692,19 @@ impl ProjectLibrary {
                 {
                     return Err(format!("no library footprint named {}", alt.footprint));
                 }
+            }
+        }
+        if self.part_pin_maps.len() > 256 {
+            return Err("pin to pad maps exceed the library symbol limit".into());
+        }
+        for (name, map) in &self.part_pin_maps {
+            if !self.symbols.iter().any(|s| s.name == *name) {
+                return Err(format!(
+                    "no library symbol named {name} for its pin to pad map"
+                ));
+            }
+            if map.rows.len() > 4096 || map.pad_roles.len() > 4096 {
+                return Err("a pin to pad map is too large".into());
             }
         }
         let mut names = BTreeSet::new();

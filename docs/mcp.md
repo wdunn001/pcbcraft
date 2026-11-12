@@ -182,6 +182,12 @@ docs/kicad-libraries.md. `library.symbol.remove` / `library.footprint.remove` ac
 `name`. `component.place_custom` accepts `name`, `position`, optional reference/value;
 `footprint.assign_custom` accepts component `id` and footprint `name`.
 
+`library.pin_pad_assign` (`name`, `pin`, `pad`, optional `only`) chooses the footprint pad a
+symbol pin drives on a project-library part, and `library.pin_pad_role` (`name`, `pad`, `role` of
+electrical, mechanical, thermal or no_connect) says what a pad is for. Each is one undoable step,
+refuses an unknown part, pin, pad or role without changing anything, and returns the pin to pad
+findings after the change.
+
 `library.import_online` adds a part fetched from an online library to the project
 library in one undoable step. It takes a `symbol` definition, an optional `footprint`
 definition, an optional `model` (a file path with optional offset, scale and rotate),
