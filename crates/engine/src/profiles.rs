@@ -60,38 +60,6 @@ pub static BUILT_INS: &[BuiltInProfile] = &[
     builtin!("component-kinds", "component-kinds.toml"),
 ];
 
-pub fn manifest_slugs() -> &'static [&'static str] {
-    &[
-        "usb2",
-        "i2c",
-        "spi",
-        "uart",
-        "can",
-        "rs485",
-        "swd",
-        "jtag",
-        "hdmi",
-        "ethernet-100",
-        "ethernet-1g",
-        "pcie-gen2",
-        "pcie-gen3",
-        "lvds",
-        "mipi-dsi",
-        "mipi-csi",
-        "sdio",
-        "qspi",
-        "ddr3",
-        "ddr4",
-        "lpddr4",
-        "power-3v3",
-        "power-5v",
-        "power-12v",
-        "analog-audio",
-        "rf-50ohm",
-        "component-kinds",
-    ]
-}
-
 pub fn known_value_source_fields() -> &'static [&'static str] {
     pcbcraft_doc::known_value_source_fields()
 }
@@ -745,12 +713,4 @@ fn parse_layer(name: &str) -> Result<pcbcraft_doc::Layer, String> {
         "B.Cu" => Ok(pcbcraft_doc::Layer::Back),
         other => Err(format!("unsupported layer {other}")),
     }
-}
-
-pub fn parse_builtin(id: &str) -> Result<&'static str, String> {
-    BUILT_INS
-        .iter()
-        .find(|b| b.id == id)
-        .map(|b| b.toml)
-        .ok_or_else(|| format!("unknown profile {id}"))
 }

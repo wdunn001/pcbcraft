@@ -963,11 +963,6 @@ fn rule_area_keepout_piece(project: &Project, area: &RuleArea) -> Option<Piece> 
     }])
 }
 
-/// True when a zone's settings are all inside their bounds.
-pub fn pour_is_valid(pour: &ZonePour) -> bool {
-    pour.valid()
-}
-
 /// One object that enters a keepout area.
 #[derive(Clone, Copy, Debug)]
 pub struct KeepoutHit {

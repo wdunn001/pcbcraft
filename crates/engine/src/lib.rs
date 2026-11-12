@@ -6195,40 +6195,10 @@ struct ZoneParams {
     layer: Layer,
     outline: Vec<Point>,
 }
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-#[allow(dead_code)]
-struct TeardropParams {
-    #[serde(default)]
-    net: Option<Id>,
-    #[serde(default)]
-    layer: Option<Layer>,
-    #[serde(default = "teardrop_depth")]
-    depth: f64,
-}
 fn resolve_library_path(p: &Project, path: &str) -> String {
     pcbcraft_io::resolve_library_path(p, path)
 }
 
-/// Default teardrop extension depth in millimetres when a command omits it.
-#[allow(dead_code)]
-fn teardrop_depth() -> f64 {
-    0.5
-}
-/// One track endpoint that lands on a pad or via: the junction point, the
-/// unit direction along the track, the copper radius at the junction, the
-/// track width, the track span, and the net and layer to tag the teardrop.
-#[allow(dead_code)]
-type Junction = (Point, (f64, f64), f64, f64, f64, Id, Layer);
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-#[allow(dead_code)]
-struct TeardropRemoveParams {
-    #[serde(default)]
-    net: Option<Id>,
-    #[serde(default)]
-    layer: Option<Layer>,
-}
 /// Parameters of `library.link`: add or replace a nickname in the project library table.
 ///
 /// # Rules

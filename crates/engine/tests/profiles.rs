@@ -218,15 +218,7 @@ fn profile_list_includes_usb2() -> Result<(), Error> {
 }
 
 #[test]
-fn manifest_slugs_match_built_ins_and_manifest_jsonl() {
-    let slugs = pcbcraft_engine::profiles::manifest_slugs();
-    assert_eq!(slugs.len(), pcbcraft_engine::profiles::BUILT_INS.len());
-    for (slug, builtin) in slugs
-        .iter()
-        .zip(pcbcraft_engine::profiles::BUILT_INS.iter())
-    {
-        assert_eq!(*slug, builtin.id);
-    }
+fn manifest_lists_every_built_in_profile() {
     let manifest = include_str!("../profiles/manifest.jsonl");
     let manifest_slugs: std::collections::BTreeSet<String> = manifest
         .lines()
@@ -240,10 +232,11 @@ fn manifest_slugs_match_built_ins_and_manifest_jsonl() {
             }
         })
         .collect();
-    for slug in slugs {
+    for builtin in pcbcraft_engine::profiles::BUILT_INS {
         assert!(
-            manifest_slugs.contains(*slug),
-            "manifest.jsonl missing {slug}"
+            manifest_slugs.contains(builtin.id),
+            "manifest.jsonl missing {}",
+            builtin.id
         );
     }
 }
@@ -271,21 +264,6 @@ fn class_pattern_matches_glob_oracle() {
             "pattern {pattern:?} name {name:?}"
         );
     }
-}
-
-#[test]
-fn parse_builtin_returns_embedded_toml_or_unknown_error() -> Result<(), String> {
-    use pcbcraft_engine::profiles::parse_builtin;
-    let usb = parse_builtin("usb2").map_err(|e| format!("{}: {e:?}", "usb2 is built in"))?;
-    let doc: toml::Value =
-        toml::from_str(usb).map_err(|e| format!("{}: {e:?}", "embedded TOML parses"))?;
-    assert!(matches!(doc["schema"].as_integer(), Some(1 | 2)));
-    assert_eq!(doc["profile"]["id"].as_str(), Some("usb2"));
-    let err = parse_builtin("not-a-profile")
-        .err()
-        .ok_or("expected an error")?;
-    assert!(err.contains("unknown profile"));
-    Ok(())
 }
 
 #[test]

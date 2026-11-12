@@ -280,35 +280,6 @@ pub fn default_pin_matrix_level(type_a: &str, type_b: &str) -> &'static str {
         _ => "ok",
     }
 }
-/// Default matrix cells whose level is not `"ok"`, for display beside overrides.
-pub const DEFAULT_PIN_MATRIX_OVERRIDES: &[(&str, &str, &str)] = &[
-    ("bidirectional", "no_connect", "error"),
-    ("bidirectional", "power_out", "warning"),
-    ("free", "no_connect", "error"),
-    ("input", "input", "warning"),
-    ("input", "no_connect", "error"),
-    ("no_connect", "no_connect", "error"),
-    ("no_connect", "open_collector", "error"),
-    ("no_connect", "open_emitter", "error"),
-    ("no_connect", "output", "error"),
-    ("no_connect", "passive", "error"),
-    ("no_connect", "power_in", "error"),
-    ("no_connect", "power_out", "error"),
-    ("no_connect", "tri_state", "error"),
-    ("no_connect", "unspecified", "error"),
-    ("open_collector", "power_out", "warning"),
-    ("open_emitter", "power_out", "error"),
-    ("output", "no_connect", "error"),
-    ("output", "output", "error"),
-    ("output", "power_out", "error"),
-    ("output", "tri_state", "warning"),
-    ("passive", "no_connect", "error"),
-    ("power_in", "no_connect", "error"),
-    ("power_out", "no_connect", "error"),
-    ("power_out", "power_out", "error"),
-    ("tri_state", "no_connect", "error"),
-    ("unspecified", "no_connect", "error"),
-];
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct LibrarySymbol {
     pub library: String,
@@ -5594,10 +5565,6 @@ impl Project {
             Some("ground") | Some("power")
         )
     }
-    /// True when a filled pour sits on a layer marked ground or power.
-    pub fn zone_is_plane_pour(&self, zone: &CopperZone) -> bool {
-        zone.filled && self.copper_layer_is_plane(zone.layer)
-    }
     fn trim_copper_layer_roles(&mut self) {
         let count = self.copper_layer_count() as usize;
         self.board.copper_layer_roles.truncate(count);
@@ -8447,13 +8414,6 @@ mod drill_tests {
                     "{a}|{b} must be symmetric"
                 );
             }
-        }
-        for &(a, b, level) in DEFAULT_PIN_MATRIX_OVERRIDES {
-            assert_eq!(
-                default_pin_matrix_level(a, b),
-                level,
-                "override slice must match default_pin_matrix_level for {a}|{b}"
-            );
         }
         for a in PIN_ELECTRICAL_TYPES {
             for b in PIN_ELECTRICAL_TYPES {
