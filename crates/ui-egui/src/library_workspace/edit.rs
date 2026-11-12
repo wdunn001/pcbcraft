@@ -118,9 +118,9 @@ impl App {
         if let Some(note) = self.library.editor.notice.clone() {
             ui.label(fonts::text(fonts::Role::Body, note).color(t.muted));
         }
+        self.library_pad_assignments(ui);
         self.library_editor(ui);
         self.library_pin_map(ui);
-        self.library_pad_assignments(ui);
     }
 
     /// The pin map: each pin of the symbol being edited and the pad it reaches.
