@@ -113,11 +113,6 @@ pub fn compliance_check(project: &Project) -> Vec<ComplianceFinding> {
     out
 }
 
-/// True when a project's rule set selection is within bounds.
-pub fn settings_valid(settings: &pcbcraft_doc::ComplianceProjectSettings) -> bool {
-    settings.validate().is_ok()
-}
-
 pub(crate) fn is_unknown(d: &Declaration) -> bool {
     d.status == DeclarationStatus::Unknown
 }
