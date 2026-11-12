@@ -589,6 +589,8 @@ fn place_apply(
 /// Arrange the unlocked parts with the annealing polish.
 ///
 /// # Rules
+/// - Two parts are kept two courtyard margins apart, so the courtyard check
+///   agrees with the boxes the polish works on.
 /// - Scope defaults to every copper layer; locked parts are never moved.
 /// - The work is bounded by a move count (`moves`, at most `POLISH_MAX_MOVES`),
 ///   never by time, and the generator is seeded, so one board and seed give one
@@ -625,6 +627,7 @@ fn polish(p: &mut Project, params: &Value) -> Result<Value, Error> {
     let settings = crate::placement::PlacementSettings {
         seed: a.seed.unwrap_or(0),
         moves: a.moves,
+        clearance_mm: 2.0 * courtyard_margin(p) + 0.05,
         ..crate::placement::PlacementSettings::default()
     };
     settings.validate().map_err(Error::Invalid)?;
@@ -671,4 +674,14 @@ fn polish(p: &mut Project, params: &Value) -> Result<Value, Error> {
         "seed": settings.seed,
         "message": format!("Arranged: {count} of {free} unlocked parts moved."),
     }))
+}
+
+/// Courtyard margin the checks add around a part without a drawn courtyard, in
+/// millimetres: the board rule `courtyard_excess`, else the nominal 0.25.
+fn courtyard_margin(p: &Project) -> f64 {
+    p.board
+        .rules
+        .as_ref()
+        .and_then(|r| r.courtyard_excess)
+        .unwrap_or(0.25)
 }
