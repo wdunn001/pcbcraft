@@ -480,7 +480,7 @@ pub fn save_bytes(project: &Project) -> Result<Vec<u8>, String> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum OpenKind {
     Project(Box<Project>),
-    Library(pcbcraft_doc::ProjectLibrary),
+    Library(Box<pcbcraft_doc::ProjectLibrary>),
     Footprint(Box<pcbcraft_library::FootprintDefinition>),
     Symbols(Vec<pcbcraft_library::SymbolDefinition>),
 }
@@ -530,7 +530,7 @@ pub fn open_document(bytes: &[u8], filename_hint: &str) -> Result<OpenKind, Stri
             && file.version == 1
         {
             file.library.validate()?;
-            return Ok(OpenKind::Library(file.library));
+            return Ok(OpenKind::Library(Box::new(file.library)));
         }
         if let Ok(mut project) = serde_json::from_str::<Project>(text)
             && migrate_loaded_project(&mut project).is_ok()
