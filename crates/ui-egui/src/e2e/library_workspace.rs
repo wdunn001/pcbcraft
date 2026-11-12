@@ -444,8 +444,7 @@ fn a_newcomer_reassigns_a_pin_to_another_pad_and_the_finding_clears() -> Result<
     pick_entry(&ctx, &mut app, "ComboBox Pad driven by pin 2", "Pad 1")?;
     assert!(
         paints_text_tall(&ctx, &mut app, "1 is mapped to both pin 1 and pin 2")?,
-        "the shared pad is reported: {} / {}",
-        app.message,
+        "the shared pad is reported: {}",
         painted(&ctx, &mut app)
     );
     assert!(
