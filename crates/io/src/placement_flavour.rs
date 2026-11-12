@@ -441,24 +441,13 @@ fn clean(s: &str) -> String {
 /// # Rules
 /// - The same rows, order, origin, unit scaling, bottom X mirror and rotation policy
 ///   that [`placement_flavoured`] writes; nothing is formatted.
-/// - Validates the design and the flavour first.
+/// - Validates the flavour first; the caller validates the design.
 ///
 /// # Dependencies
 /// - crates/io/src/neoden_yy1.rs uses it for coordinates and rotation.
 ///
 /// # Do not
 /// - Format a number here; the caller rounds for its own file.
-#[allow(dead_code)]
-pub fn placed_rows(
-    p: &Project,
-    flavour: &PlacementFlavour,
-    options: &PlacementOptions,
-) -> Result<Vec<PlacedRow>, String> {
-    p.validate()?;
-    collect_rows(p, flavour, options)
-}
-
-/// Rows without the whole-design check, so tests can use back-side parts.
 pub(crate) fn placed_rows_unchecked(
     p: &Project,
     flavour: &PlacementFlavour,

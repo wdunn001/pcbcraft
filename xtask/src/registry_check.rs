@@ -3,7 +3,7 @@ use pcbcraft_library::static_registry::{
     build_catalogue, generate_index_html, rebuild_site, verify_registry_manifest,
 };
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 const FIXTURE: &str = "crates/library/tests/fixtures/static-registry";
 
@@ -35,12 +35,4 @@ pub fn run(repo: &Path, bless: bool) -> Result<(), String> {
     }
     println!("registry check: fixture catalogue and site are current");
     Ok(())
-}
-
-#[allow(dead_code)]
-pub fn root() -> Result<PathBuf, String> {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .ok_or_else(|| "xtask has no parent directory".to_string())
-        .map(|p| p.to_path_buf())
 }

@@ -527,14 +527,3 @@ fn moisture_ipc(level: u8) -> Option<&'static str> {
         _ => None,
     }
 }
-
-#[allow(dead_code)]
-trait ProjectExt {
-    fn component(&self, id: u64) -> Option<&Component>;
-}
-
-impl ProjectExt for Project {
-    fn component(&self, id: u64) -> Option<&Component> {
-        self.components.iter().find(|c| c.id == id)
-    }
-}

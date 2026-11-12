@@ -1,6 +1,6 @@
 # The coordinate and rotation rules of the NeoDen YY1 job file, as one PlacementFlavour
 # record (crates/io/src/placement_flavour.rs). crates/io/src/neoden_yy1.rs reads it,
-# takes the numbers from `placed_rows` and adds the machine columns itself.
+# takes the numbers from `placed_rows_unchecked` and adds the machine columns itself.
 # Origin lower-left (lower-right for the bottom side, so X is mirrored), millimetres,
 # angle 0 to 360 counter-clockwise, bottom angle negated.
 id = "neoden_yy1_job"

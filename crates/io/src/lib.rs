@@ -73,8 +73,6 @@ mod import_cache;
 mod interface_profile;
 mod ipc2581_export;
 mod laser;
-#[allow(dead_code)]
-mod layer_file;
 mod layers;
 mod library_render;
 mod machine_library;
@@ -11269,43 +11267,6 @@ mod tests {
         Ok(())
     }
 
-    /// Read every written plot back and compare against an independent count
-    /// of `D03*` flashes in the writer text.
-    #[allow(dead_code)]
-    fn round_trip_plot_counts(
-        files: &std::collections::BTreeMap<String, String>,
-    ) -> Result<(), String> {
-        let mut flashing = 0;
-        for (name, text) in files {
-            if name.ends_with(".gbr") {
-                let layer = parse_gerber_layer(text, name)?;
-                let (flashes, draws) = count_flashes_and_draws(text)?;
-                let raw_flashes = text
-                    .lines()
-                    .filter(|l| l.trim_end().ends_with("D03*"))
-                    .count();
-                let raw_draws = text
-                    .lines()
-                    .filter(|l| {
-                        let l = l.trim_end();
-                        l.ends_with("D01*")
-                    })
-                    .count();
-                assert_eq!(layer.draw_count, raw_draws, "raw draw count for {name}");
-                assert_eq!(layer.flash_count, raw_flashes, "raw flash count for {name}");
-                assert_eq!(layer.flash_count, flashes, "flash count for {name}");
-                assert_eq!(layer.draw_count, draws, "draw count for {name}");
-                flashing += layer.flash_count;
-            } else if name == "pcb-Plated.drl" {
-                let (tools, hits) = parse_excellon_drill(text)?;
-                assert!(!tools.is_empty(), "drill tools in {name}");
-                assert!(!hits.is_empty(), "drill hits in {name}");
-            }
-        }
-        assert!(flashing > 0, "the rich board flashes pads and vias");
-        Ok(())
-    }
-
     #[test]
     fn gerber_files_export_copper_outline_and_drills() -> Result<(), String> {
         let mut project = Project::default();
@@ -17798,12 +17759,7 @@ mod tests {
             preserved: Default::default(),
         });
         let raw = serde_json::to_string(&project).map_err(|e| e.to_string())?;
-        let loaded = {
-            let root: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
-            let mut p: Project = serde_json::from_value(root.clone()).map_err(|e| e.to_string())?;
-            layer_file::read_stackup_copper_names(&mut p, &root)?;
-            p
-        };
+        let loaded: Project = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
         assert_eq!(loaded.board.tracks[0].layer.index(), 3);
         Ok(())
     }
