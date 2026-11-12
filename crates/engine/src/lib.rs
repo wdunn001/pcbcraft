@@ -7274,12 +7274,6 @@ struct FindParams {
     #[serde(flatten)]
     filter: ComponentFilter,
 }
-/// Rows keyed by value, kind, footprint, requested property values and, when parts
-/// are listed apart, the reference.
-#[allow(dead_code)]
-type BomGroups =
-    std::collections::BTreeMap<(String, String, String, Vec<String>, String), Vec<String>>;
-
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ComplianceRuleSetParam {
@@ -7955,21 +7949,6 @@ fn drag_mode() -> route::Mode {
 enum TrackEnd {
     Start,
     End,
-}
-/// Parameters of `via.set_covering`: set or clear tent, plug or fill on one via.
-///
-/// # Rules
-/// - A via without a drilled hole cannot be tented, plugged or filled.
-///
-/// # Dependencies
-/// - crates/doc/src/lib.rs
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-#[allow(dead_code)]
-struct ViaCoveringParams {
-    id: Id,
-    #[serde(default)]
-    covering: Option<pcbcraft_doc::ViaCovering>,
 }
 /// Parameters of `board.set_via_covering_default`: default covering for new vias on the board.
 ///

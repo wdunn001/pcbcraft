@@ -365,11 +365,6 @@ pub fn entry_by_id(document_hash: &str, entry_id: &str) -> Result<Option<Datashe
         .and_then(|d| d.entries.iter().find(|e| e.id == entry_id).cloned()))
 }
 
-/// Path used on disk when not overridden; for tests and diagnostics only.
-pub fn store_path_for_display() -> Result<PathBuf, String> {
-    store_path()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
