@@ -2,7 +2,7 @@
 mod backdrill;
 pub use backdrill::{BACKDRILL_MAX_MM, BackDrill, BackDrillFrom};
 mod probe;
-pub use probe::{MAX_PROBE_LABEL, MAX_PROBES, Probe};
+pub use probe::{MAX_PROBE_LABEL, MAX_PROBE_VOLTS, MAX_PROBES, Probe, ProbeExpect, plain_volts};
 mod compliance;
 mod compliance_list;
 mod component_kind;

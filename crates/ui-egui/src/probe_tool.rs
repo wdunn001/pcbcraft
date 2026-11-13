@@ -13,9 +13,12 @@
 //!   copper has no badge and stays in the Analyze table.
 //! - The cross on a badge removes the probe, as one undo step.
 //! - When the solve cannot run, the badge says there is no reading and the tooltip says why.
+//! - A probe with an expected range says so in words and an icon, never by colour alone:
+//!   `P1: 5.000 V ok`, or `P1: 6.100 V out of range 4.75 to 5.25 V`. The verdict is the
+//!   engine's `status` from `probe.read`; nothing is judged here.
 //!
 //! # Dependencies
-//! - crates/engine/src/probe.rs (`probe.add`, `probe.remove`, `probe.read`)
+//! - crates/engine/src/probe.rs (`probe.add`, `probe.remove`, `probe.expect`, `probe.read`)
 //! - crates/ui-egui/src/canvas.rs (`pick_pin`, `pick_pad`, `pick_via`, `pick_track`)
 //! - crates/ui-egui/src/wire_canvas.rs (`net_at_schematic_point`, `on_this_page_wires`)
 //!
@@ -24,7 +27,19 @@
 //! - Touch real hardware; these probes are virtual.
 use super::*;
 use crate::theme;
+use crate::ui_kit::icons;
 use egui::{Rect, Sense, Stroke, Vec2};
+
+/// What a probe's reading came to against the range it should have.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ProbeStatus {
+    /// The reading is inside the expected range.
+    Pass,
+    /// The reading is outside the expected range.
+    Fail,
+    /// No range is set, or there is no reading to compare.
+    Unchecked,
+}
 
 /// One probe's last reading.
 #[derive(Clone, Debug)]
@@ -41,6 +56,14 @@ pub(crate) struct ProbeRow {
     pub(crate) volts: Option<f64>,
     /// A plain sentence that says why there is no voltage.
     pub(crate) note: Option<String>,
+    /// The lowest voltage the probe should read, when one is set.
+    pub(crate) min: Option<f64>,
+    /// The highest voltage the probe should read, when one is set.
+    pub(crate) max: Option<f64>,
+    /// The verdict of the reading against the range.
+    pub(crate) status: ProbeStatus,
+    /// The engine's plain sentence for the verdict.
+    pub(crate) status_reason: Option<String>,
 }
 
 /// What every probe read at one revision.
@@ -60,7 +83,44 @@ pub(crate) fn volts_text(volts: f64) -> String {
     t!("probe.volts", volts = format!("{volts:.3}"))
 }
 
+/// An expected range in words: `4.75 to 5.25 V`, `at least 3 V` or `at most 5.25 V`.
+pub(crate) fn range_text(min: Option<f64>, max: Option<f64>) -> String {
+    use pcbcraft_doc::plain_volts;
+    match (min, max) {
+        (Some(lo), Some(hi)) => t!(
+            "probe.range.between",
+            min = plain_volts(lo),
+            max = plain_volts(hi)
+        ),
+        (Some(lo), None) => t!("probe.range.at_least", min = plain_volts(lo)),
+        (None, Some(hi)) => t!("probe.range.at_most", max = plain_volts(hi)),
+        (None, None) => String::new(),
+    }
+}
+
 impl ProbeRow {
+    /// The expected range in words, empty when none is set.
+    pub(crate) fn range_text(&self) -> String {
+        range_text(self.min, self.max)
+    }
+
+    /// The badge text: the label and reading, then `ok` or `out of range` and the range.
+    pub(crate) fn badge_text(&self) -> String {
+        let value = self.value_text();
+        match self.status {
+            ProbeStatus::Pass => t!("probe.badge.ok", name = self.name.clone(), value = value),
+            ProbeStatus::Fail => t!(
+                "probe.badge.fail",
+                name = self.name.clone(),
+                value = value,
+                range = self.range_text()
+            ),
+            ProbeStatus::Unchecked => {
+                t!("probe.badge", name = self.name.clone(), value = value)
+            }
+        }
+    }
+
     /// The reading in words, or that there is none.
     pub(crate) fn value_text(&self) -> String {
         match self.volts {
@@ -117,6 +177,14 @@ impl App {
                             reference: text("reference"),
                             volts: row.get("volts").and_then(Value::as_f64),
                             note: text("note"),
+                            min: row.pointer("/expect/min").and_then(Value::as_f64),
+                            max: row.pointer("/expect/max").and_then(Value::as_f64),
+                            status: match text("status").as_deref() {
+                                Some("pass") => ProbeStatus::Pass,
+                                Some("fail") => ProbeStatus::Fail,
+                                _ => ProbeStatus::Unchecked,
+                            },
+                            status_reason: text("status_reason"),
                         })
                     })
                     .collect()
@@ -316,13 +384,25 @@ impl App {
                 || probe.label.clone().unwrap_or_default(),
                 |r| r.name.clone(),
             );
-            let value = row.map_or_else(|| t!("probe.no_reading"), ProbeRow::value_text);
-            let text = t!("probe.badge", name = name.clone(), value = value);
+            let status = row.map_or(ProbeStatus::Unchecked, |r| r.status);
+            let text = row.map_or_else(
+                || {
+                    t!(
+                        "probe.badge",
+                        name = name.clone(),
+                        value = t!("probe.no_reading")
+                    )
+                },
+                ProbeRow::badge_text,
+            );
             let tip = match row.and_then(|r| r.note.clone()) {
                 Some(note) => note,
                 None => match self.probe_reading.as_ref().and_then(|r| r.reason.clone()) {
                     Some(reason) => reason,
-                    None => t!("probe.badge.tip"),
+                    None => match (status, row.and_then(|r| r.status_reason.clone())) {
+                        (ProbeStatus::Unchecked, _) | (_, None) => t!("probe.badge.tip"),
+                        (_, Some(why)) => why,
+                    },
                 },
             };
             painter.circle_filled(spot, 4.0, tokens.copper);
@@ -330,7 +410,13 @@ impl App {
             let galley =
                 painter.layout_no_wrap(text.clone(), crate::fonts::Role::Mono.font(), tokens.text);
             let close = 16.0;
-            let size = Vec2::new(galley.size().x + 14.0 + close, galley.size().y + 6.0);
+            // A verdict gets an icon in front of the words, so it never rests on colour alone.
+            let mark = if status == ProbeStatus::Unchecked {
+                0.0
+            } else {
+                icons::ICON_SIZE + 4.0
+            };
+            let size = Vec2::new(galley.size().x + 14.0 + close + mark, galley.size().y + 6.0);
             let badge = Rect::from_min_size(
                 spot + Vec2::new(10.0, -size.y - 6.0 - stacked as f32 * (size.y + 2.0)),
                 size,
@@ -342,7 +428,21 @@ impl App {
                 Stroke::new(1.0, tokens.line),
                 egui::StrokeKind::Inside,
             );
-            painter.galley(badge.min + Vec2::new(5.0, 3.0), galley, tokens.text);
+            if status != ProbeStatus::Unchecked {
+                let at = Rect::from_min_size(
+                    egui::pos2(
+                        badge.min.x + 4.0,
+                        badge.min.y + (size.y - icons::ICON_SIZE) / 2.0,
+                    ),
+                    Vec2::splat(icons::ICON_SIZE),
+                );
+                if status == ProbeStatus::Pass {
+                    (icons::OK.0)(&painter, at, tokens.mask);
+                } else {
+                    (icons::WARNING.0)(&painter, at, tokens.red);
+                }
+            }
+            painter.galley(badge.min + Vec2::new(5.0 + mark, 3.0), galley, tokens.text);
             let body = ui.interact(
                 badge,
                 ui.id().with(("probe-badge", probe.id)),
@@ -383,6 +483,44 @@ impl App {
         }
         if let Some(id) = remove {
             self.remove_probe(id);
+        }
+    }
+
+    /// Set the range a probe should read, or clear it when both bounds are `None`, as one undo
+    /// step. A refusal changes nothing and comes back as the engine's plain sentence.
+    pub(crate) fn set_probe_expect(
+        &mut self,
+        id: Id,
+        min: Option<f64>,
+        max: Option<f64>,
+    ) -> Result<(), String> {
+        let mut params = json!({"id": id});
+        if min.is_none() && max.is_none() {
+            params["clear"] = json!(true);
+        }
+        if let Some(min) = min {
+            params["min"] = json!(min);
+        }
+        if let Some(max) = max {
+            params["max"] = json!(max);
+        }
+        let result = self
+            .session
+            .lock()
+            .map_err(|_| t!("dialogs.run.session_unavailable"))
+            .and_then(|mut s| {
+                s.execute("probe.expect", params, Some(self.revision))
+                    .map_err(|e| e.to_string())
+            });
+        match result {
+            Ok(_) => {
+                self.refresh();
+                Ok(())
+            }
+            Err(e) => {
+                self.message = e.clone();
+                Err(e)
+            }
         }
     }
 

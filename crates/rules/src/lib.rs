@@ -169,6 +169,7 @@ pub const CHECK_CODES: &[(&str, &str)] = &[
     ("testpoint_coverage", "warning"),
     ("acute_angle", "warning"),
     ("track_radius", "error"),
+    ("probe_out_of_range", "warning"),
 ];
 
 #[derive(Clone, Debug, Serialize)]

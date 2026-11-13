@@ -245,6 +245,27 @@ Probes are stored with the design, and a probe whose net or pin is deleted is dr
 The readings are DC only and follow the limits of `sim.dc`: two-pin R, V and I parts with a
 `sim.model` field, and a net named GND or 0 for ground.
 
+A probe can also say what it should read, which turns it into a behaviour test. The expected range
+is `min` and `max` in volts, both optional but at least one present, each a finite number from
+-1000 to 1000 with `min` not above `max`. `probe.add` takes it as an optional `expect` object, and
+`probe.expect` sets it later: give `id` with `min`, `max` or both, or with `target` and
+`tolerance_percent` (0 to 100, a share of the target's size; stored as `min` and `max`, so
+`target` 5 with `tolerance_percent` 5 becomes 4.75 to 5.25), or give `id` with `clear` true to
+remove it. Setting replaces the earlier range, each call is one undoable step, and a refusal (an
+unknown id, no bounds, `min` above `max`, a value out of bounds, a target without a tolerance, a
+range given both ways, clearing a probe that has none) changes nothing. `probe.list` returns each
+probe's `expect`. `probe.read` adds to each probe a `status` and a plain `status_reason`: `pass`
+when the reading is inside the range (a reading on a bound passes), `fail` when it is outside, and
+`unchecked` when the probe has no range or the solve could not run or did not reach its net, in
+which case the reason says why and no number is made up. A probe that fails raises the finding
+`probe_out_of_range`, a warning by default, naming the probe, the reading and the range; it is
+listed with the other findings in the findings panel, on the Checks page and in `checks`, a
+severity set with `rules.severity` applies to it, `off` hides it, and no finding is raised while
+the solve cannot run. An assistant can set expectations from a datasheet or from the intent of a
+rail (for example 3.3 V within 5 percent on the supply of a part), place the probes, and read back
+`pass` or `fail` through these same commands, with nothing added for it. The check is DC only and
+follows `sim.dc`.
+
 ## Limits
 
 MCP messages are capped at 1 MiB. The live bridge is loopback-only trusted

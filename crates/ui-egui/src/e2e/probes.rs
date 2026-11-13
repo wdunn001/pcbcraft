@@ -5,6 +5,7 @@
 //!
 //! Context: issues #540 and #543. The divider below is a 10 V source across two 1 k resistors, so
 //! the middle net reads exactly 5 V; no story here expects a number the solver did not produce.
+use super::super::bottom_sheet::SeverityFilter;
 use super::super::*;
 use super::modifiers::{click, screen_of};
 use super::support::*;
@@ -410,6 +411,235 @@ fn a_newcomer_probes_a_pad_and_a_track_on_the_layout() -> Result<(), String> {
     assert!(
         paints_text(&d.ctx, &mut d.app, "P2: 10.000 V")?,
         "the other badge stays"
+    );
+    Ok(())
+}
+
+/// Type `text` into the expected minimum or maximum box of probe P1 in the Analyze table.
+fn type_expected(d: &mut Divider, which: &str, text: &str) -> Result<(), String> {
+    let name = format!("Expected {which} of P1");
+    let id = format!("textinput:{}", super::audit::fold_label(&name));
+    type_into(&d.ctx, &mut d.app, &id, text)
+}
+
+/// Empty one expected box the way a hand does: click in, select all, delete, press Enter.
+fn clear_expected(d: &mut Divider, which: &str) -> Result<(), String> {
+    let name = format!("Expected {which} of P1");
+    let id = format!("textinput:{}", super::audit::fold_label(&name));
+    tap_id(&d.ctx, &mut d.app, &id)?;
+    let _tall = TallScope::enter();
+    frame(
+        &d.ctx,
+        &mut d.app,
+        vec![egui::Event::Key {
+            key: egui::Key::A,
+            physical_key: Some(egui::Key::A),
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::COMMAND,
+        }],
+        Modifiers::COMMAND,
+    );
+    key(&d.ctx, &mut d.app, egui::Key::Backspace);
+    key(&d.ctx, &mut d.app, egui::Key::Enter);
+    frame(&d.ctx, &mut d.app, vec![], Modifiers::NONE);
+    Ok(())
+}
+
+/// True when the Analyze page, on a screen tall enough for it, paints `needle`.
+fn table_shows(d: &mut Divider, needle: &str) -> Result<bool, String> {
+    let _tall = TallScope::enter();
+    for _ in 0..3 {
+        frame(&d.ctx, &mut d.app, vec![], Modifiers::NONE);
+    }
+    paints_text(&d.ctx, &mut d.app, needle)
+}
+
+/// The range the first probe holds, as saved in the design.
+fn saved_range(d: &Divider) -> Option<(Option<f64>, Option<f64>)> {
+    d.app
+        .project
+        .probes
+        .first()
+        .and_then(|p| p.expect)
+        .map(|e| (e.min, e.max))
+}
+
+/// The message of the probe finding in the findings list, when there is one.
+fn probe_finding(d: &mut Divider) -> Option<String> {
+    d.app
+        .findings()
+        .visible(SeverityFilter::All)
+        .find(|r| r.code == "probe_out_of_range")
+        .map(|r| r.message.clone())
+}
+
+/// Go to a tab and let the view settle.
+fn go_to(d: &mut Divider, tab: Tab) {
+    d.app.change_tab(tab);
+    for _ in 0..3 {
+        frame(&d.ctx, &mut d.app, vec![], Modifiers::NONE);
+    }
+}
+
+#[test]
+fn a_newcomer_checks_a_probe_against_the_voltage_it_should_read() -> Result<(), String> {
+    let mut d = divider()?;
+    probe_the_middle(&mut d)?;
+    assert!(
+        paints_text(&d.ctx, &mut d.app, "P1: 5.000 V")?,
+        "the new probe reads the middle voltage"
+    );
+    assert!(
+        !paints_text(&d.ctx, &mut d.app, "P1: 5.000 V ok")?,
+        "with no range set the badge gives no verdict"
+    );
+    // The Analyze table has two empty boxes and no verdict yet.
+    go_to(&mut d, Tab::Analyze);
+    assert!(
+        table_shows(&mut d, "No limit")?,
+        "an empty expected box says it has no limit"
+    );
+    assert!(
+        table_shows(&mut d, "Not checked")?,
+        "with no range the status says not checked"
+    );
+    assert_eq!(saved_range(&d), None, "no range is saved yet");
+    // A range around 5 V: the divider passes.
+    type_expected(&mut d, "minimum", "4.9")?;
+    assert_eq!(
+        saved_range(&d),
+        Some((Some(4.9), None)),
+        "the minimum alone is saved: {}",
+        d.app.message
+    );
+    type_expected(&mut d, "maximum", "5.1")?;
+    assert_eq!(
+        saved_range(&d),
+        Some((Some(4.9), Some(5.1))),
+        "both bounds are saved: {}",
+        d.app.message
+    );
+    assert!(
+        table_shows(&mut d, "In range")?,
+        "5 V is inside 4.9 to 5.1 V and the table says so"
+    );
+    assert_eq!(
+        probe_finding(&mut d),
+        None,
+        "a passing probe raises no finding"
+    );
+    go_to(&mut d, Tab::Schematic);
+    assert!(
+        paints_text(&d.ctx, &mut d.app, "P1: 5.000 V ok")?,
+        "the badge says ok in words"
+    );
+    // A range that 5 V is outside of: the probe fails and the design says so.
+    go_to(&mut d, Tab::Analyze);
+    type_expected(&mut d, "maximum", "5.4")?;
+    type_expected(&mut d, "minimum", "5.2")?;
+    assert_eq!(
+        saved_range(&d),
+        Some((Some(5.2), Some(5.4))),
+        "the new range is saved: {}",
+        d.app.message
+    );
+    assert!(
+        table_shows(&mut d, "Out of range")?,
+        "5 V is outside 5.2 to 5.4 V and the table says so"
+    );
+    let finding = "Probe P1 reads 5 V, outside the expected 5.2 to 5.4 V";
+    assert_eq!(
+        probe_finding(&mut d).as_deref(),
+        Some(finding),
+        "the findings list names the probe, the reading and the range"
+    );
+    go_to(&mut d, Tab::Schematic);
+    assert!(
+        paints_text(&d.ctx, &mut d.app, "P1: 5.000 V out of range 5.2 to 5.4 V")?,
+        "the badge says out of range in words"
+    );
+    key(&d.ctx, &mut d.app, egui::Key::Escape);
+    authoring::tests::open_page(&d.ctx, &mut d.app, "Checks")?;
+    frame(&d.ctx, &mut d.app, vec![], Modifiers::NONE);
+    assert!(
+        d.app.region().bottom_open,
+        "View > Checks opens the Findings sheet: {}",
+        d.app.message
+    );
+    assert_eq!(
+        probe_finding(&mut d).as_deref(),
+        Some(finding),
+        "the sheet's findings list holds the finding"
+    );
+    // The synced board has six edge errors, which sort first and fill the short sheet, so the
+    // person picks Warnings in the severity menu and the probe warning is in view.
+    d.app.sheet.filter = SeverityFilter::Warnings;
+    frame(&d.ctx, &mut d.app, vec![], Modifiers::NONE);
+    let shown = paints_text(&d.ctx, &mut d.app, finding)?;
+    let on_screen: String = {
+        let output = frame(&d.ctx, &mut d.app, vec![], Modifiers::NONE);
+        output
+            .shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                egui::Shape::Text(t) => Some(t.galley.text().to_owned()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(" | ")
+    };
+    assert!(
+        shown,
+        "the Findings sheet paints the finding text (tab {:?}, filter {:?}, checks {}): {on_screen}",
+        d.app.tab, d.app.sheet.filter, d.app.checks["drc"]
+    );
+    d.app.region().bottom_open = false;
+    // A refused entry changes nothing and says why.
+    go_to(&mut d, Tab::Analyze);
+    type_expected(&mut d, "minimum", "9999")?;
+    assert_eq!(
+        saved_range(&d),
+        Some((Some(5.2), Some(5.4))),
+        "a number out of bounds changes nothing"
+    );
+    assert!(
+        table_shows(
+            &mut d,
+            "Enter a voltage from -1000 to 1000 V, or leave the box empty."
+        )?,
+        "the table says what to type instead"
+    );
+    // Back to a range 5 V is inside: the finding goes away.
+    type_expected(&mut d, "minimum", "4.9")?;
+    type_expected(&mut d, "maximum", "5.1")?;
+    assert_eq!(
+        saved_range(&d),
+        Some((Some(4.9), Some(5.1))),
+        "the range is back: {}",
+        d.app.message
+    );
+    assert!(
+        table_shows(&mut d, "In range")?,
+        "the table passes the probe again"
+    );
+    assert_eq!(
+        probe_finding(&mut d),
+        None,
+        "the finding goes when the probe passes"
+    );
+    // An empty box drops a bound, and with both empty the range is gone.
+    clear_expected(&mut d, "maximum")?;
+    assert_eq!(
+        saved_range(&d),
+        Some((Some(4.9), None)),
+        "an empty box drops its bound"
+    );
+    clear_expected(&mut d, "minimum")?;
+    assert_eq!(saved_range(&d), None, "no bounds, no range");
+    assert!(
+        table_shows(&mut d, "Not checked")?,
+        "with the range gone the status is not checked"
     );
     Ok(())
 }
