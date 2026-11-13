@@ -254,14 +254,16 @@ struct Spots {
 
 /// Centre the board view on the two spots at a zoom where a click lands on one object.
 fn frame_spots(d: &mut Divider, spots: &Spots) {
+    // The view fits the design on the first frames after a tab change; frame it after that.
+    for _ in 0..3 {
+        frame(&d.ctx, &mut d.app, vec![], Modifiers::NONE);
+    }
     d.app.pcb.center = Point::new(
         (spots.pad.x + spots.track.x) / 2.0,
         (spots.pad.y + spots.track.y) / 2.0,
     );
     d.app.pcb.zoom = 12.0;
-    for _ in 0..3 {
-        frame(&d.ctx, &mut d.app, vec![], Modifiers::NONE);
-    }
+    frame(&d.ctx, &mut d.app, vec![], Modifiers::NONE);
 }
 
 /// The divider synced to the board, with a track on the supply net, shown on the Layout tab.
