@@ -366,6 +366,18 @@ impl App {
                 false,
             );
         }
+        if pcb {
+            // The layout has no Add menu, and the strip folds into More when it is narrow.
+            push(
+                "tool-probe",
+                "focus",
+                t!("probe.tool"),
+                t!("probe.tool.layout.tip"),
+                matches!(self.tool, Tool::Probe),
+                Act::Probe,
+                false,
+            );
+        }
         if self.tab == Tab::Schematic {
             let menu = self.add_menu();
             if let Some(item) = out.iter_mut().find(|i| i.act == Act::Add) {

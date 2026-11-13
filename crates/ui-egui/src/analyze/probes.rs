@@ -1,6 +1,6 @@
 //! The Probes card of the Scope page: every virtual probe with its point, reference and DC voltage.
 //!
-//! Context: probes are placed on the Schematic with the Probe tool and stored with the design.
+//! Context: probes are placed on the Schematic or the Layout with the Probe tool and stored with the design.
 //! The voltages come from the engine command `probe.read`, read once per design revision.
 //!
 //! Local rules: a voltage is shown only when the solver produced it. When the solve cannot run,

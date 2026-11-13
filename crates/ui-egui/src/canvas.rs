@@ -868,7 +868,7 @@ impl App {
             self.paint_board(&painter, rect, camera, &visible);
         }
         self.paint_edit_overlay(&painter, rect, camera);
-        if self.tab == Tab::Schematic {
+        if matches!(self.tab, Tab::Schematic | Tab::Pcb) {
             self.probe_badges(ui, rect, camera);
         }
         self.paint_affordance(&painter, rect, camera);
@@ -898,6 +898,7 @@ impl App {
             Tool::Fiducial => t!("board.canvas.assembly_mark_click_a_clear"),
             Tool::DrawLayer => t!("board.canvas.draw_shape_pick_the_layer"),
             Tool::Measure => t!("board.canvas.measure_click_two_points"),
+            Tool::Probe if self.tab == Tab::Pcb => t!("probe.canvas_hint.layout"),
             Tool::Probe => t!("probe.canvas_hint"),
             Tool::Via => t!("board.canvas.via"),
             Tool::Port => t!("schematic.add.hint_port"),
@@ -1760,7 +1761,7 @@ impl App {
     /// The wire whose path passes nearest the click, within a fingertip's
     /// width; curved wires are checked along their bow too. Wires on a locked
     /// Layers tree row are skipped.
-    fn pick_track(&self, pos: Point, zoom: f32) -> Option<Id> {
+    pub(super) fn pick_track(&self, pos: Point, zoom: f32) -> Option<Id> {
         let mut best: Option<(f64, Id)> = None;
         for track in &self.project.board.tracks {
             if !self.id_allowed(track.id) || !self.pcb_object_shown(track.id) {
@@ -1955,7 +1956,7 @@ impl App {
             }
             Tool::Measure => self.measure_click(pos, zoom),
             Tool::Probe => {
-                if self.tab == Tab::Schematic {
+                if matches!(self.tab, Tab::Schematic | Tab::Pcb) {
                     self.probe_click(pos, zoom);
                 }
             }

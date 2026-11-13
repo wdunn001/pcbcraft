@@ -1,17 +1,22 @@
-//! The Probe tool: put a virtual probe on a net or pin of the schematic and show its DC voltage.
+//! The Probe tool: put a virtual probe on a net or pin and show its DC voltage on the schematic
+//! and on the layout.
 //!
 //! Why: a person wants to see a voltage where the circuit is drawn. The value comes from the
 //! engine command `probe.read`, which runs the same solve as `sim.dc`; nothing is invented here.
 //!
 //! # Rules
 //! - The solver runs once per design revision, in `refresh`, never per frame.
-//! - A click on a pin probes the pin; a click on a wire probes its net; anything else says so.
+//! - On the schematic a click on a pin probes the pin and a click on a wire probes its net.
+//! - On the layout a click on a pad probes the component pin of that pad, and a click on a via
+//!   or a track probes its net. Anything else says so.
+//! - A net probe is drawn on the first visible track, via or pad of its net; a net with no
+//!   copper has no badge and stays in the Analyze table.
 //! - The cross on a badge removes the probe, as one undo step.
 //! - When the solve cannot run, the badge says there is no reading and the tooltip says why.
 //!
 //! # Dependencies
 //! - crates/engine/src/probe.rs (`probe.add`, `probe.remove`, `probe.read`)
-//! - crates/ui-egui/src/canvas.rs (`pick_pin`)
+//! - crates/ui-egui/src/canvas.rs (`pick_pin`, `pick_pad`, `pick_via`, `pick_track`)
 //! - crates/ui-egui/src/wire_canvas.rs (`net_at_schematic_point`, `on_this_page_wires`)
 //!
 //! # Do not
@@ -138,14 +143,23 @@ impl App {
             .unwrap_or_default()
     }
 
-    /// A click with the Probe tool: probe the pin under the pointer, else the net of the wire.
+    /// A click with the Probe tool: on the schematic the pin under the pointer, else the net of
+    /// the wire; on the layout the pad's pin, else the net of the via or track.
     pub(crate) fn probe_click(&mut self, pos: Point, zoom: f32) {
-        let mut params = if let Some(pin) = self.pick_pin(pos, zoom) {
-            json!({"pin": pin})
-        } else if let Some(net) = self.net_at_schematic_point(pos, zoom) {
-            json!({"net": net})
+        let found = if self.tab == Tab::Pcb {
+            self.layout_probe_target(pos, zoom)
+        } else if let Some(pin) = self.pick_pin(pos, zoom) {
+            Some(json!({"pin": pin}))
         } else {
-            self.message = t!("probe.nothing_here");
+            self.net_at_schematic_point(pos, zoom)
+                .map(|net| json!({"net": net}))
+        };
+        let Some(mut params) = found else {
+            self.message = if self.tab == Tab::Pcb {
+                t!("probe.nothing_here.layout")
+            } else {
+                t!("probe.nothing_here")
+            };
             return;
         };
         let label = self.next_probe_label();
@@ -164,6 +178,82 @@ impl App {
                 self.refresh();
             }
             Err(e) => self.message = e,
+        }
+    }
+
+    /// What a click on the layout probes, as `probe.add` parameters: the component pin behind a
+    /// pad (pad numbers are pin numbers), else the net of the via or track under the pointer.
+    fn layout_probe_target(&self, pos: Point, zoom: f32) -> Option<Value> {
+        if let Some((footprint, number)) = self.pick_pad(pos, zoom) {
+            let f = self.project.footprint(footprint)?;
+            let on_pin = self
+                .project
+                .component(f.component)
+                .is_some_and(|c| c.pins.iter().any(|p| p.number == number));
+            if on_pin {
+                return Some(json!({"pin": {"component": f.component, "pin": number}}));
+            }
+            let net = f.pads.iter().find(|p| p.number == number)?.net?;
+            return Some(json!({"net": net}));
+        }
+        if let Some(id) = self.pick_via(pos, zoom) {
+            let net = self.project.board.vias.iter().find(|v| v.id == id)?.net;
+            return (net != 0).then(|| json!({"net": net}));
+        }
+        let id = self.pick_track(pos, zoom)?;
+        let net = self.project.board.tracks.iter().find(|t| t.id == id)?.net;
+        Some(json!({"net": net}))
+    }
+
+    /// Where a probe is drawn on the board: its pad, or the middle of the first visible track of
+    /// its net, else the first visible via, else the first visible pad on the net.
+    fn probe_anchor_board(&self, probe: &pcbcraft_doc::Probe) -> Option<Point> {
+        let board = &self.project.board;
+        if let Some(pin) = &probe.pin {
+            let f = board
+                .footprints
+                .iter()
+                .find(|f| f.component == pin.component)?;
+            return self
+                .part_pads_shown(f)
+                .then(|| f.pad_position(&pin.pin))
+                .flatten();
+        }
+        let net = probe.net?;
+        if let Some(t) = board
+            .tracks
+            .iter()
+            .find(|t| t.net == net && self.pcb_object_shown(t.id))
+        {
+            return Some(t.arc.unwrap_or_else(|| {
+                Point::new((t.start.x + t.end.x) / 2.0, (t.start.y + t.end.y) / 2.0)
+            }));
+        }
+        if let Some(v) = board
+            .vias
+            .iter()
+            .find(|v| v.net == net && self.via_shown(v))
+        {
+            return Some(v.position);
+        }
+        board
+            .footprints
+            .iter()
+            .filter(|f| self.part_pads_shown(f))
+            .find_map(|f| {
+                f.pads
+                    .iter()
+                    .find(|p| p.net == Some(net))
+                    .map(|p| f.pad_world_position(p))
+            })
+    }
+
+    /// Where a probe is drawn on the tab that is showing.
+    fn probe_anchor_shown(&self, probe: &pcbcraft_doc::Probe) -> Option<Point> {
+        if self.tab == Tab::Pcb {
+            self.probe_anchor_board(probe)
+        } else {
+            self.probe_anchor(probe)
         }
     }
 
@@ -209,7 +299,7 @@ impl App {
         let mut taken: Vec<egui::Pos2> = Vec::new();
         let mut remove: Option<Id> = None;
         for probe in &probes {
-            let Some(at) = self.probe_anchor(probe) else {
+            let Some(at) = self.probe_anchor_shown(probe) else {
                 continue;
             };
             let spot = camera.screen(at, rect);

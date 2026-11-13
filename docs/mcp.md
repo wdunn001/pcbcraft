@@ -229,8 +229,10 @@ fabrication outputs for every copy when a panel grid is enabled.
 
 ## Virtual probes
 
-A probe is a virtual instrument: a point on a net or pin of the schematic whose DC voltage the
-simulator reports. It touches no hardware. `probe.add` takes exactly one of `net` or `pin` (a
+A probe is a virtual instrument: a point on a net or pin of the design whose DC voltage the
+simulator reports. It touches no hardware. The schematic and the layout both place probes through
+`probe.add`: a click on a schematic pin or a layout pad names the pin (the pad number is the pin
+number of the same part), and a click on a wire, track or via names the net. `probe.add` takes exactly one of `net` or `pin` (a
 `component` id and pin number), an optional `reference` net (ground by default) and an optional
 `label` of up to 40 bytes, and returns the probe `id`. `probe.remove` takes an `id`. Each is one
 undoable step, a design holds at most 64 probes, and a refusal (an unknown net, pin or id, both

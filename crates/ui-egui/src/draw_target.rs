@@ -239,6 +239,10 @@ impl App {
     /// # Dependencies
     /// - crates/ui-egui/src/lib.rs (tool_hint for the other tools)
     pub(crate) fn status_hint(&self) -> String {
+        if matches!(self.tool, crate::Tool::Probe) && self.tab == crate::Tab::Pcb {
+            let common = format!(" {}", t!("board.tool_hint.middle_drag_pan_scroll_zoom"));
+            return t!("probe.tool_hint.layout", common = common);
+        }
         if !matches!(self.tool, crate::Tool::DrawLayer) {
             return crate::tool_hint(&self.tool);
         }
