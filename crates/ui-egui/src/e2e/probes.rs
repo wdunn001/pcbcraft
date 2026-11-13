@@ -572,6 +572,10 @@ fn a_newcomer_checks_a_probe_against_the_voltage_it_should_read() -> Result<(), 
         Some(finding),
         "the sheet's findings list holds the finding"
     );
+    // The synced board has six edge errors, which sort first and fill the short sheet, so the
+    // person picks Warnings in the severity menu and the probe warning is in view.
+    d.app.sheet.filter = SeverityFilter::Warnings;
+    frame(&d.ctx, &mut d.app, vec![], Modifiers::NONE);
     let shown = paints_text(&d.ctx, &mut d.app, finding)?;
     let on_screen: String = {
         let output = frame(&d.ctx, &mut d.app, vec![], Modifiers::NONE);
