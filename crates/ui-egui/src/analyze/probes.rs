@@ -93,7 +93,9 @@ fn bound_box(
     }
     if !response.lost_focus() {
         match editing {
-            Some(held) => ui.data_mut(|d| d.insert_temp(buffer, held)),
+            Some(held) => ui.data_mut(|d| {
+                d.insert_temp(buffer, held);
+            }),
             None => ui.data_mut(|d| {
                 d.remove_temp::<String>(buffer);
             }),
