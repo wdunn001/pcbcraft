@@ -500,6 +500,7 @@ pub(crate) fn tap_strip(ctx: &egui::Context, app: &mut App, id: &str) -> Result<
             | "icon:tool-busentry"
             | "icon:tool-port"
             | "icon:tool-noconnect"
+            | "icon:tool-probe"
             | "icon:tool-pad"
             | "icon:tool-text"
     );

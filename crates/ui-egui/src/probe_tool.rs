@@ -6,7 +6,7 @@
 //! # Rules
 //! - The solver runs once per design revision, in `refresh`, never per frame.
 //! - A click on a pin probes the pin; a click on a wire probes its net; anything else says so.
-//! - Right click on a badge, or its remove button, removes the probe.
+//! - The cross on a badge removes the probe, as one undo step.
 //! - When the solve cannot run, the badge says there is no reading and the tooltip says why.
 //!
 //! # Dependencies
@@ -238,7 +238,7 @@ impl App {
             painter.circle_filled(spot, 4.0, tokens.copper);
             painter.circle_stroke(spot, 6.0, Stroke::new(1.5, tokens.copper));
             let galley =
-                painter.layout_no_wrap(text.clone(), egui::FontId::monospace(11.0), tokens.text);
+                painter.layout_no_wrap(text.clone(), crate::fonts::Role::Mono.font(), tokens.text);
             let close = 16.0;
             let size = Vec2::new(galley.size().x + 14.0 + close, galley.size().y + 6.0);
             let badge = Rect::from_min_size(
@@ -259,10 +259,7 @@ impl App {
                 Sense::click(),
             );
             crate::a11y::name_control(&body, &text, None);
-            let body = body.on_hover_text(tip);
-            if body.secondary_clicked() {
-                remove = Some(probe.id);
-            }
+            body.on_hover_text(tip);
             let x_rect = Rect::from_min_size(
                 egui::pos2(
                     badge.max.x - close - 2.0,

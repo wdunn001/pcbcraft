@@ -355,17 +355,6 @@ impl App {
             Act::Measure,
             true,
         );
-        if self.tab == Tab::Schematic {
-            push(
-                "tool-probe",
-                "focus",
-                t!("probe.tool"),
-                t!("probe.tool.tip"),
-                matches!(self.tool, Tool::Probe),
-                Act::Probe,
-                false,
-            );
-        }
         if pcb {
             push(
                 "tool-arrange",
@@ -469,6 +458,14 @@ impl App {
                 ),
                 matches!(self.tool, Tool::NoConnect),
                 Act::NoConnect,
+            ),
+            entry(
+                "tool-probe",
+                "focus",
+                t!("probe.tool"),
+                t!("probe.tool.tip"),
+                matches!(self.tool, Tool::Probe),
+                Act::Probe,
             ),
             entry(
                 "tool-pad",
