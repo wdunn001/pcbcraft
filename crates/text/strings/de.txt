@@ -1560,3 +1560,4 @@ via_tool.refuse_outside = Kein Via bei {x}, {y}: außerhalb der Platinenkontur. 
 via_tool.refuse_edge = Hier kein Via: es braucht {gap} mm zwischen Mitte und Platinenkante.
 via_tool.refuse_ring = Kein Via in dieser Größe: der Kupferring misst {have} mm, verlangt sind {need} mm. Pad größer oder Bohrung kleiner machen.
 via_tool.refuse_clearance = Hier kein Via: anderes Kupfer liegt näher als die verlangten {need} mm.
+board.tool_hint.tip = Kontextbezogene Anweisungen für das aktuell ausgewählte Werkzeug.
