@@ -74,6 +74,7 @@ mod pin_map;
 mod pnp_machine;
 mod pours;
 mod preferences;
+mod probes;
 mod project_settings;
 mod route_drag;
 mod rules;

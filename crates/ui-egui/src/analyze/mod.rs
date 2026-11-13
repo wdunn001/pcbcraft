@@ -18,6 +18,7 @@
 //! - crates/ui-egui/src/analyze/checks.rs (the Checks page)
 //! - crates/ui-egui/src/analyze/net_classes.rs (the Net classes page)
 //! - crates/ui-egui/src/analyze/pending.rs (the pages with no data source yet)
+//! - crates/ui-egui/src/analyze/probes.rs (the Probes card of the Scope page)
 //! - crates/ui-egui/src/ui_kit/rows.rs (`list_row`)
 //!
 //! # Do not
@@ -31,6 +32,7 @@ use crate::ui_kit::button::{Size, ghost_button, primary_button, secondary_button
 mod checks;
 mod net_classes;
 mod pending;
+mod probes;
 
 /// The ten pages of the tab, plus the one plain page shared by entries that have no page yet.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -539,7 +541,13 @@ impl App {
                     .show(ui, |ui| match self.analyze.entry.page() {
                         Page::Checks => self.analyze_checks_center(ui),
                         Page::NetClasses => self.analyze_classes_center(ui),
-                        page => self.analyze_pending_center(ui, page),
+                        page => {
+                            if page == Page::Scope {
+                                self.analyze_probes_card(ui);
+                                ui.add_space(12.0);
+                            }
+                            self.analyze_pending_center(ui, page);
+                        }
                     });
             });
     }

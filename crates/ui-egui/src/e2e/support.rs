@@ -485,6 +485,7 @@ pub(crate) fn tap_strip(ctx: &egui::Context, app: &mut App, id: &str) -> Result<
             "tool-pad" => "Pad",
             "tool-text" => "Text",
             "tool-measure" => "Measure",
+            "tool-probe" => "Probe",
             "tool-arrange" => "Arrange",
             other => return Err(format!("{other} has no known name")),
         }
@@ -499,6 +500,7 @@ pub(crate) fn tap_strip(ctx: &egui::Context, app: &mut App, id: &str) -> Result<
             | "icon:tool-busentry"
             | "icon:tool-port"
             | "icon:tool-noconnect"
+            | "icon:tool-probe"
             | "icon:tool-pad"
             | "icon:tool-text"
     );

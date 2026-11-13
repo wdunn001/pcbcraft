@@ -45,6 +45,7 @@ enum Act {
     SheetText,
     SheetShape(sheet_shape_tool::SheetShapeKind),
     Measure,
+    Probe,
     Arrange,
 }
 
@@ -459,6 +460,14 @@ impl App {
                 Act::NoConnect,
             ),
             entry(
+                "tool-probe",
+                "focus",
+                t!("probe.tool"),
+                t!("probe.tool.tip"),
+                matches!(self.tool, Tool::Probe),
+                Act::Probe,
+            ),
+            entry(
                 "tool-pad",
                 "pad-smd",
                 t!("board.tool_strip.pad"),
@@ -591,6 +600,10 @@ impl App {
                 self.sheet_shape_points.clear();
             }
             Act::Measure => self.arm_measure(),
+            Act::Probe => {
+                self.clear_wire_draft();
+                self.tool = Tool::Probe;
+            }
             Act::Arrange => self.arrange_parts(),
         }
     }

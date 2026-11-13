@@ -868,6 +868,9 @@ impl App {
             self.paint_board(&painter, rect, camera, &visible);
         }
         self.paint_edit_overlay(&painter, rect, camera);
+        if self.tab == Tab::Schematic {
+            self.probe_badges(ui, rect, camera);
+        }
         self.paint_affordance(&painter, rect, camera);
         let text = match &self.tool {
             Tool::Select => t!("board.canvas.select"),
@@ -895,6 +898,7 @@ impl App {
             Tool::Fiducial => t!("board.canvas.assembly_mark_click_a_clear"),
             Tool::DrawLayer => t!("board.canvas.draw_shape_pick_the_layer"),
             Tool::Measure => t!("board.canvas.measure_click_two_points"),
+            Tool::Probe => t!("probe.canvas_hint"),
             Tool::Via => t!("board.canvas.via"),
             Tool::Port => t!("schematic.add.hint_port"),
             Tool::Pad => t!("board.canvas.pad_click_to_place"),
@@ -1950,6 +1954,11 @@ impl App {
                 }
             }
             Tool::Measure => self.measure_click(pos, zoom),
+            Tool::Probe => {
+                if self.tab == Tab::Schematic {
+                    self.probe_click(pos, zoom);
+                }
+            }
             Tool::Place(kind) => {
                 let params = self.on_current_page(json!({"kind":kind,"position":snap(pos)}));
                 self.run("component.add", params)

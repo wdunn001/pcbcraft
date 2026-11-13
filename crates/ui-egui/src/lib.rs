@@ -79,6 +79,7 @@ mod placement_machine_ui;
 mod plot_viewer;
 mod pour_panel;
 mod preferences;
+mod probe_tool;
 mod project_settings;
 mod project_status;
 mod properties;
@@ -574,6 +575,7 @@ fn tool_hint(tool: &Tool) -> String {
         Tool::Measure => {
             t!("board.tool_hint.lmb_click_two_points_to", common = common)
         }
+        Tool::Probe => t!("probe.tool_hint", common = common),
         Tool::Via => t!("board.tool_hint.lmb_via", common = common),
         Tool::Port => t!("schematic.port.tool_hint", common = common),
         Tool::Pad => t!("board.tool_hint.lmb_place_a_pad", common = common),
@@ -1167,6 +1169,8 @@ enum Tool {
     Fiducial,
     DrawLayer,
     Measure,
+    /// Put a virtual probe on a net or pin of the schematic.
+    Probe,
     Via,
     Port,
     Pad,
@@ -1467,6 +1471,8 @@ pub struct App {
     ghost_paths: Option<(String, String, Vec<Vec<Point>>)>,
     /// Capture option: show the Add tool ghost without a pointer.
     capture_ghost: bool,
+    /// What the probes read at the last revision; `None` when there are no probes.
+    probe_reading: Option<probe_tool::ProbeReading>,
     canvas_rect: Rect,
     canvas_menu: Option<(egui::Pos2, canvas::CanvasMenuKind)>,
     message: String,
@@ -2331,6 +2337,7 @@ impl App {
             ghost: None,
             ghost_paths: None,
             capture_ghost: false,
+            probe_reading: None,
             canvas_rect: Rect::NOTHING,
             canvas_menu: None,
             canvas_refusal: None,
@@ -2540,6 +2547,7 @@ impl App {
             self.load_properties();
             self.load_panel_fields_from_project();
         }
+        self.ensure_probe_reading();
     }
     fn load_panel_fields_from_project(&mut self) {
         if !self.project.panel.enabled {

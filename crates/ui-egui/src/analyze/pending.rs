@@ -615,7 +615,7 @@ impl App {
 }
 
 /// An empty state with no button: a title and the one sentence that says what is missing.
-fn plain_empty(ui: &mut egui::Ui, title: &str, message: &str) {
+pub(super) fn plain_empty(ui: &mut egui::Ui, title: &str, message: &str) {
     let tokens = theme::tokens(ui.ctx());
     ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
         ui.label(fonts::strong(title).color(tokens.text));

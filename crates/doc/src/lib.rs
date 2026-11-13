@@ -1,6 +1,8 @@
 //! Canonical project data. No UI or protocol dependencies.
 mod backdrill;
 pub use backdrill::{BACKDRILL_MAX_MM, BackDrill, BackDrillFrom};
+mod probe;
+pub use probe::{MAX_PROBE_LABEL, MAX_PROBES, Probe};
 mod compliance;
 mod compliance_list;
 mod component_kind;
@@ -4475,6 +4477,9 @@ pub struct Project {
     /// Checks the designer wrote themselves, in the order they were made.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub custom_checks: Vec<CustomCheck>,
+    /// Virtual probes on nets or pins, read from the DC simulation, ordered by id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub probes: Vec<Probe>,
     /// Pin-type connection matrix overrides keyed `"<type_a>|<type_b>"` with
     /// sorted types; values are `"ok"`, `"warning"` or `"error"`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -4841,6 +4846,7 @@ impl Default for Project {
             package_runs: vec![],
             panel: PanelSettings::default(),
             custom_checks: vec![],
+            probes: vec![],
             pin_matrix: BTreeMap::new(),
             files: vec![],
             variants: vec![],
@@ -5390,6 +5396,7 @@ impl Project {
     /// dissolve groups left with fewer than two members. Runs after every
     /// engine command so deletes never leave dangling ids.
     pub fn prune_object_refs(&mut self) {
+        self.prune_probes();
         if self.object_groups.is_empty()
             && self.locked_objects.is_empty()
             && self.constraints.is_empty()
@@ -6107,6 +6114,7 @@ impl Project {
             .chain(self.board.user_layers.iter().map(|x| x.id))
             .chain(self.board.texts.iter().map(|x| x.id))
             .chain(self.artifacts.iter().map(|x| x.id))
+            .chain(self.probes.iter().map(|x| x.id))
             .chain(self.library.parts.iter().map(|x| x.id))
     }
     /// records that exist in the project library.
@@ -6164,6 +6172,7 @@ impl Project {
         self.validate_manufacturers()?;
         self.compliance_settings.validate()?;
         self.validate_compliance_mutes()?;
+        self.validate_probes()?;
         if self
             .components
             .iter()

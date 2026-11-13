@@ -101,6 +101,39 @@ fn sim_dc(p: &Project, params: &Value) -> Result<Value, Error> {
     }))
 }
 
+/// Node voltages of the solved circuit, for the probe reader.
+pub(super) struct DcVolts {
+    /// The net every voltage is measured from.
+    pub ground: Id,
+    /// The solved voltage of every net the circuit reaches, ground included at zero.
+    pub volts: BTreeMap<Id, f64>,
+}
+
+/// Solve the design at DC and return each net's voltage, or the plain reason it cannot be solved.
+pub(super) fn solve_volts(p: &Project) -> Result<DcVolts, String> {
+    let netlist = build_netlist(p)?;
+    let solution = solve_dc(&netlist.net)?;
+    let mut volts = BTreeMap::new();
+    for (id, node) in &netlist.node_by_net {
+        let v = if *id == netlist.ground {
+            0.0
+        } else {
+            solution.node_volts[node.index]
+        };
+        if !v.is_finite() {
+            return Err(format!(
+                "net {} has a voltage that is not a finite number",
+                node.name
+            ));
+        }
+        volts.insert(*id, r9(v));
+    }
+    Ok(DcVolts {
+        ground: netlist.ground,
+        volts,
+    })
+}
+
 fn r9(v: f64) -> f64 {
     (v * 1e9).round() / 1e9
 }
