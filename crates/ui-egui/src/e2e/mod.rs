@@ -73,6 +73,7 @@ mod passive_cards;
 mod pin_map;
 mod pnp_machine;
 mod pours;
+mod probes;
 mod preferences;
 mod project_settings;
 mod route_drag;

@@ -112,7 +112,7 @@ impl Tool {
             Self::Fiducial => ToolKind::Fiducial,
             Self::Port | Self::Pad => ToolKind::Place,
             Self::DrawLayer => ToolKind::DrawLayer,
-            Self::Measure => ToolKind::Measure,
+            Self::Measure | Self::Probe => ToolKind::Measure,
             Self::SheetText => ToolKind::DrawLayer,
             Self::SheetShape(_) => ToolKind::DrawLayer,
         }

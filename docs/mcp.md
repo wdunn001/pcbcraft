@@ -227,6 +227,22 @@ The `raster` kind writes six high-DPI
 PNGs (top and bottom copper, mask and legend). `panel.export` duplicates
 fabrication outputs for every copy when a panel grid is enabled.
 
+## Virtual probes
+
+A probe is a virtual instrument: a point on a net or pin of the schematic whose DC voltage the
+simulator reports. It touches no hardware. `probe.add` takes exactly one of `net` or `pin` (a
+`component` id and pin number), an optional `reference` net (ground by default) and an optional
+`label` of up to 40 bytes, and returns the probe `id`. `probe.remove` takes an `id`. Each is one
+undoable step, a design holds at most 64 probes, and a refusal (an unknown net, pin or id, both
+or neither point, a repeated point, a probe measured against its own net) changes nothing.
+`probe.list` returns the probes with their point in words. `probe.read` runs the same solve as
+`sim.dc` and returns each probe's `volts` relative to its reference. When the solve cannot run,
+`solved` is false and `reason` is a plain sentence, and a probe on a net the solve does not reach
+has `volts` null and a `note`; no number is made up. Both read commands leave the revision alone.
+Probes are stored with the design, and a probe whose net or pin is deleted is dropped with it.
+The readings are DC only and follow the limits of `sim.dc`: two-pin R, V and I parts with a
+`sim.model` field, and a net named GND or 0 for ground.
+
 ## Limits
 
 MCP messages are capped at 1 MiB. The live bridge is loopback-only trusted

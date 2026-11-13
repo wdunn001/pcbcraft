@@ -312,7 +312,7 @@ impl App {
 
     /// The drawn wires that sit on schematic page `page`, so a pick or a snap
     /// never reaches a wire of another page.
-    fn on_this_page_wires(&self, page: Id) -> Vec<DrawnWire> {
+    pub(crate) fn on_this_page_wires(&self, page: Id) -> Vec<DrawnWire> {
         let sheet = self.sheet_view();
         sheet
             .drawn_wires
@@ -426,7 +426,7 @@ impl App {
         None
     }
 
-    fn net_at_schematic_point(&self, pos: Point, zoom: f32) -> Option<Id> {
+    pub(crate) fn net_at_schematic_point(&self, pos: Point, zoom: f32) -> Option<Id> {
         if let Some(pin) = self.pick_pin(pos, zoom) {
             return self.project.pin(&pin)?.net;
         }

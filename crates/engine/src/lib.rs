@@ -53,6 +53,7 @@ mod route;
 mod route_auto;
 pub mod scope;
 mod selection_clip;
+mod probe;
 mod sim;
 mod snapmaker;
 pub mod source_cache;
@@ -174,6 +175,7 @@ fn pin_schema() -> Value {
 /// - crates/engine/src/layout.rs
 /// - crates/engine/src/publication.rs
 /// - crates/engine/src/sim.rs
+/// - crates/engine/src/probe.rs
 ///
 /// # Do not
 /// - Add an id here without a handler in one of the listed files.
@@ -3113,6 +3115,7 @@ pub fn commands() -> Vec<CommandSpec> {
         .chain(power_port::commands())
         .chain(tuning::commands())
         .chain(sim::commands())
+        .chain(probe::commands())
         .chain(datasheet_annotations::commands())
         .chain(datasheet_extract::commands())
         .chain(via_protection::commands())
@@ -10502,6 +10505,7 @@ fn run_read_only(p: &Project, command: &str, params: &Value) -> Result<Value, Er
         "cam.isolation" => cam_isolation(p, params).map_err(Error::Invalid),
         "cam.isolation_paths" => cam_isolation_paths(p, params).map_err(Error::Invalid),
         "sim.dc" => sim::run_read(p, params),
+        c if probe::handles_read(c) => probe::run_read(p, c, params),
         c if snapmaker::handles(c) => snapmaker::run(p, c, params).map_err(Error::Invalid),
         c if layout::handles(c) => layout::run(p, c, params),
         c if publication::handles(c) => publication::run(p, params).map_err(Error::Invalid),
@@ -10754,10 +10758,14 @@ fn run_command(
         || snapmaker::handles(command)
         || layout::handles(command)
         || command == "sim.dc"
+        || probe::handles_read(command)
         || publication::handles(command)
         || firmware_plugin_handles(command)
     {
         return run_read_only(p, command, params);
+    }
+    if let Some(result) = probe::run(p, next, command, params) {
+        return result;
     }
     if let Some(result) = authoring::run(p, next, command, params) {
         return result;
@@ -23632,6 +23640,7 @@ fn run_command_part_23(
                 .netties
                 .retain(|t| t.id != a.id && t.net_a != a.id && t.net_b != a.id);
             p.board.texts.retain(|t| t.id != a.id);
+            p.probes.retain(|probe| probe.id != a.id);
             Ok(json!({"deleted":a.id}))
         }
         "track.set_width" => {
