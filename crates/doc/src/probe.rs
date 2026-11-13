@@ -10,12 +10,14 @@
 //! - The net, the pin and the reference net must exist; a probe that loses one of them is
 //!   dropped by `Project::prune_probes`.
 //! - A label, when set, is 1 to `MAX_PROBE_LABEL` bytes with no control characters.
+//! - An expected range, when set, has a minimum, a maximum or both, each finite and within
+//!   plus or minus `MAX_PROBE_VOLTS`, and the minimum is not above the maximum.
 //!
 //! # Dependencies
 //! - `crates/doc/src/lib.rs` for `Project`, `PinRef`, `Id`.
 //!
 //! # Do not
-//! - Store a measured value here.
+//! - Store a measured value here; the expected range is what a person wants, not what was read.
 //! - Name a real instrument or a serial port; these probes are virtual.
 
 use crate::{Id, PinRef, Project};
@@ -26,6 +28,99 @@ pub const MAX_PROBES: usize = 64;
 
 /// Longest probe label, in bytes.
 pub const MAX_PROBE_LABEL: usize = 40;
+
+/// Largest voltage, either sign, an expected range may name.
+pub const MAX_PROBE_VOLTS: f64 = 1000.0;
+
+/// The voltage range a probe should read: a floor, a ceiling or both, in volts.
+///
+/// # Rules
+/// - At least one bound is present, each is finite and within plus or minus `MAX_PROBE_VOLTS`.
+/// - The minimum is not above the maximum.
+/// - A reading on either bound is inside the range.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ProbeExpect {
+    /// The lowest acceptable voltage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min: Option<f64>,
+    /// The highest acceptable voltage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<f64>,
+}
+
+/// A voltage in plain words without the unit: up to three decimals, trailing zeros dropped.
+pub fn plain_volts(volts: f64) -> String {
+    let volts = if volts.abs() < 0.0005 { 0.0 } else { volts };
+    let text = format!("{volts:.3}");
+    text.trim_end_matches('0').trim_end_matches('.').to_string()
+}
+
+fn round9(v: f64) -> f64 {
+    (v * 1e9).round() / 1e9
+}
+
+impl ProbeExpect {
+    /// Check the bounds.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.min.is_none() && self.max.is_none() {
+            return Err("an expected range needs a minimum, a maximum or both".into());
+        }
+        for (what, bound) in [("minimum", self.min), ("maximum", self.max)] {
+            if let Some(v) = bound
+                && (!v.is_finite() || v.abs() > MAX_PROBE_VOLTS)
+            {
+                return Err(format!(
+                    "the expected {what} must be a number from -{MAX_PROBE_VOLTS} to {MAX_PROBE_VOLTS} volts"
+                ));
+            }
+        }
+        if let (Some(lo), Some(hi)) = (self.min, self.max)
+            && lo > hi
+        {
+            return Err("the expected minimum is above the expected maximum".into());
+        }
+        Ok(())
+    }
+
+    /// The range around `target` volts that is `tolerance_percent` wide on each side.
+    ///
+    /// # Rules
+    /// - The tolerance is 0 to 100 percent of the size of the target.
+    /// - The bounds are rounded to nine decimals so 5 V at 5 percent is exactly 4.75 to 5.25.
+    pub fn from_target(target: f64, tolerance_percent: f64) -> Result<Self, String> {
+        if !target.is_finite() || target.abs() > MAX_PROBE_VOLTS {
+            return Err(format!(
+                "the target must be a number from -{MAX_PROBE_VOLTS} to {MAX_PROBE_VOLTS} volts"
+            ));
+        }
+        if !tolerance_percent.is_finite() || !(0.0..=100.0).contains(&tolerance_percent) {
+            return Err("the tolerance must be a percentage from 0 to 100".into());
+        }
+        let span = target.abs() * tolerance_percent / 100.0;
+        let range = Self {
+            min: Some(round9(target - span)),
+            max: Some(round9(target + span)),
+        };
+        range.validate()?;
+        Ok(range)
+    }
+
+    /// True when `volts` is inside the range, bounds included.
+    pub fn contains(&self, volts: f64) -> bool {
+        self.min.is_none_or(|lo| volts >= lo) && self.max.is_none_or(|hi| volts <= hi)
+    }
+
+    /// The range in words: `4.75 to 5.25 V`, `at least 4.75 V` or `at most 5.25 V`.
+    pub fn range_text(&self) -> String {
+        match (self.min, self.max) {
+            (Some(lo), Some(hi)) => format!("{} to {} V", plain_volts(lo), plain_volts(hi)),
+            (Some(lo), None) => format!("at least {} V", plain_volts(lo)),
+            (None, Some(hi)) => format!("at most {} V", plain_volts(hi)),
+            (None, None) => String::new(),
+        }
+    }
+}
 
 /// One virtual probe: a point of the schematic and the net it is measured against.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -45,6 +140,9 @@ pub struct Probe {
     /// A short name shown beside the probe.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    /// The voltage this probe should read; the design reports a finding when it reads outside.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expect: Option<ProbeExpect>,
 }
 
 impl Probe {
@@ -54,6 +152,7 @@ impl Probe {
     /// - Exactly one of `net` and `pin` is set, and it exists.
     /// - The reference net exists and differs from the probed net.
     /// - The label is 1 to `MAX_PROBE_LABEL` bytes without control characters.
+    /// - The expected range, when set, is valid (see `ProbeExpect::validate`).
     pub fn validate(&self, project: &Project) -> Result<(), String> {
         match (&self.net, &self.pin) {
             (Some(_), Some(_)) => return Err("a probe sits on a net or a pin, not both".into()),
@@ -79,6 +178,9 @@ impl Probe {
             return Err(format!(
                 "a probe label is 1 to {MAX_PROBE_LABEL} bytes of plain text"
             ));
+        }
+        if let Some(expect) = &self.expect {
+            expect.validate()?;
         }
         Ok(())
     }
@@ -155,6 +257,7 @@ mod tests {
             pin: None,
             reference: None,
             label: None,
+            expect: None,
         }
     }
 
@@ -234,5 +337,131 @@ mod tests {
         p.nets.clear();
         p.prune_probes();
         assert!(p.probes.is_empty(), "no net, no probe");
+    }
+
+    #[test]
+    fn expected_ranges_are_bounded_and_ordered() {
+        let p = with_net(3);
+        let bads = [
+            ProbeExpect {
+                min: None,
+                max: None,
+            },
+            ProbeExpect {
+                min: Some(5.0),
+                max: Some(4.0),
+            },
+            ProbeExpect {
+                min: Some(f64::NAN),
+                max: None,
+            },
+            ProbeExpect {
+                min: None,
+                max: Some(f64::INFINITY),
+            },
+            ProbeExpect {
+                min: Some(-1000.1),
+                max: None,
+            },
+            ProbeExpect {
+                min: None,
+                max: Some(1000.1),
+            },
+        ];
+        for bad in bads {
+            let mut probe = on_net(9, 3);
+            probe.expect = Some(bad);
+            assert!(probe.validate(&p).is_err(), "{bad:?} must be refused");
+        }
+        for good in [
+            ProbeExpect {
+                min: Some(4.9),
+                max: Some(5.1),
+            },
+            ProbeExpect {
+                min: Some(-1000.0),
+                max: None,
+            },
+            ProbeExpect {
+                min: None,
+                max: Some(1000.0),
+            },
+            ProbeExpect {
+                min: Some(5.0),
+                max: Some(5.0),
+            },
+        ] {
+            let mut probe = on_net(9, 3);
+            probe.expect = Some(good);
+            assert!(probe.validate(&p).is_ok(), "{good:?} must be accepted");
+        }
+    }
+
+    #[test]
+    fn a_target_with_a_tolerance_becomes_a_minimum_and_a_maximum() -> Result<(), String> {
+        let range = ProbeExpect::from_target(5.0, 5.0)?;
+        assert_eq!(range.min, Some(4.75));
+        assert_eq!(range.max, Some(5.25));
+        let negative = ProbeExpect::from_target(-12.0, 10.0)?;
+        assert_eq!(negative.min, Some(-13.2));
+        assert_eq!(negative.max, Some(-10.8));
+        assert!(ProbeExpect::from_target(5.0, -1.0).is_err());
+        assert!(ProbeExpect::from_target(5.0, 100.5).is_err());
+        assert!(ProbeExpect::from_target(f64::NAN, 5.0).is_err());
+        assert!(
+            ProbeExpect::from_target(1000.0, 5.0).is_err(),
+            "the top would pass 1000 V"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_reading_on_a_bound_is_inside_and_the_range_reads_in_words() {
+        let both = ProbeExpect {
+            min: Some(4.75),
+            max: Some(5.25),
+        };
+        assert!(both.contains(4.75) && both.contains(5.25) && both.contains(5.0));
+        assert!(!both.contains(4.7499) && !both.contains(5.2501));
+        assert_eq!(both.range_text(), "4.75 to 5.25 V");
+        let floor = ProbeExpect {
+            min: Some(3.0),
+            max: None,
+        };
+        assert!(floor.contains(1000.0) && !floor.contains(2.9));
+        assert_eq!(floor.range_text(), "at least 3 V");
+        let ceiling = ProbeExpect {
+            min: None,
+            max: Some(-1.5),
+        };
+        assert_eq!(ceiling.range_text(), "at most -1.5 V");
+    }
+
+    #[test]
+    fn the_expected_range_travels_and_old_probes_load_without_one() -> Result<(), String> {
+        let mut p = with_net(3);
+        let mut probe = on_net(9, 3);
+        probe.expect = Some(ProbeExpect {
+            min: Some(4.9),
+            max: None,
+        });
+        p.probes.push(probe);
+        p.probes.push(on_net(10, 3));
+        let text = serde_json::to_string(&p).map_err(|e| e.to_string())?;
+        assert_eq!(
+            text.matches("\"expect\"").count(),
+            1,
+            "only the probe with a range writes it"
+        );
+        assert!(!text.contains("\"max\""), "an absent bound is not written");
+        let back: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        assert_eq!(back.probes, p.probes);
+        let old = r#"{"id":9,"net":3}"#;
+        let loaded: Probe = serde_json::from_str(old).map_err(|e| e.to_string())?;
+        assert!(
+            loaded.expect.is_none(),
+            "a probe saved before ranges loads unchanged"
+        );
+        Ok(())
     }
 }

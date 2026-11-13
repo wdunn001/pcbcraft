@@ -3515,6 +3515,7 @@ impl Session {
             .unwrap_or_default();
         findings.extend(custom_findings(project));
         findings.extend(height_findings(project));
+        findings.extend(probe::findings(project));
         BoardChecks {
             design: Self::board_check_design(project),
             findings,
