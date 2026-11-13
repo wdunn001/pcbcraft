@@ -559,7 +559,9 @@ fn a_newcomer_checks_a_probe_against_the_voltage_it_should_read() -> Result<(), 
         paints_text(&d.ctx, &mut d.app, "P1: 5.000 V out of range 5.2 to 5.4 V")?,
         "the badge says out of range in words"
     );
+    key(&d.ctx, &mut d.app, egui::Key::Escape);
     authoring::tests::open_page(&d.ctx, &mut d.app, "Checks")?;
+    frame(&d.ctx, &mut d.app, vec![], Modifiers::NONE);
     assert!(
         d.app.region().bottom_open,
         "View > Checks opens the Findings sheet: {}",
@@ -568,7 +570,25 @@ fn a_newcomer_checks_a_probe_against_the_voltage_it_should_read() -> Result<(), 
     assert_eq!(
         probe_finding(&mut d).as_deref(),
         Some(finding),
-        "the sheet's findings list still holds the finding"
+        "the sheet's findings list holds the finding"
+    );
+    let shown = paints_text(&d.ctx, &mut d.app, finding)?;
+    let on_screen: String = {
+        let output = frame(&d.ctx, &mut d.app, vec![], Modifiers::NONE);
+        output
+            .shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                egui::Shape::Text(t) => Some(t.galley.text().to_owned()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(" | ")
+    };
+    assert!(
+        shown,
+        "the Findings sheet paints the finding text (tab {:?}, filter {:?}, checks {}): {on_screen}",
+        d.app.tab, d.app.sheet.filter, d.app.checks["drc"]
     );
     d.app.region().bottom_open = false;
     // A refused entry changes nothing and says why.
