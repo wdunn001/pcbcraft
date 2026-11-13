@@ -1675,19 +1675,22 @@ impl App {
             .filter(|c| crate::page_scope::in_view(&sheet, page, c.sheet))
             .filter(|c| !self.sheet_row_hidden(c.id))
         {
-            for pin in &c.pins {
-                let Some(d) = c.pin_position(&pin.number).map(|p| p.distance(pos)) else {
-                    continue;
-                };
-                if d * (zoom as f64) < 12.0 && best.as_ref().is_none_or(|(b, _)| d < *b) {
-                    best = Some((
-                        d,
-                        PinRef {
-                            component: c.id,
-                            pin: pin.number.clone(),
-                            unit: None,
-                        },
-                    ));
+            for view in c.schematic_views() {
+                let unit = view.library_symbol.as_ref().map(|s| s.unit).unwrap_or(1);
+                for pin in &view.pins {
+                    let Some(d) = view.pin_position(&pin.number).map(|p| p.distance(pos)) else {
+                        continue;
+                    };
+                    if d * (zoom as f64) < 12.0 && best.as_ref().is_none_or(|(b, _)| d < *b) {
+                        best = Some((
+                            d,
+                            PinRef {
+                                component: c.id,
+                                pin: pin.number.clone(),
+                                unit: Some(unit),
+                            },
+                        ));
+                    }
                 }
             }
         }
