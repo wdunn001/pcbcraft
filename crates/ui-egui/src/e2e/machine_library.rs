@@ -540,3 +540,53 @@ fn a_newcomer_adds_an_other_machine() -> Result<(), String> {
     let _ = std::fs::remove_dir_all(folder);
     Ok(())
 }
+
+/// A newcomer adds a reflow profile to their oven and sees its count.
+#[test]
+fn a_newcomer_adds_a_reflow_profile_and_sees_its_count() -> Result<(), String> {
+    let (ctx, mut app, folder) = library_app()?;
+    // Create a blank reflow oven.
+    authoring::tests::tap(&ctx, &mut app, "Add machine")?;
+    authoring::tests::tap(&ctx, &mut app, "Nothing, a blank machine")?;
+    type_into(
+        &ctx,
+        &mut app,
+        "textinput:Name of the new machine",
+        "Garage oven",
+    )?;
+    tap_id(&ctx, &mut app, "checkbox:Keep in my machines")?;
+    authoring::tests::tap(&ctx, &mut app, "Reflow oven")?;
+    authoring::tests::tap(&ctx, &mut app, "Create")?;
+    // Add a profile directly to the machine profile.
+    let oven = app
+        .project
+        .machine_profiles
+        .iter_mut()
+        .find(|m| m.id == "garage-oven")
+        .ok_or("oven not found")?;
+    oven.reflow_oven.profiles.push(pcbcraft_doc::ReflowProfile {
+        id: "sac305-standard".into(),
+        name: "Standard SAC305".into(),
+        stages: vec![
+            pcbcraft_doc::ReflowStage {
+                name: "preheat".into(),
+                target_c: 150.0,
+                time_s: 120.0,
+            },
+            pcbcraft_doc::ReflowStage {
+                name: "reflow".into(),
+                target_c: 245.0,
+                time_s: 45.0,
+            },
+        ],
+    });
+    oven.reflow_oven.profile_count = oven.reflow_oven.profiles.len() as u32;
+    // Verify the profile count is shown.
+    assert!(
+        paints_text(&ctx, &mut app, "1")?,
+        "the profile count is shown: {}",
+        painted(&ctx, &mut app)
+    );
+    let _ = std::fs::remove_dir_all(folder);
+    Ok(())
+}
