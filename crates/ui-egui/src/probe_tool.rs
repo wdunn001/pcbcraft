@@ -187,7 +187,7 @@ impl App {
                 return Some(Point::new((a.x + b.x) / 2.0, (a.y + b.y) / 2.0));
             }
         }
-        sheet.components.iter().filter(|c| shown(*c)).find_map(|c| {
+        sheet.components.iter().filter(|c| shown(c)).find_map(|c| {
             c.pins
                 .iter()
                 .find(|p| p.net == Some(net))
