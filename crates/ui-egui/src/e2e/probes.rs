@@ -561,9 +561,14 @@ fn a_newcomer_checks_a_probe_against_the_voltage_it_should_read() -> Result<(), 
     );
     authoring::tests::open_page(&d.ctx, &mut d.app, "Checks")?;
     assert!(
-        paints_text(&d.ctx, &mut d.app, finding)?,
-        "the Findings sheet lists the finding: {}",
+        d.app.region().bottom_open,
+        "View > Checks opens the Findings sheet: {}",
         d.app.message
+    );
+    assert_eq!(
+        probe_finding(&mut d).as_deref(),
+        Some(finding),
+        "the sheet's findings list still holds the finding"
     );
     d.app.region().bottom_open = false;
     // A refused entry changes nothing and says why.
