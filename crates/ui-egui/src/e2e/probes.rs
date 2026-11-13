@@ -1,6 +1,8 @@
 //! Stories for the virtual DC probes: a probe on the schematic reads its voltage from the
 //! simulator, shows it in a badge and in the Analyze table, and goes away again.
 //!
+//! The layout stories at the end do the same on the board: a pad or a track gets a probe and a badge.
+//!
 //! Context: issues #540 and #543. The divider below is a 10 V source across two 1 k resistors, so
 //! the middle net reads exactly 5 V; no story here expects a number the solver did not produce.
 use super::super::*;
@@ -238,6 +240,176 @@ fn a_newcomer_removes_a_probe_from_its_badge_and_stops_the_tool_with_escape() ->
         d.app.project.probes.is_empty(),
         "the cross on the badge removes the probe: {}",
         d.app.message
+    );
+    Ok(())
+}
+
+/// Where the layout story clicks, in board millimetres.
+struct Spots {
+    /// The middle of R1's second pad: its pin is on the middle net.
+    pad: Point,
+    /// The middle of a track on the supply net.
+    track: Point,
+}
+
+/// Centre the board view on the two spots at a zoom where a click lands on one object.
+fn frame_spots(d: &mut Divider, spots: &Spots) {
+    // The view fits the design on the first frames after a tab change; frame it after that.
+    for _ in 0..3 {
+        frame(&d.ctx, &mut d.app, vec![], Modifiers::NONE);
+    }
+    d.app.pcb.center = Point::new(
+        (spots.pad.x + spots.track.x) / 2.0,
+        (spots.pad.y + spots.track.y) / 2.0,
+    );
+    d.app.pcb.zoom = 12.0;
+    frame(&d.ctx, &mut d.app, vec![], Modifiers::NONE);
+}
+
+/// The divider synced to the board, with a track on the supply net, shown on the Layout tab.
+fn layout_divider() -> Result<(Divider, Spots), String> {
+    let mut d = divider()?;
+    d.app.run("board.sync", json!({}));
+    let r1 = part_id(&d.app, "R1")?;
+    let vcc = net_id(&d.app, "VCC")?;
+    let footprint = d
+        .app
+        .project
+        .board
+        .footprints
+        .iter()
+        .find(|f| f.component == r1)
+        .ok_or("R1 has no footprint on the board")?;
+    let pad = footprint.pad_position("2").ok_or("R1 has no pad 2")?;
+    if !footprint
+        .pads
+        .iter()
+        .any(|p| p.number == "2" && p.net == Some(d.mid_net))
+    {
+        return Err("pad 2 of R1 is not on the middle net after the sync".into());
+    }
+    let (x, y) = (footprint.position.x, footprint.position.y + 6.0);
+    d.app.run(
+        "track.add",
+        json!({"net": vcc, "start": {"x": x - 6.0, "y": y}, "end": {"x": x + 6.0, "y": y}, "width": 0.25, "layer": "F.Cu"}),
+    );
+    if d.app.project.board.tracks.len() != 1 {
+        return Err(format!("the track was not added: {}", d.app.message));
+    }
+    d.app.change_tab(Tab::Pcb);
+    let spots = Spots {
+        pad,
+        track: Point::new(x, y),
+    };
+    frame_spots(&mut d, &spots);
+    Ok((d, spots))
+}
+
+/// Press the cross on the badge that paints `badge_text`. Every cross has the same folded name,
+/// so the one on the same row as that text and to its right is the one pressed.
+fn press_cross_of(ctx: &egui::Context, app: &mut App, badge_text: &str) -> Result<(), String> {
+    let text = painted_text_at(ctx, app, badge_text)?
+        .ok_or_else(|| format!("no badge paints {badge_text}"))?;
+    let suffix = format!(":{}", super::audit::fold_label("Remove probe P1"));
+    let cross = super::audit::controls(ctx, app)
+        .into_iter()
+        .find(|c| {
+            c.enabled
+                && c.id.as_deref().is_some_and(|id| id.ends_with(&suffix))
+                && c.rect.center().x > text.x
+                && (c.rect.center().y - text.y).abs() < 20.0
+        })
+        .ok_or_else(|| format!("no cross sits on the badge {badge_text}"))?;
+    tap_at(ctx, app, cross.rect.center())
+}
+
+#[test]
+fn a_newcomer_probes_a_pad_and_a_track_on_the_layout() -> Result<(), String> {
+    let (mut d, spots) = layout_divider()?;
+    let r1 = part_id(&d.app, "R1")?;
+    let vcc = net_id(&d.app, "VCC")?;
+    tap_strip(&d.ctx, &mut d.app, "icon:tool-probe")?;
+    assert!(
+        matches!(d.app.tool, Tool::Probe),
+        "the Probe button of the Layout arms the Probe tool: {}",
+        d.app.message
+    );
+    // A pad probes the pin behind it.
+    let at = screen_of(&d.app, spots.pad);
+    click(&d.ctx, &mut d.app, at, Modifiers::NONE);
+    let first = d
+        .app
+        .project
+        .probes
+        .first()
+        .ok_or_else(|| format!("the click on the pad placed no probe: {}", d.app.message))?;
+    assert_eq!(
+        first.pin,
+        Some(PinRef {
+            component: r1,
+            pin: "2".into(),
+            unit: None
+        }),
+        "the probe sits on pin 2 of R1"
+    );
+    assert!(
+        paints_text(&d.ctx, &mut d.app, "P1: 5.000 V")?,
+        "the badge on the pad reads the middle voltage"
+    );
+    // A track probes its net.
+    let at = screen_of(&d.app, spots.track);
+    click(&d.ctx, &mut d.app, at, Modifiers::NONE);
+    assert_eq!(
+        d.app.project.probes.len(),
+        2,
+        "the click on the track placed a second probe: {}",
+        d.app.message
+    );
+    assert_eq!(
+        d.app.project.probes.get(1).and_then(|p| p.net),
+        Some(vcc),
+        "the second probe sits on the supply net"
+    );
+    assert!(
+        paints_text(&d.ctx, &mut d.app, "P2: 10.000 V")?,
+        "the badge on the track reads the supply voltage"
+    );
+    // The Analyze table lists both with the same voltages.
+    {
+        let _tall = TallScope::enter();
+        d.app.change_tab(Tab::Analyze);
+        for _ in 0..3 {
+            frame(&d.ctx, &mut d.app, vec![], Modifiers::NONE);
+        }
+        for word in ["P1", "R1.2", "5.000 V", "P2", "VCC", "10.000 V"] {
+            assert!(
+                paints_text(&d.ctx, &mut d.app, word)?,
+                "the Analyze table shows {word}"
+            );
+        }
+    }
+    // The cross on a badge removes that probe and leaves the other.
+    d.app.change_tab(Tab::Pcb);
+    frame_spots(&mut d, &spots);
+    press_cross_of(&d.ctx, &mut d.app, "P1: 5.000 V")?;
+    assert_eq!(
+        d.app.project.probes.len(),
+        1,
+        "the cross removes one probe: {}",
+        d.app.message
+    );
+    assert_eq!(
+        d.app.project.probes.first().and_then(|p| p.net),
+        Some(vcc),
+        "the supply probe is the one that stays"
+    );
+    assert!(
+        !paints_text(&d.ctx, &mut d.app, "P1: 5.000 V")?,
+        "the removed badge is gone"
+    );
+    assert!(
+        paints_text(&d.ctx, &mut d.app, "P2: 10.000 V")?,
+        "the other badge stays"
     );
     Ok(())
 }
