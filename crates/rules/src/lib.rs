@@ -927,6 +927,26 @@ fn inside(point: Point, points: &[Point]) -> bool {
     }
     result
 }
+/// Distance from `point` to the copper of a region bounded by `outline` with
+/// `holes` removed, in millimetres.
+///
+/// Returns 0 when the point lies on copper: inside the outline and outside
+/// every hole. Otherwise returns the distance to the nearest boundary edge,
+/// which for a point inside a hole is that hole's edge. Rings are closed
+/// (first point repeated last), as everywhere else in this module.
+fn region_point_distance(outline: &[Point], holes: &[Vec<Point>], point: Point) -> f64 {
+    let in_hole = holes.iter().any(|hole| inside(point, hole));
+    if inside(point, outline) && !in_hole {
+        return 0.0;
+    }
+    std::iter::once(outline)
+        .chain(holes.iter().map(Vec::as_slice))
+        .flat_map(|ring| {
+            ring.windows(2)
+                .map(|edge| point_segment(point, edge[0], edge[1]))
+        })
+        .fold(f64::INFINITY, f64::min)
+}
 fn polygon_segment(points: &[Point], start: Point, end: Point) -> f64 {
     if inside(start, points) || inside(end, points) {
         return 0.0;
@@ -2038,7 +2058,7 @@ fn copper_findings(
         }
         for cut in &board.cutouts {
             let clearance = if let Some(points) = &a.outline {
-                polygon_segment(points, cut.center, cut.center) - cut.radius - a.outline_error
+                region_point_distance(points, &a.cutouts, cut.center) - cut.radius - a.outline_error
             } else {
                 point_segment(cut.center, a.start, a.end) - cut.radius - a.radius
             };
@@ -6859,6 +6879,67 @@ mod pour_tests {
         );
         assert!(!fill(&p)?.contains(Point::new(20.2, 20.0)));
         assert!(fill(&p)?.contains(Point::new(25.0, 25.0)));
+        Ok(())
+    }
+
+    #[test]
+    fn pour_round_a_board_cutout_keeps_its_clearance() -> Result<(), String> {
+        let mut p = board();
+        p.board.clearance = 0.2;
+        p.board.cutouts.push(pcbcraft_doc::Cutout {
+            id: 40,
+            center: Point::new(20.0, 20.0),
+            radius: 1.6,
+        });
+        p.validate()?;
+        let poured = fill(&p)?;
+        assert!(
+            !poured.contains(Point::new(20.0, 20.0 + 1.6 + 0.1)),
+            "the fill knocks a clearance hole round the cutout"
+        );
+        assert!(poured.contains(Point::new(25.0, 25.0)));
+        let findings = drc(&p);
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.code == "cutout_clearance" && f.objects.contains(&40)),
+            "the knocked-out pour keeps clear of the cutout: {findings:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn region_distance_measures_to_the_hole_edge() -> Result<(), String> {
+        let outline = square(0.0, 0.0, 10.0, 10.0);
+        let holes = vec![square(4.0, 4.0, 6.0, 6.0)];
+        let cases = [
+            (
+                Point::new(2.0, 2.0),
+                0.0,
+                "a point on copper is 0 mm from it",
+            ),
+            (
+                Point::new(5.0, 5.0),
+                1.0,
+                "the centre of a 2 mm hole is 1 mm from copper",
+            ),
+            (
+                Point::new(4.2, 5.0),
+                0.2,
+                "a point near a hole edge is measured to that edge",
+            ),
+            (
+                Point::new(12.0, 5.0),
+                2.0,
+                "a point outside is measured to the outer edge",
+            ),
+        ];
+        for (point, expected, why) in cases {
+            let got = region_point_distance(&outline, &holes, point);
+            if (got - expected).abs() > 1e-9 {
+                return Err(format!("{why}: got {got} mm, expected {expected} mm"));
+            }
+        }
         Ok(())
     }
 
