@@ -78,7 +78,7 @@ How the server measures against the specification, and the test list, are in
 1. `design.summary`: a short, bounded view of the design (counts, board, parts, nets, findings). Read it first.
 2. `inspect_design`: read current revision, stable IDs and capability limits when you need a full record.
 3. `list_commands`: inspect schemas and millimetre/degree units.
-4. `execute` or `batch`: supply `expected_revision` when coordinating concurrent edits.
+4. `execute` or `batch`: supply `expected_revision` when coordinating concurrent edits. Reads and exports such as `design.summary`, `bom.export` and `gerber.files` leave the revision alone, so a revision read before them still holds. Every other command raises it by one, even when nothing changed.
 5. `checks`: inspect scope, findings and object IDs; initial checks are not full ERC/DRC.
 6. `screenshot`: obtain a PNG design preview of `schematic` or `pcb`.
 7. `save` / `export`: use server-host paths. WSL paths differ from Windows paths.

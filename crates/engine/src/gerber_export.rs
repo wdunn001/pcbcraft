@@ -7,6 +7,8 @@
 //!
 //! # Rules
 //! - Reads the project only; the directory is the one thing it writes.
+//! - Leaves the revision and undo history alone, listing or writing
+//!   (`command_never_edits` in lib.rs), so a revision guard still holds after it.
 //! - Unknown preset or option values are refused with the allowed words.
 //!
 //! # Dependencies
@@ -136,4 +138,28 @@ pub(crate) fn run(p: &Project, params: &Value, mutating: bool) -> Result<Value, 
         .map(|(name, text)| json!({"file": name, "bytes": text.len()}))
         .collect();
     Ok(json!({"files": list, "written": written}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Session;
+
+    #[test]
+    fn listing_the_fabrication_files_leaves_revision_and_history_alone() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let revision = s.revision;
+        let undo = s.can_undo();
+        let listed = s.execute("gerber.files", json!({}), Some(revision))?;
+        assert_eq!(listed["result"]["written"], false);
+        assert_eq!(s.revision, revision, "a preview is not an edit");
+        assert_eq!(s.can_undo(), undo, "a preview adds no undo step");
+        s.execute(
+            "net.create",
+            json!({"name":"AFTER_PREVIEW"}),
+            Some(revision),
+        )?;
+        assert_eq!(s.revision, revision + 1);
+        Ok(())
+    }
 }

@@ -9044,6 +9044,10 @@ fn command_never_edits(command: &str) -> bool {
             | "pinmap.check"
             | "plugins.list"
             | "bom.export"
+            | "gerber.files"
+            | "netlist.export"
+            | "components.table.export"
+            | "laser_job.export"
     ) || machines::writes_folder_only(command)
         || collab::reads_the_design(command)
 }
@@ -35373,6 +35377,29 @@ mod tests {
         assert!(s.project.validate().is_ok());
         s.undo()?;
         assert_eq!(s.project.board.tracks.len(), 3);
+        Ok(())
+    }
+    #[test]
+    fn exports_that_only_read_the_design_leave_revision_and_history_alone() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let laser = json!({
+            "side":"front",
+            "profile_id":"commarker-b6-mopa",
+            "format":"svg",
+            "operations":["isolation-cut"],
+            "margin_mm":1.0
+        });
+        for (command, params) in [
+            ("netlist.export", json!({})),
+            ("components.table.export", json!({})),
+            ("laser_job.export", laser),
+        ] {
+            let revision = s.revision;
+            let undo = s.can_undo();
+            s.execute(command, params, Some(revision))?;
+            assert_eq!(s.revision, revision, "{command} is not an edit");
+            assert_eq!(s.can_undo(), undo, "{command} adds no undo step");
+        }
         Ok(())
     }
     #[test]
